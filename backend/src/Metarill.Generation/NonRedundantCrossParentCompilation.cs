@@ -29,18 +29,25 @@ internal static class NonRedundantCrossParentCompilation
 
     /// <summary>验证稀疏来源与目标共用同一发布祖先路径及文本键，目标可以物理保存父键。</summary>
     internal static ColumnModel? CommonTextParent(GenerationModel model,TableModel source,PageModel sourcePage,
-        TableModel target,PageModel targetPage,bool allowStoredTarget=false,bool allowGlobalSparseTarget=false)
+        TableModel target,PageModel targetPage,bool allowStoredTarget=false,bool allowGlobalSparseTarget=false,
+        bool allowCompoundSource=false)
     {
         if(source.Source.IsRongyu!=0||target.Source.IsRongyu!=0&&(!allowStoredTarget||target.Source.IsRongyu!=1)||source.IsGlobal||
             target.IsGlobal&&(!allowGlobalSparseTarget||target.Source.IsRongyu!=0||!SelectionPageRenderer.Enabled(targetPage))||
             source.Source.YzProjectId!=model.Catalog.YzProjectId||target.Source.YzProjectId!=model.Catalog.YzProjectId||
             sourcePage.Source.YzProjectId!=model.Catalog.YzProjectId||targetPage.Source.YzProjectId!=model.Catalog.YzProjectId)
             return null;
-        var sourceFields=sourcePage.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).Take(2).ToArray();
-        if(sourceFields is not [var sourceKey]||sourceKey.Type!="string?"||
-            Find(model,source,sourcePage,sourceKey) is not {} left||!left.Read.Levels[left.Index].TextKey)
+        var sourceFields=sourcePage.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column)
+            .DistinctBy(column=>column.Source.Id).ToArray();
+        if(sourceFields.Length==0||sourceFields.Length>1&&(!allowCompoundSource||target.Source.IsRongyu!=0))
             return null;
-        return SharedTextTarget(model,target,targetPage,new(left.Read,left.Index));
+        // 每条来源逻辑路径都须使用相同的发布父页、层次和文本业务键。
+        var paths=sourceFields.Select(column=>column.Type=="string?"&&Find(model,source,sourcePage,column) is {} path
+            ?new SharedRedundantParentPath(path.Read,path.Index):null).ToArray();
+        if(paths.Any(path=>path is not {Level.TextKey:true})||
+            paths.Select(path=>SharedRedundantParentCompilation.Identity(path!)).Distinct(StringComparer.Ordinal).Count()!=1)
+            return null;
+        return SharedTextTarget(model,target,targetPage,paths[0]!);
     }
 
     /// <summary>逐层比对真实发布页、父边和文本键。多个目标必须都能使用来源的同一父参数。</summary>
@@ -69,10 +76,12 @@ internal static class NonRedundantCrossParentCompilation
     /// <summary>共享文本参数从已授权的来源页验证祖先，在原写入事务锁定真实路径。</summary>
     internal static string ValidateTextParent(GenerationModel model,TableModel table,PageModel page,string argument)
     {
-        var column=page.Scopes.Single(scope=>scope.Source=="parent").Column;
-        var path=Find(model,table,page,column)??throw new InvalidOperationException("共享文本父缺少来源级联路径。");
+        var paths=page.Scopes.Where(scope=>scope.Source=="parent")
+            .Select(scope=>Find(model,table,page,scope.Column)??throw new InvalidOperationException("共享文本父缺少来源级联路径。"))
+            .DistinctBy(path=>(path.Read.Source.Source.Id,path.Index));
         return $"        var targetParentId=LogicalParentId{page.Source.Id}({argument});\n"+
-            $"        await CrossReader{page.Source.Id}_{path.Read.Source.Source.Id}(actor,true,false){PathSuffix(path.Read,path.Index,"targetParentId")};";
+            string.Join("\n",paths.Select(path=>
+                $"        await CrossReader{page.Source.Id}_{path.Read.Source.Source.Id}(actor,true,false){PathSuffix(path.Read,path.Index,"targetParentId")};"));
     }
 
     /// <summary>跨表导出需要验证独立物理父记录仍存在且同项目。纯逻辑父继续由路径 SQL 限定。</summary>

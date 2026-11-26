@@ -117,7 +117,7 @@ internal static class MultiSelectCompilation
             var sharedTextParent=SharedRedundantParentCompilation.CommonTextParent(model,table,page,target,targetPage,
                 allowSparseTarget:true,allowCompoundSource:true)??
                 NonRedundantCrossParentCompilation.CommonTextParent(model,table,page,target,targetPage,
-                    allowStoredTarget:true,allowGlobalSparseTarget:true);
+                    allowStoredTarget:true,allowGlobalSparseTarget:true,allowCompoundSource:true);
             var baselineName=Scalar(root,"nameField");
             if(string.IsNullOrWhiteSpace(baselineName))baselineName="name";
             var changedName=baselineName!=name.Source.ColumnName;

@@ -1094,9 +1094,14 @@ public sealed class TextCascadeParentRelationTests
     [Theory]
     [InlineData("OnlyNew","list")]
     [InlineData("OverWriteByFirstColumn","edit")]
-    public async Task Sparse_same_text_parent_scopes_multi_relations(string import,string export)
+    [InlineData("OnlyNew","list",true,false)]
+    [InlineData("OnlyNew","list",true,true)]
+    [InlineData("OverWriteByFirstColumn","edit",true,true)]
+    public async Task Sparse_same_text_parent_scopes_multi_relations(string import,string export,bool compound=false,bool globalCountry=false)
     {
         var catalog=Catalog(0,import,export);
+        if(globalCountry)ConfigureGlobalTextAncestor(catalog);
+        if(compound)AddSecondTextAncestor(catalog);
         foreach(var id in new[]{"83","84"})
         {
             ScopeTarget(catalog,id);
@@ -1118,6 +1123,25 @@ public sealed class TextCascadeParentRelationTests
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         AssertTextParentSql(Metarill.Data.Queries.NonRedundantReads.CompileScopedMultiLabel(catalog,"83","830","name",["id","name"],[]));
         AssertTextParentSql(Metarill.Data.Queries.NonRedundantReads.CompileScopedCheckboxLabel(catalog,"84","840","name",["id","name"],[],false));
+        if(compound)
+        {
+            Assert.Equal(new[]{"25","291"},checkbox.Definition!.LogicalSourcePaths.Select(path=>path.Read.Source.Source.Id).Order(StringComparer.Ordinal));
+            var branch=catalog.ConfigColumns.Single(column=>column.Id=="291");
+            var original=branch.ControlDetail;
+            try
+            {
+                // 同一父表的主键和文本业务列属于不同键域，两个控件均须拒绝混用。
+                var changed=System.Text.Json.Nodes.JsonNode.Parse(original)!;
+                changed["levels"]![0]!["idField"]="id";
+                branch.ControlDetail=changed.ToJsonString();
+                var invalid=GenerationModel.Create(catalog,model.Namespace);
+                var owner=invalid.Tables.Single(item=>item.Source.Id=="2");
+                var invalidPage=Assert.Single(owner.Pages);
+                Assert.Null(MultiSelectCompilation.Resolve(invalid,owner,invalidPage,owner.Columns.Single(column=>column.Source.Id=="704")).Definition);
+                Assert.Null(DatabaseCheckboxCompilation.Resolve(invalid,owner,invalidPage,owner.Columns.Single(column=>column.Source.Id=="706")).Definition);
+            }
+            finally { branch.ControlDetail=original; }
+        }
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-sparse-multi-same-text-parent");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
@@ -1126,8 +1150,30 @@ public sealed class TextCascadeParentRelationTests
             var service=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/Services/TextrelSourceService.g.cs"));
             Assert.Contains("targetParentId=LogicalParentId201(logicalRelationParentId)",service);
             Assert.Contains("targetParentId=LogicalParentId201(parentId)",service);
-            Assert.Contains("\"country_id\",FixedReadComparison.Equal,targetParentId!",service);
-            Assert.Contains("\"country_id\",FixedReadComparison.Equal,parentId!",service);
+            if(globalCountry)
+            {
+                Assert.Contains("FixedReadFilter.ForTextParent(\"country_id\",targetParentId!,businessKey:true)",service);
+                Assert.Contains("FixedReadFilter.ForTextParent(\"country_id\",parentId!,businessKey:true)",service);
+                Assert.Contains("LogicalParentPlan201.BindAccount(actor)",service);
+                Assert.Contains("store_id=@current_store_id",service);
+            }
+            else
+            {
+                Assert.Contains("\"country_id\",FixedReadComparison.Equal,targetParentId!",service);
+                Assert.Contains("\"country_id\",FixedReadComparison.Equal,parentId!",service);
+            }
+            if(compound)
+            {
+                foreach(var branch in new[]{"25","291"})
+                {
+                    Assert.Contains($"CrossReader201_{branch}(actor,true,false).PathByKeyAsync(0,targetParentId",service);
+                    Assert.Contains($"CrossReader201_{branch}(actor,locking,false).PathByKeyAsync(0,parentKey",service);
+                }
+                Assert.Contains("\"country_id\",\"mt_parent_0\",parentId!,actor.ProjectId,locking",service);
+                Assert.Contains("\"other_country_id\",\"mt_parent_1\",parentId!,actor.ProjectId,locking",service);
+                Assert.Contains("await VerifyLogicalParent201Async(",service);
+                Assert.DoesNotContain("out var sourceParentKey",service);
+            }
             Assert.Contains("DerivedCheckboxRows201_706Async(logicalRelationParentId",service);
             Assert.Contains("ExportCheckbox201_706Async(entities,actor,request.ParentId",service);
             Assert.DoesNotContain("out var targetParentKey",service);
@@ -1466,34 +1512,9 @@ public sealed class TextCascadeParentRelationTests
             catalog.ConfigTables.Single(table=>table.Id==id).IsRongyu=0;
         }
 
-        catalog.ConfigTables.Single(table=>table.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
-        catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId=="3"&&column.ColumnName=="yz_project_id");
-        catalog.ConfigIndexColumns.RemoveAll(column=>column.GetProperty("configIndexId").GetString()=="business_index_3"&&
-            column.GetProperty("configColumnId").GetString()!="business_3");
-        catalog.ConfigColumns.AddRange([
-            new(){Id="country_store",ConfigTableId="3",ColumnName="store_id",LogicalType="int64",YzProjectId=catalog.YzProjectId},
-            new(){Id="source_store",ConfigTableId="2",ColumnName="store_id",LogicalType="int64",YzProjectId=catalog.YzProjectId}
-        ]);
-        catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql="status=1 AND store_id=@current_store_id";
-        catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql+=" AND store_id=@current_store_id";
+        ConfigureGlobalTextAncestor(catalog);
+        if(compound)AddSecondTextAncestor(catalog);
 
-        // 同一个父参数还可限定来源页的第二条独立级联，原多值字典仍使用同一发布父记录。
-        if(compound)
-        {
-            var definition=System.Text.Json.Nodes.JsonNode.Parse(catalog.ConfigColumns.Single(column=>column.Id=="25").ControlDetail)!;
-            var levels=definition["levels"]!.AsArray();
-            levels.RemoveAt(2);
-            levels[0]!["columnPrefix"]="other_country";
-            levels[1]!["columnPrefix"]="other_area";
-            catalog.ConfigColumns.AddRange([
-                new(){Id="290",ConfigTableId="2",ColumnName="other_country_id",LogicalType="string",ColumnLength="50",
-                    LinkConfigTableId="3",YzProjectId=catalog.YzProjectId},
-                new(){Id="291",ConfigTableId="2",ColumnName="other_area_id",LogicalType="int64",ControlKind="CascadeTree",
-                    LinkConfigTableId="4",ControlDetail=definition.ToJsonString(),YzProjectId=catalog.YzProjectId}
-            ]);
-            catalog.ConfigPageColumns.Add(new(){Id="201291",ConfigPageId="201",ConfigColumnId="291",IsShow=1,IsEdit=1,YzProjectId=catalog.YzProjectId});
-            catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql+=" AND other_country_id=@parent_id";
-        }
         foreach(var id in new[]{"704","706"})
         {
             catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId==id)
@@ -2606,6 +2627,39 @@ public sealed class TextCascadeParentRelationTests
         var from=Assert.IsType<string>(mysql.GetType().GetProperty("From",flags)!.GetValue(mysql));
         Assert.Contains("`business_key`",from);
         Assert.DoesNotContain("multi_parent.`id`",scope);
+    }
+
+    /// <summary>使用无行项目列的全局文本父，所有父读取都应用已发布门店范围。</summary>
+    private static void ConfigureGlobalTextAncestor(MetadataCatalog catalog)
+    {
+        catalog.ConfigTables.Single(table=>table.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId=="3"&&column.ColumnName=="yz_project_id");
+        catalog.ConfigIndexColumns.RemoveAll(column=>column.GetProperty("configIndexId").GetString()=="business_index_3"&&
+            column.GetProperty("configColumnId").GetString()!="business_3");
+        catalog.ConfigColumns.AddRange([
+            new(){Id="country_store",ConfigTableId="3",ColumnName="store_id",LogicalType="int64",YzProjectId=catalog.YzProjectId},
+            new(){Id="source_store",ConfigTableId="2",ColumnName="store_id",LogicalType="int64",YzProjectId=catalog.YzProjectId}
+        ]);
+        catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql="status=1 AND store_id=@current_store_id";
+        catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql+=" AND store_id=@current_store_id";
+    }
+
+    /// <summary>新增第二条独立级联，来源父仍绑定同一实际业务键。</summary>
+    private static void AddSecondTextAncestor(MetadataCatalog catalog)
+    {
+        var definition=System.Text.Json.Nodes.JsonNode.Parse(catalog.ConfigColumns.Single(column=>column.Id=="25").ControlDetail)!;
+        var levels=definition["levels"]!.AsArray();
+        levels.RemoveAt(2);
+        levels[0]!["columnPrefix"]="other_country";
+        levels[1]!["columnPrefix"]="other_area";
+        catalog.ConfigColumns.AddRange([
+            new(){Id="290",ConfigTableId="2",ColumnName="other_country_id",LogicalType="string",ColumnLength="50",
+                LinkConfigTableId="3",YzProjectId=catalog.YzProjectId},
+            new(){Id="291",ConfigTableId="2",ColumnName="other_area_id",LogicalType="int64",ControlKind="CascadeTree",
+                LinkConfigTableId="4",ControlDetail=definition.ToJsonString(),YzProjectId=catalog.YzProjectId}
+        ]);
+        catalog.ConfigPageColumns.Add(new(){Id="201291",ConfigPageId="201",ConfigColumnId="291",IsShow=1,IsEdit=1,YzProjectId=catalog.YzProjectId});
+        catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql+=" AND other_country_id=@parent_id";
     }
 
     /// <summary>两张业务表发布同一真实国家业务键，候选数据仍来自各自的表和页面。</summary>

@@ -212,7 +212,7 @@ internal static class DatabaseCheckboxCompilation
             var sharedTextParent=namePage is null?null:SharedRedundantParentCompilation.CommonTextParent(model,table,page,target,namePage,
                     allowSparseTarget:true,allowCompoundSource:true)??
                 NonRedundantCrossParentCompilation.CommonTextParent(model,table,page,target,namePage,
-                    allowStoredTarget:true,allowGlobalSparseTarget:true);
+                    allowStoredTarget:true,allowGlobalSparseTarget:true,allowCompoundSource:true);
             // 文本父键沿已证明祖先比较，非冗余字典的名称联接沿同一发布页独立验证。
             if(sharedTextParent is not null&&(name.Type!="string?"&&!scalarLabel||
                 explicitPage!=fixedPage||target.Source.IsRongyu!=0&&(derived||FixedPageConditionCompilation.HasLogicalFields(namePage!)||
