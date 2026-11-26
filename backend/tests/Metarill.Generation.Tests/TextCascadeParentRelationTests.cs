@@ -412,6 +412,19 @@ public sealed class TextCascadeParentRelationTests
     public Task Stored_text_parent_uses_typed_cache_column()=>
         VerifySingleTextParentControlConditions(1,exact:true,form:true,joined:true,stored:true,typed:true);
 
+    /// <summary>字典页常量使用实际维护列，独立生效并且可与来源控件附加条件叠加。</summary>
+    [Theory]
+    [InlineData(0,false,false)]
+    [InlineData(0,false,true)]
+    [InlineData(0,true,false)]
+    [InlineData(0,true,true)]
+    [InlineData(1,false,false)]
+    [InlineData(1,false,true)]
+    [InlineData(1,true,false)]
+    [InlineData(1,true,true)]
+    public Task Stored_text_parent_uses_cached_page_conditions(int sourceStorage,bool exact,bool form)=>
+        VerifySingleTextParentControlConditions(sourceStorage,exact,form,joined:true,stored:true,pageCondition:true);
+
     /// <summary>条件使用公开别名时仍检查联接终点，避免通过候选结果推断凭据。</summary>
     [Fact]
     public void Single_text_parent_joined_control_condition_rejects_sensitive_terminal()
@@ -428,7 +441,8 @@ public sealed class TextCascadeParentRelationTests
     }
 
     /// <summary>原交互候选、写入、Excel 与名称维护共用同一个受限目标。</summary>
-    private static async Task VerifySingleTextParentControlConditions(int sourceStorage,bool exact,bool form,bool joined,bool stored=false,bool typed=false)
+    private static async Task VerifySingleTextParentControlConditions(int sourceStorage,bool exact,bool form,bool joined,
+        bool stored=false,bool typed=false,bool pageCondition=false)
     {
         var catalog=Catalog(sourceStorage,form?"OverWriteByFirstColumn":"OnlyNew",form?"edit":"list");
         var conditionField=typed?"label_item_score":stored?"label_item_name":joined?"display_region":"area_name";
@@ -467,10 +481,11 @@ public sealed class TextCascadeParentRelationTests
             var control=catalog.ConfigColumns.Single(column=>column.Id==foreign);
             if(stored&&foreign=="700")control.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("810");
             var definition=JsonSerializer.Deserialize<Dictionary<string,string>>(control.ControlDetail)!;
-            definition["whereSql"]=form?$"{conditionField} = @formParameters.matchRegion":$"{conditionField} <> '控件排除{id}'";
+            if(form||!pageCondition)
+                definition["whereSql"]=form?$"{conditionField} = @formParameters.matchRegion":$"{conditionField} <> '控件排除{id}'";
             control.ControlDetail=JsonSerializer.Serialize(definition);
             var dictionary=catalog.ConfigPages.Single(item=>item.ConfigTableId==id);
-            dictionary.WhereSql+=$" AND {(stored?"name":"area_name")} <> '字典排除地区'";
+            dictionary.WhereSql+=$" AND {(pageCondition?conditionField:stored?"name":"area_name")} <> '字典排除地区'";
             if(exact)
             {
                 catalog.ConfigColumns.Add(new(){Id=id+"09",ConfigTableId=id,YzProjectId=catalog.YzProjectId,
@@ -488,13 +503,23 @@ public sealed class TextCascadeParentRelationTests
         var list=Assert.Single(relations,relation=>relation.SourceColumn.Source.Id=="700");
         var single=Assert.Single(relations,relation=>relation.SourceColumn.Source.Id=="702");
         Assert.All(relations,relation=>Assert.Equal("country_id",relation.SharedTextParent?.Source.ColumnName));
-        Assert.NotNull(list.Conditions);
-        Assert.Contains(conditionField,stored?list.Conditions.Syntax.Fields:joined?list.Conditions.JoinedFields:list.Conditions.CrossFields);
         Assert.Null(single.Conditions);
-        Assert.NotNull(single.ImportCondition);
-        Assert.Contains(conditionField,stored?single.ImportCondition.Syntax.Fields:joined?single.ImportCondition.JoinedFields:single.ImportCondition.CrossFields);
-        Assert.Equal(form,list.Conditions.Forms.Count==1);
-        Assert.Equal(form,single.ImportCondition.Forms.Count==1);
+        var hasControlCondition=form||!pageCondition;
+        if(hasControlCondition)
+        {
+            Assert.NotNull(list.Conditions);
+            Assert.NotNull(single.ImportCondition);
+            Assert.Contains(conditionField,stored?list.Conditions.Syntax.Fields:joined?list.Conditions.JoinedFields:list.Conditions.CrossFields);
+            Assert.Contains(conditionField,stored?single.ImportCondition.Syntax.Fields:joined?single.ImportCondition.JoinedFields:single.ImportCondition.CrossFields);
+            Assert.Equal(form,list.Conditions.Forms.Count==1);
+            Assert.Equal(form,single.ImportCondition.Forms.Count==1);
+        }
+        else
+        {
+            Assert.Null(list.Conditions);
+            Assert.Null(single.ImportCondition);
+        }
+        if(pageCondition)Assert.All(relations,relation=>Assert.Contains(conditionField,relation.TargetPage.Condition!.Syntax.Fields));
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         if(sourceStorage==1)
         {
@@ -512,9 +537,12 @@ public sealed class TextCascadeParentRelationTests
             if(compilePackage)new ApplicationPackager().Create(catalog,directory,model.Namespace,NonRedundantApplicationFixture.Root());
             else new CSharpGenerator().Generate(catalog,directory,model.Namespace);
             var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/TextrelSourceService.g.cs"));
-            Assert.Contains(stored?"OptionsCondition201_700.Apply(":"OptionsCondition201_700.BindVariables",service);
+            if(hasControlCondition)
+            {
+                Assert.Contains(stored?"OptionsCondition201_700.Apply(":"OptionsCondition201_700.BindVariables",service);
+                Assert.Contains("SingleImportCondition201_702",service);
+            }
             if(joined&&(!stored||exact))Assert.Contains("DerivedOptionsPlan201_700",service);
-            Assert.Contains("SingleImportCondition201_702",service);
             Assert.DoesNotContain("OptionsCondition201_702",service);
             Assert.Contains("ImportRelation201_700Async",service);
             Assert.Contains("ImportRelation201_702Async",service);
@@ -530,7 +558,12 @@ public sealed class TextCascadeParentRelationTests
             {
                 Assert.Contains("ApplyTextParent(query,session,\"country_id\",targetParentId!,businessKey:true)",service);
                 Assert.Contains(JsonSerializer.Serialize(conditionField),service);
-                AssertStoredControlConditions(model,owner,page,metadata,sourceStorage,conditionField);
+                if(pageCondition)
+                {
+                    Assert.Contains("OptionsPageCondition201_700",service);
+                    Assert.Contains("OptionsPageCondition201_702",service);
+                }
+                AssertStoredControlConditions(model,owner,page,metadata,sourceStorage,conditionField,pageCondition);
                 if(!exact&&!form&&sourceStorage==0)
                 {
                     catalog.ConfigColumns.Add(new(){Id="8606",ConfigTableId="86",YzProjectId=catalog.YzProjectId,
@@ -539,6 +572,12 @@ public sealed class TextCascadeParentRelationTests
                         JsonSerializer.SerializeToElement("label_item.password");
                     Assert.Throws<NotSupportedException>(()=>Metarill.Data.Queries.NonRedundantReads.CompileStoredSingleRelation(
                         catalog,"81","810",["id","name"],["country_id",conditionField],[conditionField]));
+                    if(pageCondition)
+                    {
+                        var unsafeModel=GenerationModel.Create(catalog,"Example.UnsafeStoredPageCondition");
+                        var unsafePage=Assert.Single(unsafeModel.Tables.Single(table=>table.Source.Id=="2").Pages);
+                        Assert.Throws<NotSupportedException>(()=>RelationCompilation.ForPage(unsafeModel,unsafePage,true,forExcel:true));
+                    }
                 }
                 if(compilePackage)
                     foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
@@ -556,7 +595,7 @@ public sealed class TextCascadeParentRelationTests
                 ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused"});
             var variables=new Dictionary<string,object?>();
             if(form)variables.Add("formParameters.matchRegion","实际选择地区");
-            var predicate=Metarill.Data.Queries.FixedConditionSqlPlan.Compile(list.Conditions.Syntax,list.Conditions.Types).BindVariables(variables);
+            var predicate=Metarill.Data.Queries.FixedConditionSqlPlan.Compile(list.Conditions!.Syntax,list.Conditions.Types).BindVariables(variables);
             var sql=Metarill.Data.Queries.NonRedundantCrossTableScopeSql.ApplyCondition(session.Select<ScopeRow>(),session,
                 listPlan,predicate,"single_relation",catalog.YzProjectId,parentId:"001").ToSql();
             Assert.Contains("BINARY @single_relation_parent",sql);
@@ -580,7 +619,7 @@ public sealed class TextCascadeParentRelationTests
 
     /// <summary>候选和实时名称读取实际物理副本，冗余来源维护保留筛选列的反向依赖。</summary>
     private static void AssertStoredControlConditions(GenerationModel model,TableModel owner,PageModel page,
-        MetadataCatalog metadata,int sourceStorage,string field)
+        MetadataCatalog metadata,int sourceStorage,string field,bool pageCondition)
     {
         const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
         foreach(var id in new[]{"81","82"})
@@ -600,6 +639,7 @@ public sealed class TextCascadeParentRelationTests
             var from=Assert.IsType<string>(sql.GetType().GetProperty("From",flags)!.GetValue(sql));
             Assert.Contains($".`{field}`",from);
             Assert.Contains("BINARY CAST",from);
+            if(pageCondition)AssertPageConstants(sql,from);
             return;
         }
         var maintenance=MixedRelationPropagationCompilation.ForModel(model);
@@ -609,13 +649,35 @@ public sealed class TextCascadeParentRelationTests
         var read=source.GetType().GetProperty("Read")!.GetValue(source)!;
         var expression=read.GetType().GetMethod("Expression",flags)!;
         Assert.Contains($".`{field}`",Assert.IsType<string>(expression.Invoke(read,["listitem_name"])));
-        Assert.DoesNotContain($".`{field}`",Assert.IsType<string>(expression.Invoke(read,["singleitem_name"])));
+        var single=Assert.IsType<string>(expression.Invoke(read,["singleitem_name"]));
+        if(pageCondition)
+        {
+            Assert.Contains($".`{field}`",single);
+            AssertPageConstants(read,single);
+        }
+        else Assert.DoesNotContain($".`{field}`",single);
         var reverse=Assert.IsAssignableFrom<System.Collections.IEnumerable>(read.GetType().GetProperty("Reverse",flags)!.GetValue(read));
         var dependency=Assert.Single(reverse.Cast<object>(),item=>
             Equals(item.GetType().GetProperty("TargetTable")!.GetValue(item),"textrel_listitem"));
         var outputs=Assert.IsAssignableFrom<IReadOnlyDictionary<string,IReadOnlySet<string>>>(
             dependency.GetType().GetProperty("Outputs")!.GetValue(dependency));
         Assert.Contains(field,outputs["listitem_name"]);
+        if(pageCondition)
+        {
+            var selection=Assert.Single(reverse.Cast<object>(),item=>
+                Equals(item.GetType().GetProperty("TargetTable")!.GetValue(item),"textrel_singleitem"));
+            var selectionOutputs=Assert.IsAssignableFrom<IReadOnlyDictionary<string,IReadOnlySet<string>>>(
+                selection.GetType().GetProperty("Outputs")!.GetValue(selection));
+            Assert.Contains(field,selectionOutputs["singleitem_name"]);
+        }
+
+        // 使用实际参数位置证明页面常量进入了联接谓词，避免只检查字段被投影。
+        static void AssertPageConstants(object plan,string sql)
+        {
+            var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                plan.GetType().GetProperty("Constants",flags)!.GetValue(plan));
+            Assert.Contains(parameters,pair=>Equals(pair.Value,"字典排除地区")&&sql.Contains("@"+pair.Key,StringComparison.Ordinal));
+        }
     }
 
     /// <summary>非冗余来源和冗余字典使用同一文本业务键，原选档和工作簿共用范围。</summary>

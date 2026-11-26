@@ -29,7 +29,7 @@ internal static class DerivedRelationNamesRenderer
             ? NonRedundantCrossTableCompilation.BindingArgument(exact.CrossPlans ?? [])
             : accountParent ? ",OptionsAccountParentScope"+suffix : "";
         var projection=DerivedRelationNamesCompilation.ProjectionCondition(relation);
-        var conditionCaches=DerivedRelationNamesCompilation.StoredControlCacheFields(relation);
+        var conditionCaches=DerivedRelationNamesCompilation.StoredConditionCacheFields(relation);
         var planStart = globalExact
             ? $"CompileGlobalExactSingleCandidate({Literal(relation.Target.Source.Id)},{Literal(relation.TargetPage.Source.Id)}"
             : logical

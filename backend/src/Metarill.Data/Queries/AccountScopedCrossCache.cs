@@ -27,10 +27,11 @@ public sealed class AccountScopedCrossCache
     /// <summary>已证明的独立父键单独校验，账号范围仍从实际来源行绑定。项目内固定单值副本允许纯常量或物理父级。</summary>
     internal static AccountScopedCrossCache Compile(MetadataCatalog catalog,TableMetadata source,TableMetadata target,
         PageMetadata targetPage,bool globalTreeSource,ColumnMetadata? multiParent=null,bool globalSingleSource=false,
-        bool allowFixedOnly=false,bool separateExactScope=false,IReadOnlySet<string>? additionalParents=null,bool globalMultiProject=false)=>
+        bool allowFixedOnly=false,bool separateExactScope=false,IReadOnlySet<string>? additionalParents=null,bool globalMultiProject=false,
+        bool allowStoredPageCaches=false)=>
         Compile(catalog,source,target,targetPage,recursive:false,multiParent:multiParent,globalTreeSource:globalTreeSource,
             globalSingleSource:globalSingleSource,allowFixedOnly:allowFixedOnly,separateExactScope:separateExactScope,
-            additionalParents:additionalParents,globalMulti:globalMultiProject);
+            additionalParents:additionalParents,globalMulti:globalMultiProject,allowStoredPageCaches:allowStoredPageCaches);
 
     /// <summary>全局物理多值字典的显式项目等值由固定查询作用域绑定，账号仍取实际来源行。</summary>
     internal static AccountScopedCrossCache CompileGlobalMulti(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage)=>
@@ -47,7 +48,7 @@ public sealed class AccountScopedCrossCache
     private static AccountScopedCrossCache Compile(MetadataCatalog catalog, TableMetadata source, TableMetadata target,
         PageMetadata targetPage,bool recursive,ColumnMetadata? multiParent=null,bool globalTreeSource=false,
         IReadOnlySet<string>? selfTreeFields=null,bool globalSingleSource=false,bool allowFixedOnly=false,bool separateExactScope=false,
-        IReadOnlySet<string>? additionalParents=null,bool globalMulti=false)
+        IReadOnlySet<string>? additionalParents=null,bool globalMulti=false,bool allowStoredPageCaches=false)
     {
         if(globalTreeSource)GlobalCachedRelationSource.RequireSelfTree(catalog,source);
         // 仅经发布证明的全局单值或物理账号多选缓存可绑定来源行；根查询另行约束行项目。
@@ -69,7 +70,11 @@ public sealed class AccountScopedCrossCache
                 selfTreeFields?.Contains(column.ColumnName)==true))
                 types.TryAdd(column.ColumnName,column.LogicalType);
         }
-        var syntax = FixedConditionPlan.Compile(targetPage.WhereSql, types.Keys);
+        var storedColumns=allowStoredPageCaches
+            ?MetadataStoragePolicy.ForTable(catalog,target).PhysicalColumns.ToDictionary(column=>column.ColumnName,StringComparer.Ordinal)
+            :null;
+        var syntax = FixedConditionPlan.Compile(targetPage.WhereSql,
+            storedColumns is null?types.Keys:types.Keys.Union(storedColumns.Keys,StringComparer.OrdinalIgnoreCase));
         var constants = new List<FixedConditionTerm>();
         var account = new List<(ColumnMetadata Target, string Variable)>();
         var hasGlobalProject=false;
@@ -77,6 +82,13 @@ public sealed class AccountScopedCrossCache
         {
             if (term.Values.All(value => value.Kind != FixedConditionValueKind.Variable))
             {
+                // 冗余副本只扩充页面常量类型，账号和父级仍由已证明的物理列绑定。
+                if(!types.ContainsKey(term.Field))
+                {
+                    if(storedColumns?.GetValueOrDefault(term.Field) is not {} cached||
+                        !ProjectScopedSingleRelationTarget.IsStoredConditionCache(catalog,target,cached))throw Invalid();
+                    types.Add(term.Field,cached.LogicalType);
+                }
                 constants.Add(term);
                 continue;
             }

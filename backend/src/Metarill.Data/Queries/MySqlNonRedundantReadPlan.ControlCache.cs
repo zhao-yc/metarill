@@ -152,11 +152,12 @@ public static partial class MySqlNonRedundantReadCompiler
                 allowLogicalListForm:!GlobalCrossTableTarget.Declared(source)&&!global);
             if(parentSource?.Column.Id!=sourceParentId)
                 throw new InvalidOperationException("冗余字典选项与来源记录没有相同的已发布父范围。");
-            // 两端确实共享已发布文本祖先时，附加条件才允许读取冗余字典的联接副本。
+            // 两端确实共享已发布文本祖先时，固定常量或来源表单条件才允许读取联接副本。
             var sharedTextParent=parent is not null&&parentSource is {LogicalPages.Count:>0}&&!global&&
                 UsesSharedStoredTextParent(source,parentSource,target,page,parent);
             if (terms.Any(term=>!GlobalPhysicalRelationValue.IsScalar(storage[target.Id],target,Column(target,term.Field))&&
-                !(sharedTextParent&&control.Terms.Contains(term)&&
+                !(sharedTextParent&&term.Values.All(value=>value.Kind!=FixedConditionValueKind.Variable||
+                    control.Terms.Contains(term)&&value.Text.StartsWith("formParameters.",StringComparison.Ordinal))&&
                     ProjectScopedSingleRelationTarget.IsStoredConditionCache(catalog,target,Column(target,term.Field)))))
                 throw new InvalidOperationException("冗余字典范围只可使用真实的非凭据物理列。");
             // 普通字典已由物理联接限定项目。全局字典只有声明了项目谓词才按当前身份限定。

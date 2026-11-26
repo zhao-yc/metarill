@@ -200,8 +200,10 @@ internal static class RelationCompilation
                     throw new NotSupportedException("关联目标的文本父键必须沿目标页实际级联路径读取。");
                 if(target.Source.IsRongyu==1)
                 {
-                    // 冗余字典的联接条件使用维护后的物理副本，凭据别名和无效路径不能参与候选。
-                    foreach(var conditionField in (conditions?.Syntax.Fields??[]).Concat(selection?.ImportCondition?.Syntax.Fields??[]))
+                    // 页面和控件共用已维护的物理副本，凭据别名和无效路径不能参与候选。
+                    var conditionFields=(targetPage.Condition?.Syntax.Fields??[]).Concat(conditions?.Syntax.Fields??[])
+                        .Concat(selection?.ImportCondition?.Syntax.Fields??[]).Distinct(StringComparer.Ordinal);
+                    foreach(var conditionField in conditionFields)
                     {
                         var column=target.Columns.Single(member=>member.Source.ColumnName==conditionField);
                         if(GenerationModel.Enabled(column.Source.Extra,"isJoinColumn")&&

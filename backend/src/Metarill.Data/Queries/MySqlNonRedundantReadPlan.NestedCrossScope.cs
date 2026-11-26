@@ -825,10 +825,10 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>物理账号条件按来源行归属计算，并记录源字段和目标筛选列的反向依赖。</summary>
         private string PhysicalAccountCacheCondition(TableMetadata table,string alias,PageMetadata page,
             CascadeCacheOwner owner,ColumnMetadata? parentField=null,bool allowFixedOnly=false,bool separateExactScope=false,
-            IReadOnlySet<string>? additionalParents=null,bool globalMultiProject=false)
+            IReadOnlySet<string>? additionalParents=null,bool globalMultiProject=false,bool allowStoredPageCaches=false)
         {
             var ownership=AccountScopedCrossCache.Compile(catalog,owner.Table,table,page,owner.GlobalTreeSource,
-                parentField,owner.GlobalSingleSource,allowFixedOnly,separateExactScope,additionalParents,globalMultiProject);
+                parentField,owner.GlobalSingleSource,allowFixedOnly,separateExactScope,additionalParents,globalMultiProject,allowStoredPageCaches);
             cascadeCacheOwnerFields.UnionWith(ownership.Ownership.Select(binding=>binding.Source.ColumnName));
             // 多份名称可用同一目标别名，常量参数必须沿各自投影前缀隔离。
             var parameterPrefix=multiLabel?"mt_cross_cache_"+aliasPrefix+alias:null;
@@ -1052,11 +1052,15 @@ public static partial class MySqlNonRedundantReadCompiler
             var alias=Join(owner,foreign,target,source.Sql,source.Type,validatedCrossGlobal:true,scopedCacheLink:true);
             singleCachePages[alias]=page;
             var physicalExact=ProjectScopedSingleRelationTarget.HasPhysicalSingleExact(catalog,target,page,foreign.ControlKind);
-            var visible=PublishedSingleCondition(target,alias,page,cacheOwner,parent?.Target,parent?.Logical==true?sourceParent:null,
-                allowFixedOnly:true,additionalScopes:parent?.AdditionalTargets,storedPhysicalExact:physicalExact);
+            var textPath=parent is {Logical:false}?StoredTextCacheParent(table,binding!,target,page,parent):null;
+            // 共用冗余文本父路径已独立验证，页面条件按同一物理副本重算可见性。
+            var visible=textPath is not null
+                ?PhysicalAccountCacheCondition(target,alias,page,cacheOwner,parent!.Target,allowFixedOnly:true,
+                    separateExactScope:physicalExact,allowStoredPageCaches:true)
+                :PublishedSingleCondition(target,alias,page,cacheOwner,parent?.Target,parent?.Logical==true?sourceParent:null,
+                    allowFixedOnly:true,additionalScopes:parent?.AdditionalTargets,storedPhysicalExact:physicalExact);
             if(parent is {Logical:false})
             {
-                var textPath=StoredTextCacheParent(table,binding!,target,page,parent);
                 sharedTextParent=textPath is not null;
                 visible+=(visible.Length==0?"":" AND ")+(textPath is null?
                     SinglePhysicalParentCondition(table,owner,alias,parent,binding!.Column,cacheOwner,sourceParent,sourceFrom):

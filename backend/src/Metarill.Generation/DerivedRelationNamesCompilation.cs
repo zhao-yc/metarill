@@ -128,11 +128,12 @@ internal static class DerivedRelationNamesCompilation
         relation.Target.Source.IsRongyu == 1 && (relation.FunctionForm || UsesExactSingle(relation) ||
             relation.NameColumn.IsId || IsPhysicalTypedName(model, relation.Target, relation.NameColumn));
 
-    /// <summary>仅固定候选实际使用的控件附加条件可以将物理名称副本列纳入依赖。</summary>
-    internal static string[] StoredControlCacheFields(RelationModel relation)
+    /// <summary>仅实际字典页及该控件的固定条件可以将物理名称副本列纳入依赖。</summary>
+    internal static string[] StoredConditionCacheFields(RelationModel relation)
     {
         if(relation.SharedTextParent is null||relation.Target.Source.IsRongyu!=1)return [];
-        var fields=relation.Conditions?.Syntax.Fields??(UsesExactSingle(relation)?relation.ImportCondition?.Syntax.Fields:null)??[];
+        var controlFields=relation.Conditions?.Syntax.Fields??(UsesExactSingle(relation)?relation.ImportCondition?.Syntax.Fields:null)??[];
+        var fields=(relation.TargetPage.Condition?.Syntax.Fields??[]).Concat(controlFields).ToHashSet(StringComparer.Ordinal);
         return relation.Target.Columns.Where(column=>fields.Contains(column.Source.ColumnName)&&
             GenerationModel.Enabled(column.Source.Extra,"isJoinColumn")).Select(column=>column.Source.ColumnName).ToArray();
     }
@@ -264,7 +265,7 @@ internal static class DerivedRelationNamesCompilation
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var outputs = name.IsId?new[]{"id"}:new[]{"id",name.Source.ColumnName};
         var projectTargets=ProjectCandidateTargets(model,relation,exact);
-        var conditionCaches=StoredControlCacheFields(relation);
+        var conditionCaches=StoredConditionCacheFields(relation);
         var plan = IsGlobalExactSingle(relation)
             ? NonRedundantReads.CompileGlobalExactSingleCandidate(model.Catalog,target.Source.Id,relation.TargetPage.Source.Id,
                 outputs,dependencies,projectTargets,null,
