@@ -1216,13 +1216,16 @@ public sealed class NonRedundantGeneratedReadTests
     }
 
     /// <summary>调用已生成的查询方法，并使用 FreeSql 构造 SQL，无需数据库连接。</summary>
-    internal static Func<string,object?[],string> CreateDictionarySql(Assembly assembly,string ns,string entityName,DatabaseSession session)
+    internal static Func<string,object?[],string> CreateDictionarySql(Assembly assembly,string ns,string entityName,DatabaseSession session,
+        IRuntimeAuthorization? authorization=null)
     {
         var mapper=Activator.CreateInstance(assembly.GetType(ns+".Generated.Mappers."+entityName+"Mapper",true)!,session);
         var type=assembly.GetType(ns+".Generated.Services."+entityName+"Service",true)!;
         var constructor=type.GetConstructors().Single();
-        var service=constructor.Invoke(WithDefaults(constructor,
-            [session,mapper,new SnowflakeIdGenerator(),Array.Empty<IRecordMutationObserver>()]));
+        var arguments=WithDefaults(constructor,[session,mapper,new SnowflakeIdGenerator(),Array.Empty<IRecordMutationObserver>()]);
+        if(authorization is not null)
+            arguments[constructor.GetParameters().Single(parameter=>parameter.ParameterType==typeof(IRuntimeAuthorization)).Position]=authorization;
+        var service=constructor.Invoke(arguments);
         return (name,values)=>
         {
             var method=type.GetMethod(name,BindingFlags.Instance|BindingFlags.NonPublic)!;

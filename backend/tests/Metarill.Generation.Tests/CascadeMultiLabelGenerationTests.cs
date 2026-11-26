@@ -10,6 +10,25 @@ namespace Metarill.Generation.Tests;
 [Collection(StandaloneProcessBudgetCollection.Name)]
 public sealed class CascadeMultiLabelGenerationTests
 {
+    /// <summary>只为本机 SQL 生成提供固定角色值，并核对原候选实际传入的动作。</summary>
+    private sealed class FixedDictionaryAuthorization(RuntimeActor actor):IRuntimeAuthorization
+    {
+        internal int Resolutions { get; private set; }
+        public RuntimeActor RequireActor()=>actor;
+        public void RequirePagePermission(string pageId,string operation)
+        {
+            Assert.Equal("201",pageId);
+            Assert.Equal("list",operation);
+        }
+        public ExactDataManageValues ResolveExactDataManage(string pageId,string operation,string managerField)
+        {
+            RequirePagePermission(pageId,operation);
+            Assert.Equal("real_name",managerField);
+            Resolutions++;
+            return new(true,JsonSerializer.SerializeToElement("[\"只允许甲\"]"));
+        }
+    }
+
     /// <summary>保留原多选和复选入口，发布目录可独立编译候选、导入、导出与维护计划。</summary>
     [Theory]
     [InlineData("MultiSelectPage",0,false)]
@@ -335,6 +354,19 @@ public sealed class CascadeMultiLabelGenerationTests
             globalRowProject:true,parent:true,globalParent:globalParent,parentWithoutProject:globalParent,
             parentAccount:globalParent&&mode==1,globalBusinessSource:true,onlyParent:!globalParent,literalParent:!globalParent,
             projectParentScope:true,storedDictionary:true,compoundTargetParent:compound?"physical":null,alternateCheckboxName:true);
+
+    /// <summary>原多选的两个显示名沿同一实际父级、字典页角色范围和已存父记录。</summary>
+    [Theory]
+    [InlineData(0,false)]
+    [InlineData(1,false)]
+    [InlineData(0,true)]
+    [InlineData(1,true)]
+    public Task Exact_global_parent_multiselect_uses_page_label_and_cache(int mode,bool compound)=>
+        CompileCascadeLabel("MultiSelectPage",mode,selfTree:false,indirect:false,selectedPage:true,physical:true,
+            globalRowProject:compound,parent:true,globalParent:compound,parentWithoutProject:compound,
+            parentAccount:compound,globalBusinessSource:true,onlyParent:!compound,literalParent:!compound,
+            projectParentScope:compound,storedDictionary:true,compoundTargetParent:compound?"physical":null,
+            exact:true,alternateMultiName:true);
 
     /// <summary>无父路由时，原控件沿详情中明确选择的实际父记录使用全局字典。</summary>
     [Theory]
@@ -675,7 +707,8 @@ public sealed class CascadeMultiLabelGenerationTests
         bool globalParent=false,bool parentWithoutProject=false,bool parentAccount=false,bool importLogical=false,bool exact=false,bool exactLeaf=false,string? compoundSourceParent=null,string? compoundTargetParent=null,
         bool globalCompoundSource=false,bool projectTargetGlobalParent=false,bool globalBusinessSource=false,bool literalParent=false,
         bool projectParentScope=false,bool ordinaryBusinessSource=false,bool textDictionaryProject=false,
-        string? customCheckboxParentType=null,bool customCheckboxTypeTwo=false,string? repeatDictionaryWhere=null,bool storedDictionary=false,bool alternateCheckboxName=false)
+        string? customCheckboxParentType=null,bool customCheckboxTypeTwo=false,string? repeatDictionaryWhere=null,bool storedDictionary=false,
+        bool alternateCheckboxName=false,bool alternateMultiName=false)
     {
         const string ns="Example.CascadeLabels";
         var catalog=selfTree?NonRedundantSelfTreeTests.Catalog("label_cross"):
@@ -928,7 +961,7 @@ public sealed class CascadeMultiLabelGenerationTests
                 catalog.ConfigPageColumns.Add(copy);
             }
         }
-        if(alternateCheckboxName)
+        if(alternateCheckboxName||alternateMultiName)
         {
             // 原详情允许覆盖同一发布页的名称。关联键和父条件仍由表级绑定提供。
             catalog.ConfigColumns.Add(new(){Id="220",ConfigTableId="2",ColumnName="short_name",LogicalType="string"});
@@ -943,10 +976,12 @@ public sealed class CascadeMultiLabelGenerationTests
                 catalog.ConfigPageColumns.Add(new(){Id="9029001",ConfigPageId="902",ConfigColumnId="9001",IsShow=1});
             }
         }
+        if(exact&&storedDictionary)
+            catalog.ConfigColumns.Add(new(){Id="target_scope_code",ConfigTableId=targetTable,ColumnName="scope_code",LogicalType="string"});
         RedundantMultiNameCacheTests.Published(catalog);
         if(exact)
         {
-            var match=exactLeaf?"tree_name":logicalParent||selfTree?"name":"country_name";
+            var match=storedDictionary?"scope_code":exactLeaf?"tree_name":logicalParent||selfTree?"name":"country_name";
             catalog.ConfigPages.Single(page=>page.Id==targetPage).Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement(match);
             foreach(var admin in catalog.YzAdminTypes)
                 admin.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("real_name");
@@ -1418,7 +1453,7 @@ public sealed class CascadeMultiLabelGenerationTests
                 compoundTargetParent=="independent"&&globalRowProject==false&&kind=="MultiSelectPage"||
                 globalCompoundSource&&compoundSourceParent=="independent"&&kind=="MultiCheckBoxDatabase"||
                 projectTargetGlobalParent&&compoundTargetParent=="independent"&&kind=="MultiCheckBoxDatabase"||
-                customCheckboxParentType=="int32"&&projectParentScope&&globalParent)
+                customCheckboxParentType=="int32"&&projectParentScope&&globalParent||alternateMultiName)
             {
                 // 独立包编译使用实际发布目录，原页面继续带原控件及候选参数。
                 foreach(var configPage in catalog.ConfigPages)
@@ -1437,6 +1472,13 @@ public sealed class CascadeMultiLabelGenerationTests
                 else
                 {
                     Assert.Contains("selectPageDialog95",detail);
+                    if(alternateMultiName)
+                    {
+                        var alternate=await File.ReadAllTextAsync(Path.Combine(full,"frontend/pages/yzp/label_consumer-detail-902.vue"));
+                        Assert.Contains("selected-name-field=\"shortName\"",alternate);
+                        var nameArray=mode==1?"selectedShortNames":"selectedNames";
+                        Assert.Contains("selectedNames=\"entity."+nameArray+"\"",alternate);
+                    }
                     Assert.Contains(":parent_id=\"multiTargetParent('selectedIds')\"",detail);
                 }
             }
@@ -1648,12 +1690,14 @@ public sealed class CascadeMultiLabelGenerationTests
                         Provider="mysql",ExpectedDatabase="offline",
                         ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1"
                     });
-                    var query=NonRedundantGeneratedReadTests.CreateDictionarySql(assembly,ns,"LabelCrossSource",session);
                     var actor=new RuntimeActor(7,"合成账号",false,catalog.YzProjectId,"5"){StoreId=9007199254740993};
+                    var authorization=exact?new FixedDictionaryAuthorization(actor):null;
+                    var query=NonRedundantGeneratedReadTests.CreateDictionarySql(assembly,ns,"LabelCrossSource",session,authorization);
                     foreach(var request in new[]{new Metarill.Core.Contracts.PageRequest{ParentId="9007199254741197"},
                         new Metarill.Core.Contracts.PageRequest{ParentId="9007199254741197",SelectedIds=["9007199254740993"]}})
                     {
                         var scope=query("Query201",[request,actor]);
+                        if(exact)Assert.Contains("scope_code",scope);
                         if(globalRowProject==false)Assert.DoesNotContain("yz_project_id",scope);
                         else Assert.Contains("yz_project_id",scope);
                         Assert.Contains(parentField,scope);
@@ -1662,6 +1706,7 @@ public sealed class CascadeMultiLabelGenerationTests
                         if(compoundTargetParent=="physical")Assert.Contains("other_country_id",scope);
                         if(!onlyParent)Assert.Contains("store_id",scope);
                     }
+                    if(authorization is not null)Assert.Equal(2,authorization.Resolutions);
                 }
                 if(ordinaryStaticDictionary&&mode==0)
                     Assert.Contains("b.`yz_project_id`=@project_scope_number",PlanScope(consumer,"ReadPlan901",null));
@@ -1684,11 +1729,12 @@ public sealed class CascadeMultiLabelGenerationTests
                 Assert.Contains("LIMIT 1 FOR SHARE) END",current);
             }
             if(indirect)RuntimeHelpers.RunClassConstructor(assembly.GetType(ns+".Generated.Services.LabelJoinService",true)!.TypeHandle);
-            if(alternateCheckboxName&&!projectStoredGlobalParent)
+            if((alternateCheckboxName||alternateMultiName)&&!projectStoredGlobalParent)
             {
                 const System.Reflection.BindingFlags staticPlan=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;
-                var primary=Assert.IsType<NonRedundantReadPlan>(consumer.GetField("DerivedCheckboxPlan901_95",staticPlan)!.GetValue(null));
-                var alternate=Assert.IsType<NonRedundantReadPlan>(consumer.GetField("DerivedCheckboxPlan902_95",staticPlan)!.GetValue(null));
+                var prefix=alternateMultiName?"MultiDerivedPlan":"DerivedCheckboxPlan";
+                var primary=Assert.IsType<NonRedundantReadPlan>(consumer.GetField(prefix+"901_95",staticPlan)!.GetValue(null));
+                var alternate=Assert.IsType<NonRedundantReadPlan>(consumer.GetField(prefix+"902_95",staticPlan)!.GetValue(null));
                 Assert.Equal("string",primary.OutputTypes["name"]);
                 Assert.Equal("string",alternate.OutputTypes["short_name"]);
                 const System.Reflection.BindingFlags instancePlan=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
@@ -1699,7 +1745,8 @@ public sealed class CascadeMultiLabelGenerationTests
                 }
                 var scope=Scope(alternate);
                 Assert.Equal(Scope(primary),scope);
-                Assert.Contains("b.`yz_project_id`=@project_scope_number",scope);
+                if(!alternateMultiName||projectParentScope)Assert.Contains("b.`yz_project_id`=@project_scope_number",scope);
+                else Assert.DoesNotContain("b.`yz_project_id`",scope);
                 Assert.Contains("b.`"+parentField+"`",scope);
                 if(compoundTargetParent=="physical")Assert.Contains("b.`other_country_id`",scope);
                 if(!onlyParent)Assert.Contains("b.`store_id`",scope);
@@ -1711,12 +1758,14 @@ public sealed class CascadeMultiLabelGenerationTests
                         .Invoke(read,["selected_names"]));
                     Assert.Contains("multi_value.`short_name`",expression);
                     Assert.Contains("multi_value.`"+parentField+"`",expression);
-                    Assert.Contains("multi_value.`yz_project_id`=@project_scope_number",expression);
+                    if(!alternateMultiName||projectParentScope)
+                        Assert.Contains("multi_value.`yz_project_id`=@project_scope_number",expression);
+                    else Assert.DoesNotContain("multi_value.`yz_project_id`",expression);
                     if(compoundTargetParent=="physical")Assert.Contains("multi_value.`other_country_id`",expression);
                 }
                 Assert.NotNull(consumer.GetMethod("Import902Async"));
                 Assert.NotNull(consumer.GetMethod("Export902Async"));
-                if(mode==1&&compoundTargetParent=="physical")
+                if(alternateCheckboxName&&mode==1&&compoundTargetParent=="physical")
                 {
                     var package=new ApplicationPackager().Create(catalog,Path.Combine(directory,"application"),ns,
                         NonRedundantApplicationFixture.Root());
@@ -1807,11 +1856,12 @@ public sealed class CascadeMultiLabelGenerationTests
                             Assert.DoesNotContain("multi_value.`yz_project_id`",sql);
                             var reverse=Assert.IsAssignableFrom<System.Collections.IEnumerable>(
                                 read.GetType().GetProperty("Reverse",hidden)!.GetValue(read)).Cast<object>().ToArray();
-                            IReadOnlySet<string> Dependencies(string table)
+                            IReadOnlySet<string> Dependencies(string table,string output="selected_names")
                             {
                                 var edges=reverse.Where(item=>Equals(table,item.GetType().GetProperty("TargetTable")!.GetValue(item)));
-                                return edges.SelectMany(item=>Assert.IsAssignableFrom<IReadOnlyDictionary<string,IReadOnlySet<string>>>(
-                                    item.GetType().GetProperty("Outputs")!.GetValue(item))["selected_names"]).ToHashSet(StringComparer.Ordinal);
+                                return edges.Select(item=>Assert.IsAssignableFrom<IReadOnlyDictionary<string,IReadOnlySet<string>>>(
+                                    item.GetType().GetProperty("Outputs")!.GetValue(item))).Where(outputs=>outputs.ContainsKey(output))
+                                    .SelectMany(outputs=>outputs[output]).ToHashSet(StringComparer.Ordinal);
                             }
                             var dictionaryFields=Dependencies("label_cross_source");
                             Assert.Contains("name",dictionaryFields);
@@ -1821,14 +1871,22 @@ public sealed class CascadeMultiLabelGenerationTests
                             var parentFields=Dependencies(globalParent?"label_cross_country":"label_scope_parent");
                             Assert.Contains("delete_no",parentFields);
                             Assert.Contains(parentAccount?"store_id":"yz_project_id",parentFields);
+                            if(alternateMultiName)
+                            {
+                                var alternateFields=Dependencies("label_cross_source","selected_short_names");
+                                Assert.Contains("short_name",alternateFields);
+                                Assert.Contains(parentField,alternateFields);
+                            }
                         }
-                        if(alternateCheckboxName)
+                        if(alternateCheckboxName||alternateMultiName)
                         {
                             var alternateSql=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!
                                 .Invoke(read,["selected_short_names"]));
                             Assert.Contains("multi_value.`short_name`",alternateSql);
                             Assert.Contains("multi_value.`"+parentField+"`",alternateSql);
-                            Assert.Contains("multi_value.`yz_project_id`=@project_scope_number",alternateSql);
+                            if(!alternateMultiName||projectParentScope)
+                                Assert.Contains("multi_value.`yz_project_id`=@project_scope_number",alternateSql);
+                            else Assert.DoesNotContain("multi_value.`yz_project_id`",alternateSql);
                             Assert.Contains("b.`source_scope_id`",alternateSql);
                             if(compoundTargetParent=="physical")Assert.Contains("multi_value.`other_country_id`",alternateSql);
                             if(!onlyParent)Assert.Contains("b.`store_id`",alternateSql);

@@ -258,6 +258,15 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         VerifyPublishedGlobalMultiselect(1,targetStorage,false,"string",globalSource:globalSource,
             projectScoped:projectScoped,shortName:derivedShortName?"global_target_name":"short_caption");
 
+    /// <summary>两个名称副本均使用该条业务行的账号归属，跨页换名后不能放宽。</summary>
+    [Theory]
+    [InlineData(1,true,"store_id")]
+    [InlineData(0,false,"store_id")]
+    [InlineData(0,true,"merchant_id")]
+    public Task Stored_multiselect_name_caches_use_physical_account_scope(int targetStorage,bool projectScoped,string accountField)=>
+        VerifyPublishedGlobalMultiselect(1,targetStorage,false,"string",globalSource:true,projectScoped:projectScoped,
+            accountField:accountField,shortName:"short_caption");
+
     /// <summary>从实际生成程序集核对名称、关联选档、项目隔离和数据维护计划。</summary>
     private static async Task VerifyPublishedGlobalMultiselect(int mode,int targetStorage,bool derivedName,string? projectType,
         bool unfiltered=false,bool globalSource=false,bool projectScoped=false,string? accountField=null,
@@ -303,7 +312,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         if(shortName is not null)
         {
             if(shortName=="short_caption")
-                catalog.ConfigColumns.Add(new(){Id="19",ConfigTableId="1",YzProjectId="100",ColumnName=shortName,LogicalType="string"});
+                catalog.ConfigColumns.Add(new(){Id="18",ConfigTableId="1",YzProjectId="100",ColumnName=shortName,LogicalType="string"});
             var label=catalog.ConfigColumns.Single(column=>column.ConfigTableId=="1"&&column.ColumnName==shortName);
             if(alternateDictionary)catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigPageId=="10"&&field.ConfigColumnId==label.Id);
             var labelPage=alternateDictionary?"14":"10";
@@ -570,14 +579,16 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 var cacheName="global_source_"+shortName+"s";
                 var cacheProperty=GenerationModel.Pascal(cacheName);
                 var labelSql=shortName=="short_caption"?"multi_value.`short_caption`":"`global_target`";
-                Assert.Contains(labelSql,CheckboxNameExpression(read,cacheName));
+                var cacheSql=CheckboxNameExpression(read,cacheName);
+                Assert.Contains(labelSql,cacheSql);
+                AssertDictionaryNameAccountScope(cacheSql,mode,accountField);
                 Assert.Contains("entity."+cacheProperty+" = JsonSerializer.Serialize",serviceCode);
                 Assert.Contains("entity.GlobalSourceCaptions = JsonSerializer.Serialize",serviceCode);
                 Assert.Contains("ImportMulti31_34Async",serviceCode);
                 Assert.Contains("Export31Async",serviceCode);
                 var declaration=assembly.GetType(application+".Generated.GeneratedRelationMaintenance",true)!;
                 var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(declaration.GetProperty("Catalog")!.GetValue(null));
-                if(shortName=="global_target_name"||projectScoped)
+                if(shortName=="global_target_name"||projectScoped||accountField is not null)
                     Assert.Contains(cacheName,maintenance.MixedSourceColumns["cached_consumer"]);
                 else
                 {
@@ -594,9 +605,14 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 var relation=catalog.ConfigColumns.Single(column=>column.Id=="34");
                 var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="31");
                 // 目标简称须在缓存实际字典页发布，不能借其它字典页的同名字段。
-                catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigPageId=="10"&&field.ConfigColumnId==label.Id);
-                Assert.Contains("未在实际字典页发布",Assert.Throws<NotSupportedException>(()=>
-                    GlobalMultipleRelationTarget.RequireCachedName(catalog,owner,relation,target,label,sourcePage)).Message);
+                var labelField=catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="10"&&field.ConfigColumnId==label.Id);
+                catalog.ConfigPageColumns.Remove(labelField);
+                try
+                {
+                    Assert.Contains("未在实际字典页发布",Assert.Throws<NotSupportedException>(()=>
+                        GlobalMultipleRelationTarget.RequireCachedName(catalog,owner,relation,target,label,sourcePage)).Message);
+                }
+                finally{catalog.ConfigPageColumns.Add(labelField);}
             }
             var expression=CheckboxNameExpression(read,names);
             Assert.Equal(!unfiltered,expression.Contains("multi_value.`status`",StringComparison.Ordinal));
