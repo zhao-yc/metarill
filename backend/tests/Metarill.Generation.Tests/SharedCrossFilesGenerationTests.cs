@@ -61,11 +61,13 @@ public sealed class SharedCrossFilesGenerationTests
 
     /// <summary>普通、物理父键及逻辑父级的完整应用均按当前发布页编译附件范围。</summary>
     [Theory]
-    [InlineData("shared")]
-    [InlineData("compound")]
-    [InlineData("unparented")]
-    [InlineData("physical")]
-    public async Task Full_file_joined_exact_path_builds(string parentMode)
+    [InlineData("shared",false)]
+    [InlineData("compound",false)]
+    [InlineData("unparented",false)]
+    [InlineData("physical",false)]
+    [InlineData("shared",true)]
+    [InlineData("physical",true)]
+    public async Task Full_file_joined_exact_path_builds(string parentMode,bool textForeignKey)
     {
         var catalog=Catalog("shared_parent","int64","int64");
         var project=catalog.YzProjectId;
@@ -76,7 +78,7 @@ public sealed class SharedCrossFilesGenerationTests
             new(){Id="952",YzProjectId=project,ConfigTableId="950",ColumnName="name",LogicalType="string"},
             new(){Id="953",YzProjectId=project,ConfigTableId="950",ColumnName="yz_project_id",LogicalType="int64"},
             new(){Id="954",YzProjectId=project,ConfigTableId="950",ColumnName="store_id",LogicalType="int64"},
-            new(){Id="955",YzProjectId=project,ConfigTableId="2",ColumnName="branch_id",LogicalType="int64",
+            new(){Id="955",YzProjectId=project,ConfigTableId="2",ColumnName="branch_id",LogicalType=textForeignKey?"string":"int64",
                 LinkConfigTableId="950",ControlKind="List",ControlDetail="""{"tableId":"950","nameField":"name"}"""},
             new(){Id="956",YzProjectId=project,ConfigTableId="2",ColumnName="branch_name",LogicalType="string",
                 Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("branch.name")}}

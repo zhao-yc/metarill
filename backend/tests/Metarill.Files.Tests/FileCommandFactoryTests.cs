@@ -416,15 +416,24 @@ public sealed class FileCommandFactoryTests
 
     /// <summary>普通附件沿用账号目标范围，并让引用与业务行位于同一快照或写事务。</summary>
     [Theory]
-    [InlineData("snapshot")]
-    [InlineData("current")]
-    [InlineData("missing-store")]
-    [InlineData("unrestricted-update")]
-    public async Task Ordinary_file_uses_published_join_scope_for_reference_access(string mode)
+    [InlineData("snapshot",false)]
+    [InlineData("current",false)]
+    [InlineData("missing-store",false)]
+    [InlineData("unrestricted-update",false)]
+    [InlineData("snapshot",true)]
+    [InlineData("current",true)]
+    [InlineData("missing-store",true)]
+    public async Task Ordinary_file_uses_published_join_scope_for_reference_access(string mode,bool textForeignKey)
     {
         const long recordId=9007199254740993;
         const long fileId=9007199254740994;
         var catalog=FileSharedCrossParentScopeTests.JoinedExactCatalog(true,"unparented");
+        if(textForeignKey)
+        {
+            var foreign=catalog.ConfigColumns.Single(column=>column.Id=="19");
+            foreign.LogicalType="string";
+            foreign.LinkConfigTableId="";
+        }
         catalog.ConfigTables.Add(new(){Id="80",TableName="yz_file_ref",YzProjectId="1"});
         var ordinal=0;
         foreach(var name in new[]{"id","yz_project_id","file_id","page_id","record_id","field_name"})
@@ -468,6 +477,8 @@ public sealed class FileCommandFactoryTests
             {
                 Assert.Contains("EXISTS (SELECT 1",sql);
                 Assert.Contains(".`store_id`",sql);
+                if(textForeignKey)
+                    Assert.Matches(@"BINARY CAST\(r\d+\.`id` AS CHAR\)=BINARY b\.`branch_id`",sql);
                 Assert.Contains(command.Parameters.Cast<DbParameter>(),parameter=>Equals(parameter.Value,21L));
                 Assert.Contains(command.Parameters.Cast<DbParameter>(),parameter=>Equals(parameter.Value,"分组甲"));
                 Assert.Equal(mode=="current",sql.Contains(" FOR SHARE)",StringComparison.Ordinal));
@@ -594,12 +605,23 @@ public sealed class FileCommandFactoryTests
 
     /// <summary>精确匹配的冗余字典独立于附件页面常量，仍须按实际目标页限制账号和状态。</summary>
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task File_exact_match_uses_published_stored_dictionary_scope(bool locking)
+    [InlineData(false,false,false)]
+    [InlineData(true,false,false)]
+    [InlineData(false,true,false)]
+    [InlineData(true,true,false)]
+    [InlineData(false,true,true)]
+    [InlineData(true,true,true)]
+    public async Task File_exact_match_uses_published_stored_dictionary_scope(bool locking,bool textForeignKey,bool selection)
     {
         const long recordId=9007199254740993L;
         var catalog=JoinedConditionFileCatalog(stored:true);
+        var foreign=catalog.ConfigColumns.Single(column=>column.Id=="18");
+        if(textForeignKey)foreign.LogicalType="string";
+        if(selection)
+        {
+            foreign.ControlKind="SelectPage";
+            catalog.ConfigPages.Single(item=>item.Id=="501").Extra["type"]=System.Text.Json.JsonSerializer.SerializeToElement(1);
+        }
         var source=catalog.ConfigPages.Single(item=>item.Id=="101");
         source.WhereSql=source.WhereSql.Replace(" AND display_region='可下载'","",StringComparison.Ordinal);
         source.Extra["exactDataManageMatchField"]=System.Text.Json.JsonSerializer.SerializeToElement("display_region");
@@ -620,6 +642,8 @@ public sealed class FileCommandFactoryTests
             Assert.NotNull(command.Transaction);
             var sql=command.CommandText;
             Assert.Contains("JOIN `file_joined_scope_label`",sql);
+            if(textForeignKey)
+                Assert.Matches(@"BINARY CAST\(r\d+\.`id` AS CHAR\)=BINARY b\.`label_item_id`",sql);
             Assert.Contains(".`store_id`",sql);
             Assert.DoesNotContain("AS `display_region`",sql);
             Assert.Equal(locking,sql.EndsWith(" FOR SHARE",StringComparison.Ordinal));

@@ -279,7 +279,7 @@ public static partial class MySqlNonRedundantReadCompiler
     public static MySqlNonRedundantReadPlan CompileMatch(MetadataCatalog catalog,string tableId,string field)=>
         CompileScalarMatch(catalog,tableId,field,multiLabel:false);
 
-    /// <summary>多值名称允许原生 TIME 和已证明的规范文本外键，精确数据管理仍只接受原键类型。</summary>
+    /// <summary>多值名称允许原生 TIME；规范文本外键按各自发布范围核验。</summary>
     internal static MySqlNonRedundantReadPlan CompileMultiLabel(MetadataCatalog catalog,string tableId,string field)=>
         CompileScalarMatch(catalog,tableId,field,multiLabel:true);
 
@@ -885,7 +885,16 @@ public static partial class MySqlNonRedundantReadCompiler
             if(target is null&&Text(relation,"linkConfigPageId").Length>0)target=PageTarget(Text(relation,"linkConfigPageId"));
             if(target is null){var name=Value(definition,"table");if(name.Length==0)name=Text(relation,"joinTable");if(name.Length==0&&relation.ColumnName.EndsWith("_id",StringComparison.Ordinal))name=relation.ColumnName[..^3];target=tables.Values.SingleOrDefault(table=>table.TableName==name);}
             if(target is null)throw new InvalidOperationException("关联目标缺失或不是同项目实体表。");
-            if((refreshFields is not null||multiLabel)&&(id.Length>0&&tables.GetValueOrDefault(id)?.Id!=target.Id||pageId.Length>0&&PageTarget(pageId)?.Id!=target.Id||relation.LinkConfigTableId.Length>0&&relation.LinkConfigTableId!=target.Id||Value(definition,"table") is {Length:>0} named&&named!=target.TableName||Text(relation,"joinTable") is {Length:>0} joined&&joined!=target.TableName||Text(relation,"linkConfigPageId") is {Length:>0} linked&&PageTarget(linked)?.Id!=target.Id))throw new InvalidOperationException("固定关系目标的有效声明相互矛盾。");
+            // 文本键参与精确授权时，控件与字段的实际目标声明须一致。
+            var verifyDeclarations=refreshFields is not null||multiLabel||matching&&relation.LogicalType=="string";
+            if(verifyDeclarations&&(
+                id.Length>0&&tables.GetValueOrDefault(id)?.Id!=target.Id||
+                pageId.Length>0&&PageTarget(pageId)?.Id!=target.Id||
+                relation.LinkConfigTableId.Length>0&&relation.LinkConfigTableId!=target.Id||
+                Value(definition,"table") is {Length:>0} named&&named!=target.TableName||
+                Text(relation,"joinTable") is {Length:>0} joined&&joined!=target.TableName||
+                Text(relation,"linkConfigPageId") is {Length:>0} linked&&PageTarget(linked)?.Id!=target.Id))
+                throw new InvalidOperationException("固定关系目标的有效声明相互矛盾。");
             ValidateTarget(target);return target;
         }
         /// <summary>固定审计目标与业务关系使用相同实体主键约束，不能因固定表名绕过唯一性前提。</summary>
@@ -901,9 +910,12 @@ public static partial class MySqlNonRedundantReadCompiler
             var fixedTextKey = sourceType=="string" && (ordinaryRelation||scopedCacheLink) &&
                 relation.ControlKind is ("List" or "SelectPage") && relation.ColumnName.EndsWith("_id",StringComparison.Ordinal) &&
                 storage[relation.ConfigTableId].IsPhysical(relation) && source==ownerAlias+"."+Q(relation.ColumnName);
-            if(matching&&sourceType!="int64"&&!(multiLabel&&fixedTextKey))
-                throw new NotSupportedException("精确管理关联键必须与目标主键同为int64，不能借数据库隐式转换匹配。");
             var global=GlobalCrossTableTarget.Declared(target);
+            // 精确匹配沿用已解析的项目内单值文本外键，按主键十进制文本逐字节比较。
+            var localExactTextKey=fixedTextKey&&ordinaryRelation&&!global&&
+                !GlobalCrossTableTarget.Declared(tables[relation.ConfigTableId]);
+            if(matching&&sourceType!="int64"&&!(fixedTextKey&&(multiLabel||localExactTextKey)))
+                throw new NotSupportedException("精确管理关联键须使用整数主键或已证明的规范文本外键。");
             if(!global&&ordinaryRelation&&refreshFields is not null&&ProjectScopedSingleRelationTarget.Resolve(
                 catalog,tables[relation.ConfigTableId],relation,target) is not null)
                 throw new InvalidOperationException("项目内固定单值名称必须使用已发布维护绑定。");

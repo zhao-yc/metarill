@@ -164,14 +164,20 @@ public sealed class NonRedundantReadTests
     }
     /// <summary>匹配终点不能借普通别名转换为凭据、数组或虚拟值。</summary>
     [Theory]
-    [InlineData("password")][InlineData("file")][InlineData("array")][InlineData("json")][InlineData("virtual")][InlineData("cycle")][InlineData("stringKey")][InlineData("missingOwner")]
+    [InlineData("password")][InlineData("file")][InlineData("array")][InlineData("json")][InlineData("virtual")][InlineData("cycle")][InlineData("unprovenStringKey")][InlineData("contradictoryStringKey")][InlineData("missingOwner")]
     public void Match_plan_rejects_unproven_terminal_fields(string kind)
     {
         var catalog=Catalog("mt_read_root","mt_read_party");var target=catalog.ConfigColumns.Single(column=>column.Id=="22");var field=catalog.ConfigColumns.Single(column=>column.Id=="18");
         if(kind=="password"){target.ColumnName="password";field.Extra["columnFullName"]=JsonSerializer.SerializeToElement("bill.password");}
         if(kind=="file")target.ControlKind="FileLibrary";if(kind=="array")target.ControlKind="MultiSelectPage";if(kind=="json")target.LogicalType="json";if(kind=="virtual")target.IsVirtualColumn=1;
         if(kind=="cycle")field.Extra["columnFullName"]=JsonSerializer.SerializeToElement("parent.grand_label");
-        if(kind=="stringKey")catalog.ConfigColumns.Single(column=>column.Id=="15").LogicalType="string";
+        if(kind is "unprovenStringKey" or "contradictoryStringKey")
+        {
+            var foreign=catalog.ConfigColumns.Single(column=>column.Id=="15");
+            foreign.LogicalType="string";
+            if(kind=="unprovenStringKey")foreign.ControlKind="";
+            else foreign.LinkConfigTableId="1";
+        }
         if(kind=="missingOwner")catalog.ConfigColumns.RemoveAll(column=>column.Id=="23");
         Assert.ThrowsAny<Exception>(()=>NonRedundantReads.CompileMatch(catalog,"1","grand_label"));
     }
@@ -183,6 +189,25 @@ public sealed class NonRedundantReadTests
         var catalog=Catalog("mt_read_root","mt_read_party");var plan=NonRedundantReads.CompileMatch(catalog,"1",field);Assert.Equal(type,Assert.Single(plan.OutputTypes).Value);
         catalog.ConfigColumns.Single(column=>column.Id=="22").ControlKind="FileLibrary";Assert.Equal(type,plan.OutputTypes[field]);
     }
+    /// <summary>两级显式文本外键仍保留各自项目范围和整数主键的规范文本等值。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Match_plan_compares_declared_text_keys_byte_for_byte(bool controlOnly)
+    {
+        var catalog=Catalog("mt_read_root","mt_read_party");
+        var foreign=catalog.ConfigColumns.Single(column=>column.Id=="15");
+        foreign.LogicalType="string";
+        if(controlOnly)foreign.LinkConfigTableId="";
+        catalog.ConfigColumns.Single(column=>column.Id=="25").LogicalType="string";
+        var plan=MySqlNonRedundantReadCompiler.CompileMatch(catalog,"1","grand_label");
+        Assert.Equal("string",plan.Types["grand_label"]);
+        Assert.Contains("BINARY CAST(r0.`id` AS CHAR)=BINARY b.`bill_id`",plan.From);
+        Assert.Contains("BINARY CAST(r1.`id` AS CHAR)=BINARY r0.`parent_id`",plan.From);
+        Assert.Contains("r0.`yz_project_id`=@project_scope_text",plan.From);
+        Assert.Contains("r1.`yz_project_id`=@project_scope_text",plan.From);
+    }
+
     /// <summary>固定用途字段包含同目标不同角色、自关联与跨级派生。</summary>
     internal static MySqlNonRedundantReadPlan Plan(MetadataCatalog catalog)=>MySqlNonRedundantReadCompiler.Compile(catalog,"1",["id","name","bill_name","ship_name","grand_label","parent_name","bill_amount"]);
     /// <summary>由元数据定义两个隔离实体表，派生名称不注册物理列。</summary>
