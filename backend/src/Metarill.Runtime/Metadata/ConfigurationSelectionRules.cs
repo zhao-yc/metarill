@@ -44,15 +44,20 @@ internal static class ConfigurationSelectionRules
         if (table is null)
             throw new BusinessRuleException("选择页目标页面缺少当前项目内的活动目标表。");
 
+        var target = MetadataRepository.DecodeRow<TableMetadata>(table);
+        await RequireDisplayFieldAsync(store, project, target, tableId, detail.NameField, "选择页", token);
+        return target;
+    }
+
+    /// <summary>下拉和选择页都可显示既有级联或多值派生列，使用相同扩展规则。</summary>
+    internal static async Task RequireDisplayFieldAsync(SqlRowStore store, long project, TableMetadata target,
+        long tableId, string nameField, string label, CancellationToken token)
+    {
         var columns = await store.ReadForUpdateAsync("config_column",
             new Dictionary<string, object?> { ["config_table_id"] = tableId, ["yz_project_id"] = project }, token);
-        var target = MetadataRepository.DecodeRow<TableMetadata>(table);
-        // 名称也可来自既有级联或多值辅助列，按生成器的相同扩展规则核对。
-        if (!columns.Any(column => SqlRowStore.Text(column, "column_name") == detail.NameField) &&
+        if (!columns.Any(column => SqlRowStore.Text(column, "column_name") == nameField) &&
             !RelationStorageColumns.Expand(target, columns.Select(MetadataRepository.DecodeRow<ColumnMetadata>))
-                .Any(column => column.ColumnName == detail.NameField))
-            throw new BusinessRuleException("选择页显示字段在目标表中不存在：" + detail.NameField);
-
-        return target;
+                .Any(column => column.ColumnName == nameField))
+            throw new BusinessRuleException(label + "显示字段在目标表中不存在：" + nameField);
     }
 }

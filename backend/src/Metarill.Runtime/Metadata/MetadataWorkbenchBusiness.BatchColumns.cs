@@ -2,6 +2,7 @@ using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Metarill.Core.Persistence;
 using Metarill.Runtime.Persistence;
 
@@ -100,7 +101,14 @@ public sealed partial class MetadataWorkbenchBusiness
                 continue;
             }
 
-            if(row.ControlKind!="List"&&row.JoinTable.Length==0)continue;
+            if (row.ControlKind == "List")
+            {
+                if (row.Errors.Count == 0)
+                    await PrepareListColumnAsync(row, long.Parse(actor.ProjectId, CultureInfo.InvariantCulture), cancellationToken);
+                continue;
+            }
+
+            if(row.JoinTable.Length==0)continue;
             JsonElement? detail=null;
             if(row.ControlDetail.Length>0)
                 try{using var parsed=JsonDocument.Parse(row.ControlDetail);if(parsed.RootElement.ValueKind!=JsonValueKind.Object)throw new JsonException();detail=parsed.RootElement.Clone();}
@@ -114,11 +122,6 @@ public sealed partial class MetadataWorkbenchBusiness
             if(!columnCache.TryGetValue(id,out var columns)){columns=await store.ReadForUpdateAsync("config_column",new Dictionary<string,object?>{{"config_table_id",id}},cancellationToken);columnCache[id]=columns;}
             if(!columns.Any(column=>SqlRowStore.Text(column,"column_name")==nameField&&SqlRowStore.Text(column,"yz_project_id")==actor.ProjectId)){BatchColumnParser.Error(row,"controlDetail","INVALID_RELATION","关联显示字段不存在于当前项目目标表");continue;}
             row.LinkTableId=id;row.JoinTable=SqlRowStore.Text(target,"table_name");
-            if(row.ControlKind=="List")
-            {
-                row.LogicalType="int64";row.ColumnType="bigint";row.ColumnLength="";
-                row.ControlDetail=JsonSerializer.Serialize(new{table=row.JoinTable,tableId=id.ToString(CultureInfo.InvariantCulture),nameField,whereSql=Value("whereSql"),orderBy=Value("orderBy")},JsonDefaults.Options);
-            }
         }
         ValidateBatchCascadeColumns(scope.Columns, rows, hasPhysicalSchema);
 
@@ -129,6 +132,38 @@ public sealed partial class MetadataWorkbenchBusiness
         if (rows.All(row => row.Errors.Count == 0) && rows.Count > remaining)
             BatchColumnParser.Error(rows[remaining], "sortNo", "INVALID_ORDER", "字段排序号已达到上限，请先调整排序");
         return (BatchColumnParser.Preview(rows), maximum);
+    }
+
+    /// <summary>批量保存补齐已核实的目标表，保留原 pageId、排序和清空键。</summary>
+    private async Task PrepareListColumnAsync(BatchColumnPreviewRow row, long project, CancellationToken token)
+    {
+        var source = new ColumnMetadata
+        {
+            ColumnName = row.ColumnName, ControlKind = row.ControlKind, ControlDetail = row.ControlDetail, LogicalType = row.LogicalType
+        };
+        source.Extra["joinTable"] = JsonSerializer.SerializeToElement(row.JoinTable);
+        try
+        {
+            var target = await ConfigurationListRules.ValidateAsync(store, project, source, null, token)
+                ?? throw new BusinessRuleException("普通批量字段不能声明平台固定目录。");
+            if (row.JoinTable.Length > 0 && row.JoinTable != target.Table.TableName)
+                throw new BusinessRuleException("下拉列表关联表与目标数据表不一致。");
+
+            row.LinkTableId = long.Parse(target.Table.Id, CultureInfo.InvariantCulture);
+            row.JoinTable = target.Table.TableName;
+            row.LogicalType = "int64";
+            row.ColumnType = "bigint";
+            row.ColumnLength = "";
+            var detail = string.IsNullOrWhiteSpace(row.ControlDetail) ? new JsonObject() : JsonNode.Parse(row.ControlDetail)!.AsObject();
+            detail["table"] = row.JoinTable;
+            detail["tableId"] = target.Table.Id;
+            detail["nameField"] = target.NameField;
+            row.ControlDetail = detail.ToJsonString(JsonDefaults.Options);
+        }
+        catch (BusinessRuleException error)
+        {
+            BatchColumnParser.Error(row, "controlDetail", "INVALID_RELATION", error.Message);
+        }
     }
 
     /// <summary>预检兼顾本批新级联和已有级联，配置写入在原事务锁内再次校验。</summary>

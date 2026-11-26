@@ -390,6 +390,114 @@ public sealed partial class ConfigurationMaterializedValueTests
     }
 
 
+    [Theory]
+    [InlineData("""{"tableId":"999"}""","目标数据表")]
+    [InlineData("""{"table":"other"}""","目标数据表")]
+    [InlineData("""{"pageId":"34"}""","目标页面")]
+    [InlineData("""{"nameField":"missing"}""","显示字段")]
+    [InlineData("""{"orderBy":"name sideways"}""","排序")]
+    public async Task Page_list_override_rejects_invalid_destination_and_preserves_saved_value(string detail,string reason)
+    {
+        using var f=new Fixture();
+        AddSelectionTargets(f);
+        var source=f.Get("config_column",20);
+        source["control_kind"]="List";
+        source["control_detail"]="""{"tableId":"11","table":"department","nameField":"name"}""";
+        var patch=new Dictionary<string,object?>{{"control_detail",detail}};
+        var before=f.Snapshot();
+        var error=await Assert.ThrowsAsync<BusinessRuleException>(()=>f.Session.InTransactionAsync(async()=>
+        {
+            Assert.Equal(1,await f.Store.UpdateAsync("config_page_column",40,patch));
+            await f.Observer.BeforeCommitAsync(f.Context("config_page_column",40,patch));
+            return true;
+        }));
+        Assert.Contains(reason,error.Message);
+        Assert.Equal(before,f.Snapshot());
+    }
+
+    [Theory]
+    [InlineData("""{"table":"department","nameField":"name","orderBy":"name DESC"}""",null)]
+    [InlineData("""{"nameField":"name"}""",32L)]
+    public async Task Page_list_override_keeps_id_display_and_explicit_empty_options(string definition,long? linkedPage)
+    {
+        using var f=new Fixture();
+        AddSelectionTargets(f);
+        var source=f.Get("config_column",20);
+        source["control_kind"]="List";
+        source["control_detail"]=definition;
+        source["link_config_page_id"]=linkedPage;
+        const string detail="""{"nameField":"id","whereSql":"","orderBy":""}""";
+        var patch=new Dictionary<string,object?>{{"control_detail",detail}};
+        await f.Session.InTransactionAsync(async()=>
+        {
+            Assert.Equal(1,await f.Store.UpdateAsync("config_page_column",40,patch));
+            await f.Observer.BeforeCommitAsync(f.Context("config_page_column",40,patch));
+            return true;
+        });
+        Assert.Equal(detail,SqlRowStore.Text(f.Get("config_page_column",40),"control_detail"));
+        Assert.Equal(definition,SqlRowStore.Text(source,"control_detail"));
+    }
+
+
+    [Fact]
+    public async Task Batch_list_keeps_page_binding_and_explicit_clear_of_order()
+    {
+        using var f=new Fixture();
+        AddSelectionTargets(f);
+        var workbench=new MetadataWorkbenchBusiness(f.Store,f.Authorization,f.Registry,f.Ids,f.Observer);
+        JsonElement Request(int pageId)=>JsonSerializer.SerializeToElement(new { config_table_id="10",content=
+            JsonSerializer.Serialize(new[]{new{name="部门",columnName="department_id",columnType="bigint",
+                controlKind="List",controlDetail=new { pageId,nameField="id",whereSql="",orderBy="" }}}) });
+        var invalid=Request(34);
+        var preview=await workbench.PreviewBatchColumnsAsync(invalid);
+        Assert.False(preview.Valid);
+        Assert.Contains("目标页面",Assert.Single(preview.Rows[0].Errors).Message);
+        var before=f.Snapshot();
+        await Assert.ThrowsAsync<BatchColumnValidationException>(()=>workbench.SaveBatchColumnsAsync(invalid));
+        Assert.Equal(before,f.Snapshot());
+
+        var valid=Request(32);
+        Assert.True((await workbench.PreviewBatchColumnsAsync(valid)).Valid);
+        await workbench.SaveBatchColumnsAsync(valid);
+        var field=Assert.Single(f.Provider.Rows["config_column"],row=>SqlRowStore.Text(row,"column_name")=="department_id");
+        using var detail=JsonDocument.Parse(SqlRowStore.Text(field,"control_detail"));
+        Assert.Equal("32",detail.RootElement.GetProperty("pageId").ToString());
+        Assert.Equal("11",detail.RootElement.GetProperty("tableId").GetString());
+        Assert.Equal("",detail.RootElement.GetProperty("orderBy").GetString());
+    }
+
+    [Fact]
+    public async Task Table_list_preserves_current_template_catalog_and_rejects_missing_fixed_target()
+    {
+        using var f=new Fixture();
+        AddSelectionTargets(f);
+        var before=f.Snapshot();
+        var patch=new Dictionary<string,object?>{{"control_kind","List"},{"control_detail","""{"tableId":"999"}"""}};
+        await Assert.ThrowsAsync<BusinessRuleException>(()=>f.Session.InTransactionAsync(async()=>
+        {
+            Assert.Equal(1,await f.Store.UpdateAsync("config_column",20,patch));
+            await f.Observer.BeforeCommitAsync(f.Context("config_column",20,patch));
+            return true;
+        }));
+        Assert.Equal(before,f.Snapshot());
+
+        const long tableId=1669251289347932162L;
+        const long columnId=1669606903854936065L;
+        var binding="""{"catalog":"metarill-csharp-templates/v1","nameField":"name"}""";
+        f.Add("config_table",Row(("id",tableId),("yz_project_id",1L),("table_name","yz_project")));
+        f.Add("config_column",Row(("id",columnId),("yz_project_id",1L),("config_table_id",tableId),
+            ("column_name","yz_yzp_version_id"),("column_type","bigint"),("logical_type","int64"),
+            ("control_kind","List"),("control_detail",binding)));
+        patch=new Dictionary<string,object?>{{"control_detail",binding}};
+        await f.Session.InTransactionAsync(async()=>
+        {
+            await f.Observer.BeforeCommitAsync(f.Context("config_column",columnId,patch));
+            return true;
+        });
+        Assert.Equal(binding,SqlRowStore.Text(f.Get("config_column",columnId),"control_detail"));
+    }
+
+
     [Fact]
     public async Task Real_sort_workbench_and_copy_page_use_current_target_values()
     {

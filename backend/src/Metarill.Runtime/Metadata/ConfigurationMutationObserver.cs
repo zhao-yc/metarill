@@ -125,6 +125,14 @@ public sealed partial class ConfigurationMutationObserver(SqlRowStore store,Meta
             (context.IsCreate || context.SubmittedFields.Keys.Any(key => key is "control_kind" or "control_detail" or "link_config_page_id")))
             await ConfigurationSelectionRules.ValidateAsync(store, project, SqlRowStore.Text(row, "control_detail"),
                 null, SqlRowStore.Text(row, "link_config_page_id"), token);
+        if (SqlRowStore.Text(row, "control_kind") == "List" &&
+            (context.IsCreate || context.SubmittedFields.Keys.Any(key =>
+                key is "control_kind" or "control_detail" or "link_config_page_id" or "link_config_table_id" or "join_table")))
+        {
+            var configuration = MetadataRepository.DecodeRow<ColumnMetadata>(row);
+            configuration.LogicalType = type;
+            await ConfigurationListRules.ValidateAsync(store, project, configuration, null, token);
+        }
         // 无关配置编辑不能从空物理类型重推逻辑类型，也不追加无效果的类型写入。
         if(!string.Equals(type,originalType,StringComparison.Ordinal))
             await store.UpdateAsync("config_column",context.RecordId,new Dictionary<string,object?>{{"logical_type",type}},token);

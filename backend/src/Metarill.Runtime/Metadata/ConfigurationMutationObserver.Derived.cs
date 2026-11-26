@@ -33,6 +33,8 @@ public sealed partial class ConfigurationMutationObserver
         else if (!string.IsNullOrWhiteSpace(detail) && ConfigurationSelectionRules.Applies(kind))
             await ConfigurationSelectionRules.ValidateAsync(store, project, SqlRowStore.Text(column, "control_detail"),
                 detail, SqlRowStore.Text(column, "link_config_page_id"), token);
+        else if (!string.IsNullOrWhiteSpace(detail) && kind == "List")
+            await ConfigurationListRules.ValidateAsync(store, project, MetadataRepository.DecodeRow<ColumnMetadata>(column), detail, token);
     }
 
     /// <summary>明细保存检查本字段的级联定义，类型或存储属性变化也须复核已有级联对本字段的占用。</summary>
