@@ -830,7 +830,8 @@ public static partial class MySqlNonRedundantReadCompiler
             // 读取和缓存都按同一个实际父页计算，全局父的各外键或逻辑层位不得各自选择发布页。
             if(additional is not null&&additionalScopes![0].Global)
                 _=PublishedMultiGlobalParent(catalog,table.Id,page.Id);
-            var pageJoins=page.Extra.GetValueOrDefault("type").ToString()=="1"
+            // 原下拉可引用普通业务页。已选名称和缓存沿该页与候选一致的联接范围。
+            var pageJoins=IsSingleDictionaryPage(page)
                 ?ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,table,page)
                 :ProjectScopedSingleRelationTarget.JoinedTextPageFields(catalog,table,page);
             var condition=CascadeScopeCondition(table,storage[table.Id],members,syntax,parentField,fields,additional,pageJoins);
@@ -959,6 +960,10 @@ public static partial class MySqlNonRedundantReadCompiler
                 throw new NotSupportedException("全局R0的自动名称必须使用已发布的单值显示字段。");
         }
 
+        /// <summary>原下拉支持普通业务页和单选页，复选页保留各自的发布约束。</summary>
+        private static bool IsSingleDictionaryPage(PageMetadata page)=>
+            page.Extra.GetValueOrDefault("type").ToString() is "" or "0" or "1";
+
         private readonly Dictionary<string,PageMetadata> singleCachePages=new(StringComparer.Ordinal);
         private readonly Dictionary<string,string?> globalSingleVisibility=new(StringComparer.Ordinal);
 
@@ -984,9 +989,9 @@ public static partial class MySqlNonRedundantReadCompiler
                 return(globalNested.Alias,globalNested.Visibility,cacheOwner);
             if(cacheOwner is not null&&singleCachePages.TryGetValue(owner,out var sourcePage)&&
                 ProjectScopedSingleRelationTarget.NestedPage(catalog,table,sourcePage,foreign,target,
-                    // 固定单选条件引用物理字典时也要按其实际发布页保留失效和反查。
+                    // 名称缓存条件引用物理字典时，也从实际发布页保留失效范围和反向依赖。
                     allowStoredTarget:multiLabel&&(CrossNamePage(owner) is null||MultiNameSourcePage(owner) is not null)||
-                        target.IsRongyu==1&&sourcePage.Extra.GetValueOrDefault("type").ToString()=="1"&&
+                        target.IsRongyu==1&&IsSingleDictionaryPage(sourcePage)&&
                         ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,table,sourcePage).Count>0) is {} projectNested)
             {
                 if(projectNested.Scoped&&target.IsRongyu==1)

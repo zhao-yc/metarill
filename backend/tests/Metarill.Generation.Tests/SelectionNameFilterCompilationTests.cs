@@ -273,8 +273,19 @@ public sealed class SelectionNameFilterCompilationTests
         VerifyLiveProjectSelectionScope(accountScope:true,sourceHasParent,exact,joinedPhysical:true,selection,
             storedSource:storedSource,targetHasParent:false);
 
+    /// <summary>原 List 可将现有普通业务页作为字典，并应用该页固定联接和已认证的账号范围。</summary>
+    [Theory]
+    [InlineData(false,false)]
+    [InlineData(false,true)]
+    [InlineData(true,false)]
+    [InlineData(true,true)]
+    public Task List_using_ordinary_dictionary_page_preserves_joined_scope(bool storedSource,bool targetHasParent)=>
+        VerifyLiveProjectSelectionScope(accountScope:true,sourceHasParent:targetHasParent,exactTarget:false,
+            joinedPhysical:true,selection:false,storedSource:storedSource,targetHasParent:targetHasParent,ordinaryTarget:true);
+
     private static async Task VerifyLiveProjectSelectionScope(bool accountScope,bool sourceHasParent,bool exactTarget,
-        bool joinedPhysical=false,bool selection=true,bool textParent=false,bool storedSource=false,bool targetHasParent=true)
+        bool joinedPhysical=false,bool selection=true,bool textParent=false,bool storedSource=false,bool targetHasParent=true,
+        bool ordinaryTarget=false)
     {
         const string ns="Example.LiveStoredSelection";
         var catalog=RedundantMultiNameCacheTests.Published(RelationOptionsContractTests.Catalog());
@@ -289,7 +300,7 @@ public sealed class SelectionNameFilterCompilationTests
         sourcePage.Extra["exportMethod"]=JsonSerializer.SerializeToElement(sourceHasParent?"edit":"list");
         if(!sourceHasParent)sourcePage.WhereSql="yz_project_id=@current_yz_project_id";
         var targetPage=catalog.ConfigPages.Single(page=>page.Id=="301");
-        targetPage.Extra["type"]=JsonSerializer.SerializeToElement(1);
+        targetPage.Extra["type"]=JsonSerializer.SerializeToElement(ordinaryTarget?0:1);
         targetPage.WhereSql="yz_project_id=@current_yz_project_id AND status=1";
         catalog.ConfigColumns.Add(new(){Id="37",ConfigTableId="3",ColumnName="status",LogicalType="int32",YzProjectId=catalog.YzProjectId});
         if(joinedPhysical)
