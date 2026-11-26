@@ -200,7 +200,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 GlobalCrossTableTarget.Declared(table)&&GlobalCrossTableTarget.Declared(target)&&
                 GlobalMultipleRelationTarget.RequireCached(catalog,table,relation,target) is {Page.Id:var publishedId} proof&&
                 publishedId==dictionaryPage.Id&&
-                (proof.UsesNonRedundantAccountPage||proof.UsesStoredStaticPage||proof.UsesNonRedundantPhysicalParentPage);
+                (proof.UsesNonRedundantAccountPage||proof.UsesStoredStaticPage||proof.UsesProjectPage||proof.UsesNonRedundantPhysicalParentPage);
             var projectFixedScope=selectedScope is not null&&IsProjectFixedMultiPage(catalog,target,selectedScope,
                 checkboxAccount:checkbox,allowStoredTextParent:true);
             var storedParent=selectedScope is null?null:GlobalCrossTableTarget.StoredMultiParent(catalog,target,selectedScope,checkbox,allowExact:true);

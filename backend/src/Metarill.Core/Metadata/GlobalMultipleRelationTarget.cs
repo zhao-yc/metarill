@@ -137,7 +137,11 @@ public static class GlobalMultipleRelationTarget
 
     /// <summary>全局来源允许绑定仅按物理账号等值及常量限定的非冗余发布页，字典本身不限定项目。</summary>
     public static bool IsNonRedundantAccountPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox)=>
-        table.IsRongyu==0&&IsPublishedMultiPage(table,page,checkbox)&&condition.Variables.Count>0&&condition.Terms.All(term=>
+        IsNonRedundantAccountPage(table,page,condition,checkbox,allowExact:false);
+
+    /// <summary>精确字典的角色在原选择时校验，缓存只能使用可从业务行重算的账号条件。</summary>
+    private static bool IsNonRedundantAccountPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox,bool allowExact)=>
+        table.IsRongyu==0&&IsPublishedMultiPage(table,page,checkbox,allowExact)&&condition.Variables.Count>0&&condition.Terms.All(term=>
             term.Values.All(value=>value.Kind!=FixedConditionValueKind.Variable)||
             term.Field!="yz_project_id"&&term is {Comparison:FixedConditionComparison.Equal,Values:[{Kind:FixedConditionValueKind.Variable} value]}&&
                 AccountConditionVariables.IsPageField(value.Text,term.Field));
@@ -238,13 +242,16 @@ public static class GlobalMultipleRelationTarget
         var storedExact=target.IsRongyu==1&&(checkbox
             ?GlobalCrossTableTarget.DeclaresExactPage(target,page)
             :cached&&GlobalCrossTableTarget.DeclaresExactMulti(target,page));
+        var cachedNonRedundantExact=cached&&!checkbox&&target.IsRongyu==0&&GlobalCrossTableTarget.DeclaresExactMulti(target,page);
         var storedAccount=(checkbox||pageId.Length>0)&&(IsStoredAccountPage(target,page,condition,checkbox)||
             storedExact&&IsStoredExactMultiAccountPage(target,page,condition,checkbox));
         var selfTreeScope=condition.Fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field));
         var scoped=selfTreeScope||target.IsRongyu==0&&condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(target,columns,field));
-        var storedStatic=(checkbox||pageId.Length>0)&&(target.IsRongyu==1||!scoped)&&IsStoredStaticPage(target,page,condition,checkbox,allowExact:storedExact);
-        var projectPage=(checkbox||pageId.Length>0)&&IsProjectPage(target,page,condition,checkbox,allowExact:storedExact);
-        var nonRedundantAccountPage=(checkbox||pageId.Length>0)&&IsNonRedundantAccountPage(target,page,condition,checkbox);
+        var storedStatic=(checkbox||pageId.Length>0)&&(target.IsRongyu==1||!scoped)&&
+            IsStoredStaticPage(target,page,condition,checkbox,allowExact:storedExact||cachedNonRedundantExact);
+        var projectPage=(checkbox||pageId.Length>0)&&IsProjectPage(target,page,condition,checkbox,allowExact:storedExact||cachedNonRedundantExact);
+        var nonRedundantAccountPage=(checkbox||pageId.Length>0)&&
+            IsNonRedundantAccountPage(target,page,condition,checkbox,allowExact:cachedNonRedundantExact);
         var exactPage=checkbox?GlobalCrossTableTarget.DeclaresExactPage(target,page):
             GlobalCrossTableTarget.DeclaresExactMulti(target,page);
         // 实时多值关系的字典权限由实际发布页证明，来源仍须具有物理行项目列。

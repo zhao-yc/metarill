@@ -315,6 +315,20 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         VerifyPublishedGlobalMultiselect(mode,1,false,projectType,projectScoped:projectScoped,accountField:accountField,
             exact:true,alternateDictionary:alternateDictionary,shortName:"short_caption",dictionaryProjectColumn:dictionaryProjectColumn);
 
+    /// <summary>非冗余精确字典在原多选锁读与持久名称重算中使用同一实际发布页。</summary>
+    [Theory]
+    [InlineData("int64",false,null,false,true,false,true)]
+    [InlineData("int64",false,null,true,true,false,true)]
+    [InlineData("string",true,null,false,true,false,true)]
+    [InlineData("int64",false,"store_id",false,false,false,true)]
+    [InlineData("string",true,"merchant_id",false,true,true,true)]
+    [InlineData("int64",false,null,false,true,false,false)]
+    public Task Stored_multiselect_name_caches_use_exact_nonredundant_dictionary(string projectType,bool projectScoped,
+        string? accountField,bool unfiltered,bool dictionaryProjectColumn,bool derivedShortName,bool globalSource)=>
+        VerifyPublishedGlobalMultiselect(1,0,false,projectType,unfiltered:unfiltered,globalSource:globalSource,
+            projectScoped:projectScoped,accountField:accountField,exact:true,
+            shortName:derivedShortName?"global_target_name":"short_caption",dictionaryProjectColumn:dictionaryProjectColumn);
+
     /// <summary>从实际生成程序集核对名称、关联选档、项目隔离和数据维护计划。</summary>
     private static async Task VerifyPublishedGlobalMultiselect(int mode,int targetStorage,bool derivedName,string? projectType,
         bool unfiltered=false,bool globalSource=false,bool projectScoped=false,string? accountField=null,
@@ -332,7 +346,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         if(projectScoped)dictionary.WhereSql=WithCurrentProject(dictionary.WhereSql);
         var hasDerivedLabel=derivedName||shortName=="global_target_name";
         if(projectType is not null)ConfigureStoredGlobalDictionary(catalog,projectType,hasDerivedLabel);
-        if(targetStorage==0&&globalSource&&!hasDerivedLabel)MakeProjectDictionaryNonRedundant(catalog);
+        if(targetStorage==0&&(globalSource||exact)&&!hasDerivedLabel)MakeProjectDictionaryNonRedundant(catalog);
         if(exact&&targetStorage==1)
         {
             // 精确字典的样本只保留物理标量，不借旧夹具的全局单值名称副本证明来源。
@@ -433,7 +447,8 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             var output=Path.Combine(directory,"generated");
             new CSharpGenerator().Generate(catalog,output,application);
             var serviceCode=await File.ReadAllTextAsync(Path.Combine(output,"Services/CachedConsumerService.g.cs"));
-            var fixedLookup=projectScoped||accountField is not null||exact&&mode==0&&(shortName is null||globalSource);
+            var fixedLookup=projectScoped||accountField is not null||
+                exact&&(mode==0&&(shortName is null||globalSource)||mode==1&&targetStorage==0);
             Assert.Contains("ImportMulti30_34Async",serviceCode);
             if(fixedLookup)
                 Assert.Contains("MultiDerivedPlan30_34",serviceCode);
@@ -450,7 +465,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 if(targetStorage==1&&!exact)
                     Assert.NotNull(FixedPageQueryCompilation.ManagedGlobalProject(target));
                 else if(targetStorage==0)
-                    Assert.True(NonRedundantReadCompilation.HasGlobalRowProject(target));
+                    Assert.Equal(dictionaryProjectColumn,NonRedundantReadCompilation.HasGlobalRowProject(target));
                 Assert.Empty(GenerationCapabilityAudit.Collect(model));
                 Assert.Contains("ImportMulti31_34Async",serviceCode);
                 if(fixedLookup||exact&&mode==0)
@@ -473,7 +488,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 var actor=DictionaryActor(catalog,accountField);
                 var auth=exact&&targetStorage==1?new StoredExactDictionaryAuthorization(actor):null;
                 var sql=NonRedundantGeneratedReadTests.CreateDictionarySql(assembly,application,"GlobalSource",session,auth);
-                if(mode==1&&(globalSource||exact&&targetStorage==1))
+                if(mode==1&&(globalSource||exact))
                 {
                     var business=NonRedundantGeneratedReadTests.CreateDictionarySql(assembly,application,"CachedConsumer",session);
                     Assert.Contains("yz_project_id",business("Scope30",[actor,null]));
@@ -594,7 +609,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 var plan=plans["3"]!;
                 Assert.Null(plan.GetType().GetProperty("Error")!.GetValue(plan));
                 read=plan.GetType().GetProperty("Read")!.GetValue(plan)!;
-                if(derivedName||projectScoped||accountField is not null)
+                if(derivedName||projectScoped||accountField is not null||exact&&targetStorage==0)
                 {
                     Assert.Contains(names,maintenance.MixedSourceColumns["cached_consumer"]);
                     Assert.Contains("global_source",maintenance.MixedTargets);
@@ -620,7 +635,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                     else Assert.Equal("status=17",condition?.GetType().GetProperty("Definition")!.GetValue(condition));
                 }
             }
-            if(globalSource||exact&&targetStorage==1)
+            if(globalSource||exact)
             {
                 var scope=Assert.IsType<string>(read.GetType().GetProperty("Scope",hidden)!.GetValue(read));
                 Assert.Contains("`yz_project_id`",scope);
@@ -710,7 +725,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 Assert.Contains("Export31Async",serviceCode);
                 var declaration=assembly.GetType(application+".Generated.GeneratedRelationMaintenance",true)!;
                 var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(declaration.GetProperty("Catalog")!.GetValue(null));
-                if(shortName=="global_target_name"||projectScoped||accountField is not null)
+                if(shortName=="global_target_name"||projectScoped||accountField is not null||exact&&targetStorage==0)
                     Assert.Contains(cacheName,maintenance.MixedSourceColumns["cached_consumer"]);
                 else
                 {

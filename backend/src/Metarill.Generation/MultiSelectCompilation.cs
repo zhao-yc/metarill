@@ -46,8 +46,9 @@ internal static class MultiSelectCompilation
                         definition.Target.Source,definition.TargetPage.Source,account.Syntax,checkbox:false)||
                     UsesStaticGlobalDictionary(definition)||
                     definition.Target.IsGlobal&&
-                    GlobalMultipleRelationTarget.RequireCached(model.Catalog,table.Source,definition.Source.Source,definition.Target.Source)
-                        .UsesPhysicalParentPage);
+                    GlobalMultipleRelationTarget.RequireCached(model.Catalog,table.Source,definition.Source.Source,definition.Target.Source) is {} range&&
+                    (range.UsesPhysicalParentPage||definition.UsesGlobalExactRead&&
+                        (range.UsesStoredStaticPage||range.UsesProjectPage||range.UsesNonRedundantAccountPage)));
             ColumnModel Fix(ColumnModel column) => names.Contains(column.Source.Id) ? column with { IsManagedMultiNames = true } : column;
             IReadOnlyList<ColumnModel> FixAll(IReadOnlyList<ColumnModel> columns) => columns.Select(Fix).ToArray();
             return table with { HasScopedGlobalCache = scopedGlobal, Columns = FixAll(table.Columns), Pages = table.Pages.Select(page => page with { Readable = FixAll(page.Readable), Writable = FixAll(page.Writable.Where(column => !names.Contains(column.Source.Id)).ToArray()), Searchable = FixAll(page.Searchable), Sortable = FixAll(page.Sortable), ListColumns = FixAll(page.ListColumns), DetailColumns = FixAll(page.DetailColumns) }).ToArray() };
@@ -117,7 +118,9 @@ internal static class MultiSelectCompilation
             var baselineName=Scalar(root,"nameField");
             if(string.IsNullOrWhiteSpace(baselineName))baselineName="name";
             var changedName=baselineName!=name.Source.ColumnName;
-            var globalExactRead=(table.IsGlobal||changedName)&&table.Source.IsRongyu==0&&
+            // 非冗余字典的名称副本与 ID 校验共用实际范围锁读。
+            var globalExactRead=(table.Source.IsRongyu==0&&(table.IsGlobal||changedName)||
+                table.Source.IsRongyu==1&&target.Source.IsRongyu==0)&&
                 GlobalCrossTableTarget.DeclaresExactMulti(target.Source,targetPage.Source);
             var scoped=(sharedTextParent is null||target.Source.IsRongyu==0)&&
                 (globalExactRead||FixedPageConditionCompilation.HasMultiTargetScope(model,target,targetPage));

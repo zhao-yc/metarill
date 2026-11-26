@@ -311,7 +311,7 @@ public static partial class MySqlNonRedundantReadCompiler
             GlobalCrossTableTarget.Declared(source)&&GlobalCrossTableTarget.Declared(target)&&
             GlobalMultipleRelationTarget.RequireCached(catalog,source,relation,target) is {Page.Id:var publishedId} proof&&
             publishedId==namePage.Id&&
-            (proof.UsesNonRedundantAccountPage||target.IsRongyu==0&&proof.UsesStoredStaticPage||proof.UsesPhysicalParentPage);
+            (proof.UsesNonRedundantAccountPage||target.IsRongyu==0&&(proof.UsesStoredStaticPage||proof.UsesProjectPage)||proof.UsesPhysicalParentPage);
         return CompileMultiLabel(catalog,target.Id,field,[field],[],new(source,"cache_owner",GlobalSingleSource:globalDictionarySource),
             selectedPage,relation,sharedCheckbox:sharedCheckbox);
     }
@@ -351,7 +351,8 @@ public static partial class MySqlNonRedundantReadCompiler
             SelectedMultiPage=selectedPage,
             AllowsExactMultiSelection=relation?.ControlKind=="MultiSelectPage",
             AllowsStoredExactCheckbox=relation?.ControlKind=="MultiCheckBoxDatabase",
-            AllowLiteralMultiScope=sharedCheckbox||projectFixedScope,
+            AllowLiteralMultiScope=sharedCheckbox||projectFixedScope||
+                !checkbox&&selectedPage is not null&&GlobalCrossTableTarget.DeclaresExactMulti(target,selectedPage),
             MultiNamePathPage=relation is null?null:MultiTargetNamePage(catalog,target,relation),
             ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal),
             MultiParentOwner=source is null?null:(cacheOwner!,source.Column,source.AdditionalColumns),
