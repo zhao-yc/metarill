@@ -1773,11 +1773,48 @@ public sealed class TextCascadeParentRelationTests
     [InlineData(1,"string","OnlyNew","list",true,true,false)]
     [InlineData(0,"string","OverWriteByFirstColumn","edit",true,true,true,true)]
     [InlineData(1,"string","OnlyNew","list",true,true,true,true)]
-    public async Task Multi_text_parent_reads_names_from_fixed_join(int sourceStorage,string kind,string import,string export,bool buildPackage,
-        bool joinedPageCondition=false,bool separateConditionPath=true,bool physicalLabel=false)
+    public Task Multi_text_parent_reads_names_from_fixed_join(int sourceStorage,string kind,string import,string export,bool buildPackage,
+        bool joinedPageCondition=false,bool separateConditionPath=true,bool physicalLabel=false) =>
+        VerifyMultiJoinedPage(sourceStorage,kind,import,export,buildPackage,joinedPageCondition,separateConditionPath,physicalLabel);
+
+    /// <summary>同项目多值字典的固定联接与物理父范围分别证明，也支持无父字典。</summary>
+    [Theory]
+    [InlineData(0,"int64","OnlyNew","list")]
+    [InlineData(1,"string","OverWriteByFirstColumn","edit")]
+    [InlineData(0,"none","OverWriteByFirstColumn","edit")]
+    [InlineData(1,"none","OnlyNew","list")]
+    public Task Multi_physical_or_unparented_dictionary_keeps_joined_page_scope(
+        int sourceStorage,string parentType,string import,string export) =>
+        VerifyMultiJoinedPage(sourceStorage,"string",import,export,buildPackage:true,joinedPageCondition:true,
+            separateConditionPath:true,physicalLabel:true,parentType:parentType);
+
+    private static async Task VerifyMultiJoinedPage(int sourceStorage,string kind,string import,string export,bool buildPackage,
+        bool joinedPageCondition,bool separateConditionPath,bool physicalLabel,string parentType="logical")
     {
         var catalog=Catalog(sourceStorage,import,export);
         PublishTextParentJoinedLabels(catalog,kind,["83","84"]);
+        if(parentType!="logical")
+        {
+            // 去掉文本逻辑父用例附带的级联，单独检验这组发布联接和物理父范围。
+            var unrelated=catalog.ConfigColumns.Where(column=>column.ConfigTableId is "2" or "83" or "84"&&
+                column.ColumnName is "country_id" or "area_id" or "place_id").Select(column=>column.Id).ToHashSet(StringComparer.Ordinal);
+            catalog.ConfigColumns.RemoveAll(column=>unrelated.Contains(column.Id));
+            catalog.ConfigPageColumns.RemoveAll(field=>unrelated.Contains(field.ConfigColumnId));
+            // 首列覆盖使用原业务名称，不将多选／复选数组作为匹配键。
+            if(import=="OverWriteByFirstColumn")
+                catalog.ConfigColumns.Single(column=>column.Id=="22").SortNo=-1;
+            const string projectScope="yz_project_id=@current_yz_project_id";
+            foreach(var (table,pageId) in new[]{("2","201"),("83","830"),("84","840")})
+            {
+                var published=catalog.ConfigPages.Single(item=>item.Id==pageId);
+                published.WhereSql=projectScope;
+                if(table=="84"&&parentType!="int64")published.Extra["type"]=JsonSerializer.SerializeToElement(2);
+                if(parentType=="none")continue;
+                catalog.ConfigColumns.Add(new(){Id=table+"15",ConfigTableId=table,YzProjectId=catalog.YzProjectId,
+                    ColumnName="owner_country_id",LogicalType=parentType,LinkConfigTableId="3"});
+                published.WhereSql+=" AND owner_country_id=@parent_id";
+            }
+        }
         if(joinedPageCondition)
         {
             // 固定条件另用联接字段，不依赖关系显示名恰好已参与投影。
@@ -1814,8 +1851,13 @@ public sealed class TextCascadeParentRelationTests
         var page=Assert.Single(owner.Pages);
         var multi=MultiSelectCompilation.Resolve(model,owner,page,owner.Columns.Single(column=>column.Source.Id=="704"));
         var checkbox=DatabaseCheckboxCompilation.Resolve(model,owner,page,owner.Columns.Single(column=>column.Source.Id=="706"));
-        Assert.True(multi.Definition is {SameParent:true,SharedTextParent:not null},multi.Reason);
-        Assert.True(checkbox.Definition is {DerivedName:true,SharedTextParent:not null},checkbox.Reason);
+        Assert.True(multi.Definition is not null,multi.Reason);
+        Assert.True(checkbox.Definition is {DerivedName:true},checkbox.Reason);
+        if(parentType=="logical")
+        {
+            Assert.True(multi.Definition is {SameParent:true,SharedTextParent:not null},multi.Reason);
+            Assert.NotNull(checkbox.Definition.SharedTextParent);
+        }
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         if(sourceStorage==1)
         {
@@ -1861,8 +1903,11 @@ public sealed class TextCascadeParentRelationTests
             }
             var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/TextrelSourceService.g.cs"));
             Assert.Contains("CompileScopedMultiLabel(\"83\",\"830\",\"name\"",service);
-            Assert.Contains(sourceStorage==0?"CompileScopedCheckboxLabel(\"84\",\"840\",\"name\"":
-                "CompileScopedMultiLabel(\"84\",\"840\",\"name\"",service);
+            if(parentType=="logical")
+                Assert.Contains(sourceStorage==0?"CompileScopedCheckboxLabel(\"84\",\"840\",\"name\"":
+                    "CompileScopedMultiLabel(\"84\",\"840\",\"name\"",service);
+            else
+                Assert.Matches("CompileScoped(?:Checkbox|Multi)Label\\(\"84\",\"840\",\"name\"",service);
             Assert.Contains("ImportMulti201_704Async",service);
             Assert.Contains("ImportCheckbox201_706Async",service);
             Assert.Contains("Export201Async",service);
@@ -1881,14 +1926,18 @@ public sealed class TextCascadeParentRelationTests
                 Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor with{StoreId=null}));
                 plan=plan.BindAccount(actor);
             }
-            AssertTextParentSql(plan);
+            if(parentType=="logical")AssertTextParentSql(plan);
             const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
             var mysql=plan.GetType().GetProperty("MySql",flags)!.GetValue(plan)!;
             var from=Assert.IsType<string>(mysql.GetType().GetProperty("From",flags)!.GetValue(mysql));
             Assert.Contains("`textrel_name_dictionary`",from);
             var scope=Assert.IsType<string>(mysql.GetType().GetProperty("Scope",flags)!.GetValue(mysql));
             var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(mysql.GetType().GetProperty("Constants",flags)!.GetValue(mysql));
-            Assert.Contains(parameters,parameter=>Equals(parameter.Value,"排除地区")&&scope.Contains(parameter.Key,StringComparison.Ordinal));
+            if(parentType=="logical")
+                Assert.Contains(parameters,parameter=>Equals(parameter.Value,"排除地区")&&scope.Contains(parameter.Key,StringComparison.Ordinal));
+            if(parentType!="logical")
+                Assert.Equal(parentType=="none"?null:"owner_country_id",
+                    mysql.GetType().GetProperty("RequiredMultiParent",flags)!.GetValue(mysql));
             if(joinedPageCondition)
             {
                 Assert.DoesNotContain("region_label",scope);

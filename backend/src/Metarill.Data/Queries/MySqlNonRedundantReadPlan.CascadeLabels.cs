@@ -303,6 +303,9 @@ public static partial class MySqlNonRedundantReadCompiler
                 value.Kind==FixedConditionValueKind.Variable&&MultiTargetParentScope.IsParameter(value.Text)))>1||
             syntax.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,members,field)||
                 CascadeTreeStorageColumns.IsLogicalNameField(table,declared,field))||
+            // 只有实际多值控件绑定的字典页纳入实时名称、传播和维护计划。
+            (checkbox||page.Extra.GetValueOrDefault("type").ToString()=="2")&&
+                ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,table,page).Count>0||
             syntax.Terms.Any(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
                 MultiTargetParentScope.IsParameter(value.Text))&&
                 members.SingleOrDefault(column=>column.ColumnName==term.Field) is {LinkConfigTableId.Length:>0} field&&

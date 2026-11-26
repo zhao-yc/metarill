@@ -52,7 +52,7 @@ public static class ProjectScopedSingleRelationTarget
     public static IReadOnlySet<string> JoinedTextPageFields(MetadataCatalog catalog,TableMetadata target,PageMetadata page)=>
         PublishedJoinedFields(catalog,target,page,allowProjectPage:false);
 
-    /// <summary>普通业务、原单选及同一文本逻辑父的原多选页可设置固定单值联接条件。</summary>
+    /// <summary>普通业务和原单值／多值选择页可设置固定单值联接条件，声明父范围时复核真实父键。</summary>
     public static IReadOnlySet<string> JoinedPageFields(MetadataCatalog catalog,TableMetadata target,PageMetadata page)=>
         PublishedJoinedFields(catalog,target,page,allowProjectPage:true);
 
@@ -75,7 +75,7 @@ public static class ProjectScopedSingleRelationTarget
                 .All(term=>term.Values.All(value=>value.Kind!=FixedConditionValueKind.Variable)))
                 fields.Add(column.ColumnName);
         if(fields.Count==0)return fields;
-        var localPage=allowProjectPage&&pageType!="2"&&columns.Any(column=>column.ColumnName=="yz_project_id"&&
+        var localPage=allowProjectPage&&columns.Any(column=>column.ColumnName=="yz_project_id"&&
             column.LogicalType is ("int64" or "string")&&GlobalPhysicalRelationValue.IsScalar(storage,target,column));
         // 无父页按实际项目范围执行；声明父参数时仍须证明同项目的真实物理父键。
         if(localPage&&(!syntax.Variables.Any(MultiTargetParentScope.IsParameter)||
