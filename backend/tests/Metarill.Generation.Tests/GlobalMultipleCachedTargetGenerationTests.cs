@@ -292,6 +292,17 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         VerifyPublishedGlobalMultiselect(1,targetStorage,false,"string",globalSource:true,projectScoped:projectScoped,
             accountField:accountField,shortName:"short_caption");
 
+    /// <summary>无父级精确字典按请求授权选择，持久化的两份名称按业务行归属传播和回填。</summary>
+    [Theory]
+    [InlineData("int64",false,null,true)]
+    [InlineData("string",true,null,true)]
+    [InlineData("int64",false,"store_id",false)]
+    [InlineData("string",true,"merchant_id",true)]
+    public Task Stored_multiselect_name_caches_use_exact_stored_dictionary(string projectType,bool projectScoped,
+        string? accountField,bool dictionaryProjectColumn)=>
+        VerifyPublishedGlobalMultiselect(1,1,false,projectType,globalSource:true,projectScoped:projectScoped,
+            accountField:accountField,exact:true,shortName:"short_caption",dictionaryProjectColumn:dictionaryProjectColumn);
+
     /// <summary>从实际生成程序集核对名称、关联选档、项目隔离和数据维护计划。</summary>
     private static async Task VerifyPublishedGlobalMultiselect(int mode,int targetStorage,bool derivedName,string? projectType,
         bool unfiltered=false,bool globalSource=false,bool projectScoped=false,string? accountField=null,
@@ -409,8 +420,9 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             var output=Path.Combine(directory,"generated");
             new CSharpGenerator().Generate(catalog,output,application);
             var serviceCode=await File.ReadAllTextAsync(Path.Combine(output,"Services/CachedConsumerService.g.cs"));
+            var fixedLookup=projectScoped||accountField is not null||exact&&mode==0&&(shortName is null||globalSource);
             Assert.Contains("ImportMulti30_34Async",serviceCode);
-            if(projectScoped||accountField is not null||exact&&(shortName is null||globalSource))
+            if(fixedLookup)
                 Assert.Contains("MultiDerivedPlan30_34",serviceCode);
             else if(exact)
                 Assert.Contains("""ResolveExactDataManage("10", "list", "real_name")""",serviceCode);
@@ -428,7 +440,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                     Assert.True(NonRedundantReadCompilation.HasGlobalRowProject(target));
                 Assert.Empty(GenerationCapabilityAudit.Collect(model));
                 Assert.Contains("ImportMulti31_34Async",serviceCode);
-                if(projectScoped||accountField is not null||exact)
+                if(fixedLookup||exact&&mode==0)
                     Assert.Contains("MultiDerivedPlan31_34",serviceCode);
                 else
                     Assert.Equal(!unfiltered,serviceCode.Contains("MultiPageCondition31_34",StringComparison.Ordinal));
@@ -607,7 +619,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 Assert.IsType<UnauthorizedAccessException>(
                     Assert.Throws<TargetInvocationException>(()=>validate.Invoke(null,[otherProject])).InnerException);
             }
-            if(projectScoped||accountField is not null||exact&&(shortName is null||globalSource))
+            if(fixedLookup)
             {
                 var service=assembly.GetType(application+".Generated.Services.CachedConsumerService",true)!;
                 var lookup=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service.GetField("MultiDerivedPlan30_34",
@@ -675,6 +687,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 var cacheSql=CheckboxNameExpression(read,cacheName);
                 Assert.Contains(labelSql,cacheSql);
                 AssertDictionaryNameAccountScope(cacheSql,mode,accountField);
+                if(exact)Assert.DoesNotContain("`scope_code`",cacheSql);
                 Assert.Contains("entity."+cacheProperty+" = JsonSerializer.Serialize",serviceCode);
                 Assert.Contains("entity.GlobalSourceCaptions = JsonSerializer.Serialize",serviceCode);
                 Assert.Contains("ImportMulti31_34Async",serviceCode);
@@ -710,6 +723,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             var expression=CheckboxNameExpression(read,names);
             Assert.Equal(!unfiltered,expression.Contains("multi_value.`status`",StringComparison.Ordinal));
             AssertDictionaryNameAccountScope(expression,mode,accountField);
+            if(mode==1&&exact)Assert.DoesNotContain("`scope_code`",expression);
             if(mode==1&&accountField is not null)AssertDictionaryCacheWithoutOwnershipIsRejected(catalog,application,"34");
             var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
                 read.GetType().GetProperty("Constants",hidden)!.GetValue(read));

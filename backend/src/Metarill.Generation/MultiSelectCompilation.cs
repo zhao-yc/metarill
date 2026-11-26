@@ -59,7 +59,7 @@ internal static class MultiSelectCompilation
         definition.TargetPage.Scopes.Count == 0 &&
         (definition.Target.Source.IsRongyu == 1 || !FixedPageConditionCompilation.HasLogicalFields(definition.TargetPage)) &&
         GlobalMultipleRelationTarget.IsStoredStaticPage(definition.Target.Source, definition.TargetPage.Source,
-            definition.TargetPage.Condition?.Syntax);
+            definition.TargetPage.Condition?.Syntax, allowExact:definition.Target.Source.IsRongyu==1&&definition.ExactTarget is not null);
 
     /// <summary>来源和目标均绑定稳定元数据ID，客户端不能替换表或页面。</summary>
     internal static IReadOnlyList<MultiSelectModel> ForPage(GenerationModel model, TableModel table, PageModel page) => page.Readable.Concat(page.Writable).DistinctBy(column => column.Source.Id)

@@ -75,8 +75,8 @@ public static class GlobalMultipleRelationTarget
         condition.Terms.Any(IsAccountScope)&&condition.Terms.All(term=>IsFixedOrProject(term)||IsAccountScope(term));
 
     /// <summary>全局业务数组可使用实际发布的冗余或非冗余字典页，候选范围为固定物理常量或无条件。</summary>
-    public static bool IsStoredStaticPage(TableMetadata table,PageMetadata page,FixedConditionPlan? condition,bool checkbox=false)=>
-        table.IsRongyu is 0 or 1&&IsPublishedMultiPage(table,page,checkbox)&&(condition?.Variables.Count??0)==0;
+    public static bool IsStoredStaticPage(TableMetadata table,PageMetadata page,FixedConditionPlan? condition,bool checkbox=false,bool allowExact=false)=>
+        table.IsRongyu is 0 or 1&&IsPublishedMultiPage(table,page,checkbox,allowExact)&&(condition?.Variables.Count??0)==0;
 
     /// <summary>当前项目与固定条件可叠加实际发布的账号等值，冗余精确多选须同时证明账号范围。</summary>
     public static bool IsProjectPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox=false,bool allowExact=false)=>
@@ -227,11 +227,14 @@ public static class GlobalMultipleRelationTarget
             :page.Extra.GetValueOrDefault("type").ToString()!="2"))
             throw new NotSupportedException("全局多值必须引用对应控件实际发布的字典页。");
         var joinedFields=GlobalCrossTableTarget.PageJoinedConditionFields(catalog,target,page);
-        var storedAccount=(checkbox||pageId.Length>0)&&IsStoredAccountPage(target,page,condition,checkbox);
+        // 原多选按请求角色校验选值；无父级的冗余名称只使用发布页中可按来源行重现的条件。
+        var storedExact=cached&&!checkbox&&target.IsRongyu==1&&GlobalCrossTableTarget.DeclaresExactMulti(target,page);
+        var storedAccount=(checkbox||pageId.Length>0)&&(IsStoredAccountPage(target,page,condition,checkbox)||
+            storedExact&&IsStoredExactMultiAccountPage(target,page,condition));
         var selfTreeScope=condition.Fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field));
         var scoped=selfTreeScope||target.IsRongyu==0&&condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(target,columns,field));
-        var storedStatic=(checkbox||pageId.Length>0)&&(target.IsRongyu==1||!scoped)&&IsStoredStaticPage(target,page,condition,checkbox);
-        var projectPage=(checkbox||pageId.Length>0)&&IsProjectPage(target,page,condition,checkbox);
+        var storedStatic=(checkbox||pageId.Length>0)&&(target.IsRongyu==1||!scoped)&&IsStoredStaticPage(target,page,condition,checkbox,allowExact:storedExact);
+        var projectPage=(checkbox||pageId.Length>0)&&IsProjectPage(target,page,condition,checkbox,allowExact:storedExact);
         var nonRedundantAccountPage=(checkbox||pageId.Length>0)&&IsNonRedundantAccountPage(target,page,condition,checkbox);
         var exactPage=checkbox?GlobalCrossTableTarget.DeclaresExactPage(target,page):
             GlobalCrossTableTarget.DeclaresExactMulti(target,page);

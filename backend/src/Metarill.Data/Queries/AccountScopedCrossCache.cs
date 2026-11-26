@@ -34,8 +34,10 @@ public sealed class AccountScopedCrossCache
             additionalParents:additionalParents,globalMulti:globalMultiProject,allowStoredPageCaches:allowStoredPageCaches);
 
     /// <summary>全局物理多值字典的显式项目等值由固定查询作用域绑定，账号仍取实际来源行。</summary>
-    internal static AccountScopedCrossCache CompileGlobalMulti(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage)=>
-        Compile(catalog,source,target,targetPage,recursive:false,globalSingleSource:GlobalCrossTableTarget.Declared(source),globalMulti:true);
+    internal static AccountScopedCrossCache CompileGlobalMulti(MetadataCatalog catalog,TableMetadata source,TableMetadata target,
+        PageMetadata targetPage,bool separateExactScope=false)=>
+        Compile(catalog,source,target,targetPage,recursive:false,globalSingleSource:GlobalCrossTableTarget.Declared(source),
+            globalMulti:true,separateExactScope:separateExactScope);
 
     /// <summary>递归候选允许逻辑字段的常量条件，账号等值仍须对应来源行真实物理归属。</summary>
     internal static AccountScopedCrossCache CompileRecursive(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage,

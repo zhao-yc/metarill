@@ -126,10 +126,19 @@ internal static class FixedPageConditionCompilation
     internal static bool HasJoinedFields(PageModel page)=>page.Condition?.JoinedFields.Count>0;
     internal static bool HasLogicalFields(PageModel page)=>HasCrossFields(page)||HasSelfTreeFields(page)||HasJoinedFields(page);
     /// <summary>原多选引用物理全局字典，独立项目条件与账号条件均沿实际发布页绑定。</summary>
-    internal static bool HasStoredGlobalMultiScope(TableModel table,PageModel page)=>
-        (table.Source.IsRongyu==1&&(HasGlobalProjectMultiScope(table,page)||HasStoredGlobalMultiParentScope(table,page)))||
-        page.Scopes.All(scope=>scope.Source=="project")&&page.Condition is {} condition&&!HasLogicalFields(page)&&
-        GlobalMultipleRelationTarget.IsStoredAccountPage(table.Source,page.Source,condition.Syntax);
+    internal static bool HasStoredGlobalMultiScope(TableModel table,PageModel page)
+    {
+        if(table.Source.IsRongyu!=1)return false;
+        if(HasGlobalProjectMultiScope(table,page)||HasStoredGlobalMultiParentScope(table,page))return true;
+        if(GlobalCrossTableTarget.DeclaresExactMulti(table.Source,page.Source))
+        {
+            var syntax=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
+            return GlobalMultipleRelationTarget.IsStoredExactMultiAccountPage(table.Source,page.Source,syntax)||
+                GlobalMultipleRelationTarget.IsProjectPage(table.Source,page.Source,syntax,allowExact:true);
+        }
+        return page.Scopes.All(scope=>scope.Source=="project")&&page.Condition is {} condition&&!HasLogicalFields(page)&&
+            GlobalMultipleRelationTarget.IsStoredAccountPage(table.Source,page.Source,condition.Syntax);
+    }
 
     /// <summary>识别声明实际父键的全局冗余字典，物理发布资格由数据计划复核。</summary>
     internal static bool HasStoredGlobalMultiParentScope(TableModel table,PageModel page)=>
