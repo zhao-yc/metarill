@@ -72,10 +72,14 @@ public static partial class MySqlNonRedundantReadCompiler
             !global?ProjectScopedSingleRelationTarget.PageParent(catalog,table,page):null;
         var storage=MetadataStoragePolicy.ForTable(catalog,table);
         var pageJoins=ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,table,page);
-        var listJoins=!global&&!exactCheckboxParent&&listFields is not null&&
-            (projectSingle&&projectSingleControlKind=="List"||projectParent is {Logical:true,Global:false})
-            ?ProjectScopedSingleRelationTarget.JoinedConditionFields(catalog,table,page,listFields)
-            :new HashSet<string>(StringComparer.Ordinal);
+        IReadOnlySet<string> listJoins=FrozenSet<string>.Empty;
+        if(listFields is not null&&!exactCheckboxParent)
+        {
+            if(global&&!globalExactSingle&&!exactSingleParent&&(!projectSingle||projectSingleControlKind=="List"))
+                listJoins=GlobalCrossTableTarget.ListJoinedConditionFields(catalog,table,page,listFields);
+            else if(!global&&(projectSingle&&projectSingleControlKind=="List"||projectParent is {Logical:true,Global:false}))
+                listJoins=ProjectScopedSingleRelationTarget.JoinedConditionFields(catalog,table,page,listFields);
+        }
         if(exactParent&&projectParent is not ({Logical:true} or {AdditionalTargets.Count:>0})&&
             !(exactSingleParent&&projectParent is {Global:true}))
             throw new NotSupportedException("精确候选缺少已发布的父范围。");
@@ -870,6 +874,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 additionalParents:additional,compareAdditionalParents:true,joinedFields:pageJoins);
         }
 
+        private int physicalAccountCacheScopeCount;
+
         /// <summary>物理账号条件按来源行归属计算，并记录源字段和目标筛选列的反向依赖。</summary>
         private string PhysicalAccountCacheCondition(TableMetadata table,string alias,PageMetadata page,
             CascadeCacheOwner owner,ColumnMetadata? parentField=null,bool allowFixedOnly=false,bool separateExactScope=false,
@@ -878,8 +884,9 @@ public static partial class MySqlNonRedundantReadCompiler
             var ownership=AccountScopedCrossCache.Compile(catalog,owner.Table,table,page,owner.GlobalTreeSource,
                 parentField,owner.GlobalSingleSource,allowFixedOnly,separateExactScope,additionalParents,globalMultiProject,allowStoredPageCaches);
             cascadeCacheOwnerFields.UnionWith(ownership.Ownership.Select(binding=>binding.Source.ColumnName));
-            // 多份名称可用同一目标别名，常量参数必须沿各自投影前缀隔离。
-            var parameterPrefix=multiLabel?"mt_cross_cache_"+aliasPrefix+alias:null;
+            // 名称与条件可能重复访问同一关联别名，每次保留反查列并单独绑定本段常量。
+            var parameterPrefix=ConditionParameterPrefix("mt_cross_cache_"+(multiLabel?aliasPrefix:"")+
+                alias+"_"+physicalAccountCacheScopeCount++);
             return AccountCacheScope(ownership,table,alias,owner.Alias,render:true,owner.Table,parameterPrefix);
         }
 

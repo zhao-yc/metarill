@@ -30,6 +30,101 @@ public sealed class GlobalDerivedTargetGenerationTests
         Assert.All(c.ConfigPages,p=>{Assert.Equal(1,p.IsImport);Assert.Equal(1,p.IsExport);});
         Assert.Equal(before,JsonSerializer.Serialize(c));
     }
+    /// <summary>全局字典的已发布联接字段也可用于原下拉附加条件。</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task Global_list_condition_uses_a_published_joined_field(int sourceStorage)
+    {
+        const string ns="Example.GlobalJoinedListCondition";
+        var catalog=Catalog(sourceStorage,"int64","int64");
+        catalog.ConfigColumns.AddRange([
+            new(){Id="25",ConfigTableId="2",YzProjectId="100",ColumnName="segment",LogicalType="int32"},
+            new(){Id="16",ConfigTableId="1",YzProjectId="100",ColumnName="terminal_segment",LogicalType="int32",Extra={
+                ["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
+                ["columnFullName"]=JsonSerializer.SerializeToElement("global_target.segment")}}
+        ]);
+        var selector=catalog.ConfigColumns.Single(column=>column.Id=="34");
+        selector.ControlDetail=JsonSerializer.Serialize(new{tableId="1",pageId="10",
+            nameField="global_target_name",whereSql="terminal_segment <> 17"});
+        var model=GenerationModel.Create(catalog,ns);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var table=model.Tables.Single(item=>item.Source.Id=="3");
+        var relation=Assert.Single(RelationCompilation.ForPage(model,Assert.Single(table.Pages),true,forExcel:true),
+            item=>item.SourceColumn.Source.Id=="34");
+        Assert.Contains("terminal_segment",relation.Conditions!.JoinedFields);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-list-joined-condition");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated=Path.Combine(directory,"generated");
+            new CSharpGenerator().Generate(catalog,generated,ns);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(ns+".Generated.Services.CachedConsumerService",true)!;
+            const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.NonPublic;
+            const string cacheName="global_source_global_target_name";
+            var actor=new RuntimeActor(9,"全局联接范围",false,"100","9");
+            object Plan(string member)
+            {
+                var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                    service.GetField(member,hidden|System.Reflection.BindingFlags.Static)!.GetValue(null));
+                return plan.GetType().GetProperty("MySql",hidden|System.Reflection.BindingFlags.Instance)!
+                    .GetValue(plan.BindAccount(actor))!;
+            }
+            string Expression(object read,string field)=>Assert.IsType<string>(read.GetType()
+                .GetMethod("Expression",hidden|System.Reflection.BindingFlags.Instance)!.Invoke(read,[field]));
+            string From(object read)=>Assert.IsType<string>(read.GetType()
+                .GetProperty("From",hidden|System.Reflection.BindingFlags.Instance)!.GetValue(read));
+            IReadOnlyDictionary<string,object?> Constants(object read)=>
+                Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(read.GetType()
+                    .GetProperty("Constants",hidden|System.Reflection.BindingFlags.Instance)!.GetValue(read));
+
+            var options=Plan("DerivedOptionsPlan30_34");
+            Assert.Contains("`global_target`",From(options));
+            Assert.Contains(".`segment`",Expression(options,"terminal_segment"));
+
+            var code=await File.ReadAllTextAsync(Path.Combine(generated,"Services/CachedConsumerService.g.cs"));
+            Assert.Contains("OptionsCondition30_34.BindVariables",code);
+            Assert.Contains("ImportRelation30_34Async",code);
+            Assert.Contains("currentRead:true",code);
+            Assert.NotNull(service.GetMethod("Import30Async"));
+            Assert.NotNull(service.GetMethod("Export30Async"));
+            if(sourceStorage==0)
+            {
+                foreach(var member in new[]{"ReadPlan30","ExportReadPlan30"})
+                {
+                    var read=Plan(member);
+                    var sql=From(read)+Expression(read,cacheName);
+                    Assert.Contains(".`segment`",sql);
+                    Assert.Contains(Constants(read),pair=>Equals(pair.Value,17)&&sql.Contains(pair.Key,StringComparison.Ordinal));
+                }
+            }
+            else
+            {
+                var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                    assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!.GetProperty("Catalog")!.GetValue(null));
+                var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(maintenance.GetType()
+                    .GetProperty("Plans",hidden|System.Reflection.BindingFlags.Instance)!.GetValue(maintenance));
+                var tablePlan=plans["3"]!;
+                var read=tablePlan.GetType().GetProperty("Read")!.GetValue(tablePlan)!;
+                var sql=Expression(read,cacheName);
+                Assert.Contains(".`segment`",sql);
+                Assert.Contains(Constants(read),pair=>Equals(pair.Value,17)&&sql.Contains(pair.Key,StringComparison.Ordinal));
+                var reverse=Assert.IsAssignableFrom<System.Collections.IEnumerable>(read.GetType()
+                    .GetProperty("Reverse",hidden|System.Reflection.BindingFlags.Instance)!.GetValue(read));
+                Assert.Contains(reverse.Cast<object>(),item=>
+                    Equals("global_target",item.GetType().GetProperty("TargetTable")!.GetValue(item))&&
+                    Assert.IsAssignableFrom<IReadOnlyDictionary<string,IReadOnlySet<string>>>(item.GetType()
+                        .GetProperty("Outputs")!.GetValue(item)).TryGetValue(cacheName,out var fields)&&fields.Contains("segment"));
+            }
+            var app=Path.Combine(directory,"app");
+            Assert.True(new ApplicationPackager().Create(catalog,app,ns,NonRedundantApplicationFixture.Root()).FrontendIncluded);
+            foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(app,operation);
+        }
+        finally { if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
     /// <summary>实时派生名称、源列表及选择回读沿全局中间页使用同一实际下拉范围。</summary>
     [Theory][InlineData("constant")][InlineData("form")][InlineData("account")][InlineData("rowProject")]
     [InlineData("alternatePage")][InlineData("storedAlternatePage")]

@@ -61,8 +61,9 @@ public static partial class MySqlNonRedundantReadCompiler
                 .ToHashSet(StringComparer.Ordinal);
             var bindings=(cross.Count==0?[]:CrossMembershipBindings(catalog,target,page,cross))
                 .ToDictionary(binding=>binding.SourceColumnId,StringComparer.Ordinal);
-            var joined=listControl?ProjectScopedSingleRelationTarget.JoinedConditionFields(catalog,target,page,condition.Fields):
-                new HashSet<string>(StringComparer.Ordinal);
+            var joined=!listControl?new HashSet<string>(StringComparer.Ordinal):GlobalCrossTableTarget.Declared(target)
+                ?GlobalCrossTableTarget.ListJoinedConditionFields(catalog,target,page,condition.Fields)
+                :ProjectScopedSingleRelationTarget.JoinedConditionFields(catalog,target,page,condition.Fields);
             if(joined.Count>0)singleControlJoinAliases.Add(alias);
             bool Joined(ColumnMetadata column)=>joined.Contains(column.ColumnName);
             bool Logical(string field)=>tree.Contains(field)||cross.Contains(field)||Joined(Column(target,field));

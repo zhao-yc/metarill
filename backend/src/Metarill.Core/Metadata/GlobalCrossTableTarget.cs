@@ -116,6 +116,25 @@ public static class GlobalCrossTableTarget
         else RequirePublishedName(catalog,table,page,name,true,allowAccount:true,allowLogical:true,allowTyped:true);
     }
 
+    /// <summary>全局下拉条件只解析实际发布页上的联接标量，逐段核对非凭据终点与来源页。</summary>
+    public static IReadOnlySet<string> ListJoinedConditionFields(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
+        IReadOnlyCollection<string> conditionFields)
+    {
+        if(conditionFields.Count==0||!Declared(table)||table is not {IsRongyu:0,IsView:0,IsFunctionTable:0}||
+            page.ConfigTableId!=table.Id||table.YzProjectId!=catalog.YzProjectId||page.YzProjectId!=catalog.YzProjectId||
+            page.Extra.GetValueOrDefault("type").ToString() is not ("" or "0" or "1"))
+            return new HashSet<string>(StringComparer.Ordinal);
+        var storage=MetadataStoragePolicy.ForTable(catalog,table);
+        var joined=catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id&&
+            conditionFields.Contains(column.ColumnName)&&storage.Kind(column)==MetadataFieldStorage.Join).ToArray();
+        if(joined.Length==0)return new HashSet<string>(StringComparer.Ordinal);
+        RequirePublishedSinglePage(catalog,table,page);
+        foreach(var field in joined)
+            if(!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,storage,table,field,page))
+                throw new NotSupportedException("全局下拉条件需要实际发布的非凭据单值联接。");
+        return joined.Select(column=>column.ColumnName).ToHashSet(StringComparer.Ordinal);
+    }
+
     /// <summary>多值目标和独立页面候选可使用由实际父记录限定的同一范围。</summary>
     public static void RequireMultiCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool checkbox=false)
     {

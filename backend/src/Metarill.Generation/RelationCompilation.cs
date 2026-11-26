@@ -160,14 +160,19 @@ internal static class RelationCompilation
                 : selection is not null && (excelOnly || selection.ImportCondition is not null ||
                     fixedParent is { Logical:true } or { AdditionalTargets.Count:>0 } ||
                     FixedPageConditionCompilation.HasLogicalFields(targetPage)) ? "" : Mapped("whereSql");
-            // 附加联接只能沿来源与候选双方共同发布的文本业务键执行。
+            // 附加联接沿实际字典页解析；共用文本父键时仍需证明来源和目标的业务键。
             var textParent=source.Source.ControlKind=="List"&&target.Source.IsRongyu==0&&!string.IsNullOrWhiteSpace(where)
                 ?SharedRedundantParentCompilation.CommonTextParent(model,owner,page,target,targetPage,allowSparseTarget:true)??
                     NonRedundantCrossParentCompilation.CommonTextParent(model,owner,page,target,targetPage)
                 :null;
+            var globalList=source.Source.ControlKind=="List"&&!functionForm&&target.IsGlobal&&target.Source.IsRongyu==0;
             var (scopes, conditions) = RelationConditionsCompilation.Compile(model,owner,page,target,where,
                 allowLogicalList:selection is null,allowLogicalListJoin:textParent is not null||
-                    projectListPage&&target.Source.IsRongyu==0);
+                    projectListPage&&target.Source.IsRongyu==0||globalList);
+            if(globalList&&conditions is {JoinedFields.Count:>0}&&
+                !conditions.JoinedFields.SetEquals(GlobalCrossTableTarget.ListJoinedConditionFields(model.Catalog,
+                    target.Source,targetPage.Source,conditions.JoinedFields)))
+                throw new NotSupportedException("全局下拉的联接条件必须属于实际发布字典页。");
             if ((conditions is not null||FixedPageConditionCompilation.HasLogicalFields(targetPage))&&
                 !functionForm && ForeignValidationRenderer.Target(model,source)?.Source.Id!=target.Source.Id)
                 throw new InvalidOperationException("固定条件的候选必须与外键及显示来源的目标一致。");
@@ -394,8 +399,15 @@ internal static class RelationCompilation
                 ProjectScopedSingleRelationTarget.ListPageId(model.Catalog,page.Source,source.Source)==targetPage.Source.Id &&
                 (HasStoredListRange(targetPage) || !string.IsNullOrWhiteSpace(effective)) ||
             RelationConditionsCompilation.HasLogicalListFields(target,effective)||
-            target.Source.IsRongyu==0&&ProjectScopedSingleRelationTarget.JoinedConditionFields(model.Catalog,target.Source,
-                targetPage.Source,FixedConditionPlan.Compile(effective,target.Columns.Select(column=>column.Source.ColumnName)).Fields).Count>0;
+            target.Source.IsRongyu==0&&HasJoinedListCondition(model,target,targetPage,effective);
+    }
+
+    /// <summary>隐藏下拉也登记实际发布字典的联接条件，确保默认和保存使用同一过滤。</summary>
+    private static bool HasJoinedListCondition(GenerationModel model,TableModel target,PageModel page,string definition)
+    {
+        var fields=FixedConditionPlan.Compile(definition,target.Columns.Select(column=>column.Source.ColumnName)).Fields;
+        return (target.IsGlobal?GlobalCrossTableTarget.ListJoinedConditionFields(model.Catalog,target.Source,page.Source,fields):
+            ProjectScopedSingleRelationTarget.JoinedConditionFields(model.Catalog,target.Source,page.Source,fields)).Count>0;
     }
 
     /// <summary>隐藏的单选必须沿实际固定目标页复核默认和提交值。</summary>
