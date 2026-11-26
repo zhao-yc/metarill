@@ -534,6 +534,13 @@ public static partial class MySqlNonRedundantReadCompiler
                     // 物理字典的实时名称需要保留实际默认页和备用页，持久副本仍沿原编译入口。
                     if(source is {IsRongyu:0}&&GlobalCrossTableTarget.Declared(target))
                         resolvedDefaultPage=GlobalMultipleRelationTarget.Require(catalog,source,relation,target).Page;
+                    else if(source is {IsRongyu:1}&&relation.ControlKind=="MultiSelectPage"&&GlobalCrossTableTarget.Declared(target)&&
+                        GlobalMultipleRelationTarget.RequireCached(catalog,source,relation,target) is {UsesStoredStaticPage:true} proof&&
+                        GlobalCrossTableTarget.DeclaresExactMulti(target,proof.Page))
+                    {
+                        // 静态精确字典需要随名称副本保留真实发布页，但仍沿物理传播编译。
+                        resolvedDefaultPage=proof.Page;
+                    }
                     else if(!(relation.ControlKind=="MultiSelectPage"&&source is {IsRongyu:0}&&!GlobalCrossTableTarget.Declared(source)&&
                         catalog.ConfigPages.SingleOrDefault(page=>page.Id==pageId&&page.ConfigTableId==target.Id) is {} original&&
                         IsProjectOnlyStoredMultiSelectPage(catalog,target,original)))continue;

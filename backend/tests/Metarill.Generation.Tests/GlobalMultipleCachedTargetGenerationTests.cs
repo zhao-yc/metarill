@@ -303,6 +303,18 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         VerifyPublishedGlobalMultiselect(1,1,false,projectType,globalSource:true,projectScoped:projectScoped,
             accountField:accountField,exact:true,shortName:"short_caption",dictionaryProjectColumn:dictionaryProjectColumn);
 
+    /// <summary>普通项目的原多选独立执行来源行项目和实际精确字典页的范围。</summary>
+    [Theory]
+    [InlineData(0,"int64",false,null,false,true)]
+    [InlineData(0,"string",true,"store_id",true,true)]
+    [InlineData(1,"int64",false,null,false,true)]
+    [InlineData(1,"string",true,null,false,true)]
+    [InlineData(1,"int64",false,"merchant_id",false,false)]
+    public Task Project_multiselect_uses_exact_stored_dictionary(int mode,string projectType,bool projectScoped,
+        string? accountField,bool alternateDictionary,bool dictionaryProjectColumn)=>
+        VerifyPublishedGlobalMultiselect(mode,1,false,projectType,projectScoped:projectScoped,accountField:accountField,
+            exact:true,alternateDictionary:alternateDictionary,shortName:"short_caption",dictionaryProjectColumn:dictionaryProjectColumn);
+
     /// <summary>从实际生成程序集核对名称、关联选档、项目隔离和数据维护计划。</summary>
     private static async Task VerifyPublishedGlobalMultiselect(int mode,int targetStorage,bool derivedName,string? projectType,
         bool unfiltered=false,bool globalSource=false,bool projectScoped=false,string? accountField=null,
@@ -399,14 +411,15 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             // 页面未配置项目条件时，行项目隔离仍须从业务表归属和有效多选关系自动生成。
             foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="3"))
                 page.WhereSql="";
-            if(accountField is not null)
-            {
-                ConfigureDictionaryAccountScope(catalog,accountField);
-                if(exact&&targetStorage==1&&alternateDictionary)
-                    catalog.ConfigPages.Single(page=>page.Id=="14").WhereSql+=" AND "+accountField+"=@current_"+accountField;
-            }
-            Assert.Empty(GenerationCapabilityAudit.Collect(GenerationModel.Create(catalog,application)));
         }
+        if(accountField is not null)
+        {
+            ConfigureDictionaryAccountScope(catalog,accountField);
+            if(exact&&targetStorage==1&&alternateDictionary)
+                catalog.ConfigPages.Single(page=>page.Id=="14").WhereSql+=" AND "+accountField+"=@current_"+accountField;
+        }
+        if(globalSource||accountField is not null)
+            Assert.Empty(GenerationCapabilityAudit.Collect(GenerationModel.Create(catalog,application)));
         if(derivedName&&!unfiltered)
         {
             var source=catalog.ConfigColumns.Single(column=>column.Id=="34");
@@ -460,10 +473,10 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 var actor=DictionaryActor(catalog,accountField);
                 var auth=exact&&targetStorage==1?new StoredExactDictionaryAuthorization(actor):null;
                 var sql=NonRedundantGeneratedReadTests.CreateDictionarySql(assembly,application,"GlobalSource",session,auth);
-                if(globalSource&&mode==1)
+                if(mode==1&&(globalSource||exact&&targetStorage==1))
                 {
                     var business=NonRedundantGeneratedReadTests.CreateDictionarySql(assembly,application,"CachedConsumer",session);
-                    Assert.Contains("yz_project_id",business("Query30",[new PageRequest(),actor]));
+                    Assert.Contains("yz_project_id",business("Scope30",[actor,null]));
                     Assert.Contains("yz_project_id",business("Scope31",[actor,null]));
                 }
                 if(targetStorage==0)
@@ -607,17 +620,20 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                     else Assert.Equal("status=17",condition?.GetType().GetProperty("Definition")!.GetValue(condition));
                 }
             }
-            if(globalSource)
+            if(globalSource||exact&&targetStorage==1)
             {
                 var scope=Assert.IsType<string>(read.GetType().GetProperty("Scope",hidden)!.GetValue(read));
                 Assert.Contains("`yz_project_id`",scope);
                 var projectPredicate="multi_value.`yz_project_id`=@project_scope_"+(projectType=="string"?"text":"number");
                 Assert.Equal(projectScoped,CheckboxNameExpression(read,names).Contains(projectPredicate,StringComparison.Ordinal));
-                var service=assembly.GetType(application+".Generated.Services.CachedConsumerService",true)!;
-                var validate=service.GetMethod("ValidateActor",BindingFlags.Static|BindingFlags.NonPublic)!;
-                var otherProject=new RuntimeActor(7,"合成账号",false,"999999","9");
-                Assert.IsType<UnauthorizedAccessException>(
-                    Assert.Throws<TargetInvocationException>(()=>validate.Invoke(null,[otherProject])).InnerException);
+                if(globalSource)
+                {
+                    var service=assembly.GetType(application+".Generated.Services.CachedConsumerService",true)!;
+                    var validate=service.GetMethod("ValidateActor",BindingFlags.Static|BindingFlags.NonPublic)!;
+                    var otherProject=new RuntimeActor(7,"合成账号",false,"999999","9");
+                    Assert.IsType<UnauthorizedAccessException>(
+                        Assert.Throws<TargetInvocationException>(()=>validate.Invoke(null,[otherProject])).InnerException);
+                }
             }
             if(fixedLookup)
             {
