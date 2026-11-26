@@ -131,7 +131,9 @@ internal static class MultiSelectCompilation
             // 实时名称绑定实际候选页。普通备用页仍须证明同项目，但无需套用默认字典的固定条件。
             var projectOnlyOverride=pageOverride&&table.Source.IsRongyu==0&&!table.IsGlobal&&
                 Metarill.Data.Queries.NonRedundantReads.IsProjectOnlyStoredMultiSelectPage(model.Catalog,target.Source,targetPage.Source);
-            var pageRead=table.Source.IsRongyu==0&&!table.IsGlobal&&!target.IsGlobal&&
+            // 非冗余来源的备用全局字典页使用自己的查询和范围，持久名称副本仍使用表级页。
+            var globalPageRead=pageOverride&&table.Source.IsRongyu==0&&target.IsGlobal&&target.Source.IsRongyu==0;
+            var pageRead=globalPageRead||table.Source.IsRongyu==0&&!table.IsGlobal&&!target.IsGlobal&&
                 (target.Source.IsRongyu==0||projectOnlyOverride||
                     Metarill.Data.Queries.NonRedundantReads.IsProjectFixedMultiSelectTarget(model.Catalog,target.Source,targetPage.Source));
             if(!functionForm&&pageOverride&&!pageRead&&(scoped||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,candidate))))
@@ -252,7 +254,14 @@ internal static class MultiSelectCompilation
                         return Gap("页级名称必须为同一项目内目标的物理文本，沿用表级名称数组。");
                 }
                 if(!NonRedundantReadCompilation.Physical(model,table,source))return Gap("非冗余多选要求物理ID和标量名称。");
-                if(target.IsGlobal){var proof=Metarill.Core.Metadata.GlobalMultipleRelationTarget.Require(model.Catalog,table.Source,source.Source,target.Source);if(proof.Page.Id!=targetPage.Source.Id||proof.Name.Id!=name.Source.Id)return Gap("全局多选页级目标和名称声明不一致。");}
+                if(target.IsGlobal)
+                {
+                    var proof=globalPageRead
+                        ?GlobalMultipleRelationTarget.RequirePage(model.Catalog,table.Source,source.Source,target.Source,page.Source)
+                        :GlobalMultipleRelationTarget.Require(model.Catalog,table.Source,source.Source,target.Source);
+                    if(proof.Page.Id!=targetPage.Source.Id||proof.Name.Id!=name.Source.Id)
+                        return Gap("全局多选页级目标和名称声明不一致。");
+                }
                 if(targetField is not null&&!NonRedundantReadCompilation.Physical(model,table,table.Columns.Single(column=>column.JsonName==targetField)))return Gap("非冗余目标父必须为物理外键。");
                 if(names is not null)
                 {

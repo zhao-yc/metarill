@@ -30,7 +30,9 @@ public static partial class MySqlNonRedundantReadCompiler
                 // 普通物理父页如果被同父多路径引用，精简目录也必须保留实际目标和来源页。
                 var compoundPhysical=selected is null&&namePage is not null&&source is not null&&sourcePage is not null&&
                     HasCompoundMultiSelectSource(catalog,source,sourcePage,relation,namePage);
-                if(compoundPhysical)selected=namePage;
+                var globalOverride=sourcePage is not null&&namePage is not null&&target.IsRongyu==0&&
+                    relation.ControlKind=="MultiSelectPage"&&GlobalCrossTableTarget.Declared(target);
+                if(compoundPhysical||globalOverride)selected=namePage;
                 // 普通备用页没有附加 SQL 条件，但宿主仍需用实际覆盖核对候选页。
                 if(selected is null&&sourcePage is not null&&namePage is not null&&!checkbox&&
                     IsProjectOnlyStoredMultiSelectPage(catalog,target,namePage))
@@ -45,7 +47,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     CompileScopedMultiLabel(catalog,target.Id,selected.Id,field,[field],[],
                         exactMultiSelection:target.IsRongyu==0&&relation.ControlKind=="MultiSelectPage"&&
                             selected.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0,
-                        storedExactCheckbox:relation.ControlKind=="MultiCheckBoxDatabase",allowLiteralMultiScope:compoundPhysical);
+                        storedExactCheckbox:relation.ControlKind=="MultiCheckBoxDatabase",allowLiteralMultiScope:compoundPhysical||globalOverride);
                 pages.UnionWith(plan.CascadeLabelPages);
                 if(selected is not null)
                 {
@@ -508,7 +510,9 @@ public static partial class MySqlNonRedundantReadCompiler
             var defaultPage=MultiTargetNamePage(catalog,table,column);
             yield return (owner,table,name,column,null,defaultPage);
 
-            if(owner is not {IsRongyu:0}||GlobalCrossTableTarget.Declared(owner)||GlobalCrossTableTarget.Declared(table))
+            var global=GlobalCrossTableTarget.Declared(table);
+            var globalSelection=global&&table.IsRongyu==0&&column.ControlKind=="MultiSelectPage";
+            if(owner is not {IsRongyu:0}||!globalSelection&&(GlobalCrossTableTarget.Declared(owner)||global))
                 continue;
             foreach(var sourcePage in catalog.ConfigPages.Where(page=>page.ConfigTableId==owner.Id&&
                 (page.YzProjectId.Length==0||page.YzProjectId==catalog.YzProjectId)))
@@ -548,6 +552,11 @@ public static partial class MySqlNonRedundantReadCompiler
             var overlay=field.Extra.GetValueOrDefault("controlDetail").ToString();
             var kind=field.Extra.GetValueOrDefault("controlKind").ToString();
             if(string.IsNullOrWhiteSpace(overlay)||kind.Length>0&&kind!=relation.ControlKind)return null;
+            if(relation.ControlKind=="MultiSelectPage"&&GlobalCrossTableTarget.Declared(target))
+            {
+                var source=catalog.ConfigTables.Single(table=>table.Id==sourcePage.ConfigTableId);
+                return GlobalMultipleRelationTarget.RequirePage(catalog,source,relation,target,sourcePage).Page;
+            }
             var checkbox=relation.ControlKind=="MultiCheckBoxDatabase";
             JsonElement definition;
             if(checkbox)

@@ -88,6 +88,14 @@ public static partial class MySqlNonRedundantReadCompiler
             }
             else
             {
+                if(relation.ControlKind=="MultiSelectPage"&&GlobalCrossTableTarget.Declared(target))
+                {
+                    // 固定绑定只提供位置，重新从当前发布页证明实际目标及原名称合同。
+                    var proof=GlobalMultipleRelationTarget.RequirePage(catalog,table,relation,target,source);
+                    if(!binding.ApplyPageScope||binding.ApplyControlScope||selected?.Id!=proof.Page.Id)
+                        throw new InvalidOperationException("全局多选名称与当前页的实际候选配置不一致。");
+                    return(source,selected,true,null,null);
+                }
                 pageId="";
                 if(!string.IsNullOrWhiteSpace(overlay))
                 {

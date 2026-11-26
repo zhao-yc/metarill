@@ -667,6 +667,8 @@ public sealed class DerivedMultiNamesTests
     [InlineData(false,true,false,true)]
     [InlineData(true,true,false,true)]
     [InlineData(false,false,false,false,"stored-dictionary")]
+    [InlineData(false,true,true,false,"global-dictionary")]
+    [InlineData(false,false,false,false,"global-owner")]
     public async Task R0_array_page_override_uses_the_actual_target(bool checkbox,bool account,bool overlayOnlyAccount=false,
         bool differentSourceParents=false,string dictionaryMode="")
     {
@@ -674,13 +676,20 @@ public sealed class DerivedMultiNamesTests
         var catalog=Catalog("array_page_override",false);
         catalog.ConfigTables.Single(table=>table.Id=="4").IsRongyu=dictionaryMode=="stored-dictionary"?1:0;
         if(dictionaryMode=="stored-dictionary")catalog.ConfigPages.Single(page=>page.Id=="401").WhereSql+=" AND status>=18";
+        if(dictionaryMode is "global-dictionary" or "global-owner")
+        {
+            foreach(var table in catalog.ConfigTables.Where(table=>table.Id is "3" or "4"||dictionaryMode=="global-owner"&&table.Id=="2"))
+                table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.ConfigPages.Single(page=>page.Id=="401").WhereSql="status>=18";
+        }
         catalog.ConfigColumns.Single(column=>column.Id=="37").ControlDetail=
             "{\"tableId\":\"4\",\"pageId\":\"401\",\"nameField\":\"name\",\"whereSql\":\"status=17\"}";
         catalog.ConfigColumns.Add(new(){Id="45",ConfigTableId="4",ColumnName="status",LogicalType="int32"});
         catalog.ConfigColumns.Add(new(){Id="38",ConfigTableId="3",ColumnName="status",LogicalType="int32"});
         if(account)catalog.ConfigColumns.Add(new(){Id="39",ConfigTableId="3",ColumnName="store_id",LogicalType="int64"});
         var original=catalog.ConfigPages.Single(page=>page.Id=="301");
-        original.WhereSql+=" AND status>=31"+(account&&!overlayOnlyAccount?" AND store_id=@current_store_id":"");
+        original.WhereSql=dictionaryMode=="global-owner"?"status>=31":
+            original.WhereSql+" AND status>=31"+(account&&!overlayOnlyAccount?" AND store_id=@current_store_id":"");
         var alternative=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(original))!;
         alternative.Id="302";
         alternative.WhereSql=alternative.WhereSql.Replace("31","32",StringComparison.Ordinal);
@@ -719,6 +728,20 @@ public sealed class DerivedMultiNamesTests
         field202.Extra["controlDetail"]=JsonSerializer.SerializeToElement("{\"pageId\":\"302\"}");
         catalog.ConfigPageColumns.Add(field202);
         RedundantMultiNameCacheTests.Published(catalog);
+        var globalDictionary=dictionaryMode is "global-dictionary" or "global-owner";
+        if(globalDictionary)
+        {
+            var model=GenerationModel.Create(catalog,ns);
+            var owner=model.Tables.Single(table=>table.Source.Id=="2");
+            var consumer=owner.Pages.Single(page=>page.Source.Id=="202");
+            var resolved=MultiSelectCompilation.Resolve(model,owner,consumer,owner.Columns.Single(column=>column.Source.Id=="25"));
+            Assert.True(resolved.Definition is not null,resolved.Reason);
+            Assert.Equal("302",resolved.Definition!.TargetPage.Source.Id);
+            Assert.Empty(SelectionNameFilterCompilation.ForPage(model,owner,consumer).Gaps);
+            // 精简宿主目录仍以实际页面覆盖为准，旧默认页不能冒充本页指定的目标。
+            Assert.Throws<InvalidOperationException>(()=>NonRedundantReads.CompileProjectPage(catalog,"2",["target_names"],
+                [],[],[],[new("25","202","301",true)]));
+        }
         if (!checkbox && differentSourceParents)
         {
             // 两页可使用不同的来源外键，名称筛选和完整发布按各自页面证明范围。
@@ -737,8 +760,9 @@ public sealed class DerivedMultiNamesTests
         if(overlayOnlyAccount)
         {
             var target=catalog.ConfigTables.Single(item=>item.Id=="3");
-            Assert.False(Metarill.Data.Queries.NonRedundantReads.IsScopedMultiTarget(catalog,target,"301"));
-            Assert.True(Metarill.Data.Queries.NonRedundantReads.IsScopedMultiTarget(catalog,target,"302"));
+            // 原多选默认页也按物理条件和父级限定，账号参数只由实际选用的页引入。
+            Assert.Equal(!checkbox,NonRedundantReads.IsScopedMultiTarget(catalog,target,"301"));
+            Assert.True(NonRedundantReads.IsScopedMultiTarget(catalog,target,"302"));
         }
         if(checkbox)
         {
@@ -793,6 +817,11 @@ public sealed class DerivedMultiNamesTests
                 Assert.Contains(condition,Parameters(match));
                 Assert.DoesNotContain(otherCondition,Parameters(match));
                 if(!checkbox)Assert.Contains(condition,Parameters(Read("ExportReadPlan"+page)));
+                if(globalDictionary)
+                {
+                    Assert.Contains(root,Parameters(match));
+                    Assert.Contains("b.`yz_project_id`",Assert.IsType<string>(read.GetType().GetProperty("Scope",HiddenInstance)!.GetValue(read)));
+                }
                 if(dictionaryMode=="stored-dictionary")
                 {
                     Assert.Contains(18,values);
@@ -801,6 +830,14 @@ public sealed class DerivedMultiNamesTests
                 }
                 Assert.NotNull(service.GetMethod("Import"+page+"Async"));
                 Assert.NotNull(service.GetMethod("Export"+page+"Async"));
+            }
+
+            if(globalDictionary)
+            {
+                new FrontendPackager().Validate(catalog);
+                var app=Path.Combine(directory,"app");
+                Assert.True(new ApplicationPackager().Create(catalog,app,ns,NonRedundantApplicationFixture.Root()).FrontendIncluded);
+                foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(app,operation);
             }
 
             object Read(string field)

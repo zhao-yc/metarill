@@ -17,6 +17,17 @@ public static class GlobalMultipleRelationTarget
 {
     /// <summary>读取原多选或复选定义；目标页面只是已发布关系归属，复选仍使用自己的原候选条件。</summary>
     public static GlobalMultipleRelationPlan Require(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target)=>RequireSource(catalog,owner,foreign,target,false);
+    /// <summary>非冗余多选可以按实际来源页选用同一全局实体的另一发布页，名称合同沿用表级定义。</summary>
+    public static GlobalMultipleRelationPlan RequirePage(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,
+        TableMetadata target,PageMetadata sourcePage)
+    {
+        if(foreign.ControlKind!="MultiSelectPage"||target.IsRongyu!=0||
+            sourcePage.ConfigTableId!=owner.Id||sourcePage.YzProjectId!=catalog.YzProjectId||
+            !ReferenceEquals(catalog.ConfigPages.SingleOrDefault(page=>page.Id==sourcePage.Id),sourcePage))
+            throw new NotSupportedException("全局多选页面覆盖要求当前项目实际发布的非冗余来源和字典页。");
+        return RequireSource(catalog,owner,foreign,target,cached:false,sourcePage:sourcePage);
+    }
+
     /// <summary>冻结物理 R1 名称计划。来源必须有真实项目范围，全局来源另核对实际发布页。</summary>
     public static GlobalMultipleRelationPlan RequireCached(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target)=>RequireSource(catalog,owner,foreign,target,true);
     /// <summary>没有明确候选页时，保留全局复选名称的唯一发布要求。</summary>
@@ -105,7 +116,8 @@ public static class GlobalMultipleRelationTarget
         value.Kind==FixedConditionValueKind.Variable&&value.Text.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase);
 
     /// <summary>实时派生与缓存维护分别验证来源存储模式，其余发布和终点约束完全相同。</summary>
-    private static GlobalMultipleRelationPlan RequireSource(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target,bool cached)
+    private static GlobalMultipleRelationPlan RequireSource(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,
+        TableMetadata target,bool cached,PageMetadata? sourcePage=null)
     {
         var sourceColumns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==owner.Id).ToArray();var storage=MetadataStoragePolicy.ForTable(catalog,owner);var project=sourceColumns.SingleOrDefault(column=>column.ColumnName=="yz_project_id");
         if(owner.IsRongyu!=(cached?1:0)||owner.IsView!=0||owner.IsFunctionTable!=0||owner.YzProjectId!=catalog.YzProjectId||project is null||project.LogicalType is not("int64" or "string")||!GlobalPhysicalRelationValue.IsScalar(storage,owner,project))throw new NotSupportedException("全局多值关系要求明确发布且有真实项目列的来源。");
@@ -117,6 +129,39 @@ public static class GlobalMultipleRelationTarget
         var tableId=Value("tableId");var tableName=Value("table");var pageId=Value("pageId");var linkedPage=Extra("linkConfigPageId");
         if(tableId.Length>0&&tableId!=target.Id||tableName.Length>0&&tableName!=target.TableName||foreign.LinkConfigTableId.Length>0&&foreign.LinkConfigTableId!=target.Id||Extra("joinTable") is {Length:>0} joined&&joined!=target.TableName||pageId.Length>0&&linkedPage.Length>0&&pageId!=linkedPage)throw new InvalidOperationException("全局多值的表、页面或显示来源声明冲突。");
         if(pageId.Length==0)pageId=linkedPage;
+        if(sourcePage is not null)
+        {
+            var field=catalog.ConfigPageColumns.SingleOrDefault(item=>item.ConfigPageId==sourcePage.Id&&item.ConfigColumnId==foreign.Id);
+            var overlay=field?.Extra.GetValueOrDefault("controlDetail").ToString();
+            if(!string.IsNullOrWhiteSpace(overlay))
+            {
+                using var documentOverlay=JsonDocument.Parse(overlay);
+                var declared=documentOverlay.RootElement;
+                if(declared.ValueKind!=JsonValueKind.Object||
+                    declared.EnumerateObject().Select(item=>item.Name).Distinct(StringComparer.Ordinal).Count()!=declared.EnumerateObject().Count())
+                    throw new InvalidOperationException("全局多选页面覆盖必须为无重复键对象。");
+                string Pick(string key)
+                {
+                    if(!declared.TryGetProperty(key,out var value)||value.ValueKind==JsonValueKind.Null)return "";
+                    if(value.ValueKind is not (JsonValueKind.String or JsonValueKind.Number))
+                        throw new InvalidOperationException("全局多选页面映射必须为固定标量。");
+                    var text=value.ToString();
+                    return string.IsNullOrWhiteSpace(text)?"":text;
+                }
+                var label=Value("nameField");
+                if(Pick("tableId") is {Length:>0} overrideId&&overrideId!=target.Id||
+                    Pick("table") is {Length:>0} overrideTable&&overrideTable!=target.TableName||
+                    Pick("nameField") is {Length:>0} overrideName&&overrideName!=(label.Length==0?"name":label)||
+                    field!.Extra.GetValueOrDefault("controlKind").ToString() is {Length:>0} kind&&kind!=foreign.ControlKind)
+                    throw new InvalidOperationException("全局多选页面覆盖必须沿用表级目标和名称合同。");
+                if(Pick("pageId") is {Length:>0} overridePage)
+                {
+                    if(pageId.Length==0||!catalog.ConfigPages.Any(item=>item.Id==pageId&&item.ConfigTableId==target.Id))
+                        throw new InvalidOperationException("全局多选需要同一字典表的表级发布页。");
+                    pageId=overridePage;
+                }
+            }
+        }
         var pages=catalog.ConfigPages.Where(page=>page.ConfigTableId==target.Id&&(pageId.Length==0||page.Id==pageId)).ToArray();
         if(pages.Length!=1)throw new InvalidOperationException("全局多值关系必须明确指定真实目标页，省略时目标页必须唯一。");
         var page=pages[0];
@@ -149,7 +194,8 @@ public static class GlobalMultipleRelationTarget
             MultiTargetParentScope.CompileGlobalPage(catalog,target,condition,checkbox) is {Logical:false} parent&&
             parent.AdditionalTargets.All(scope=>!scope.Logical))
         {
-            var sourceParent=checkbox?parent.CheckboxSource(catalog,owner,foreign):parent.Source(catalog,owner,foreign);
+            var sourceParent=sourcePage is not null?parent.Source(catalog,owner,foreign,sourcePage):
+                checkbox?parent.CheckboxSource(catalog,owner,foreign):parent.Source(catalog,owner,foreign);
             // 多个来源物理键须经同一发布父页校验，原单父字段继续沿用已证明的持久键。
             physicalParentPage=sourceParent.LogicalPages.Count==0&&(sourceParent.AdditionalColumns.Count==0||parent.Global);
         }

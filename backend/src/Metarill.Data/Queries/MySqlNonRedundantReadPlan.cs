@@ -835,7 +835,10 @@ public static partial class MySqlNonRedundantReadCompiler
                     publishedPage=sharedCheckboxPage=MySqlPublishedRelationCondition.RequireSharedCheckboxCachePage(catalog,table,relation,target,value,sharedPage);
                 else
                 {
-                    var proof=table.IsRongyu==1?GlobalMultipleRelationTarget.RequireCached(catalog,table,relation,target):GlobalMultipleRelationTarget.Require(catalog,table,relation,target);
+                    var proof=table.IsRongyu==1?GlobalMultipleRelationTarget.RequireCached(catalog,table,relation,target):
+                        sourcePage is not null&&overridden is not null&&relation.ControlKind=="MultiSelectPage"
+                            ?GlobalMultipleRelationTarget.RequirePage(catalog,table,relation,target,sourcePage)
+                            :GlobalMultipleRelationTarget.Require(catalog,table,relation,target);
                     // 只有当前来源页已按同一发布目标重新证明的复选名称，才可覆盖表级名称。
                     if(proof.Name.ColumnName!=display&&nameOverride is null)
                         throw new NotSupportedException("全局多值显示必须与固定名称声明一致。");
