@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using FreeSql;
 using MySqlConnector;
+using Metarill.Core.Contracts;
 using Metarill.Core.Persistence;
 using Metarill.Core.Security;
 using Metarill.Data;
@@ -70,6 +71,58 @@ public sealed partial class ConfigurationMaterializedValueTests
         f.Get("config_page",30)["config_table_id"]=999L;
         await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Session.InTransactionAsync(async()=>{await f.Observer.BeforeCommitAsync(f.Context("config_page_column",40,new()));return true;}));
     }
+
+    [Theory]
+    [InlineData("""{"sourceMode":"selfTree","selfTree":{"table":"department","idField":"dept_code","parentField":"parent_code","orderBy":"name sideways"}}""")]
+    [InlineData("""{"sourceMode":"selfTree","selfTree":{"table":"department","parentField":"parent_code","filterMatchMode":"unknown"}}""")]
+    [InlineData("""{"sourceMode":"selfTree","selfTree":{"table":"department","parentField":"parent code"}}""")]
+    [InlineData("""{"levels":[{"key":"scope","table":"country"},{"key":"scope","table":"department","parentField":"country_id"}]}""")]
+    [InlineData("""{"levels":[{"table":"country"},{"table":"division","parentField":"country_id"}]}""")]
+    [InlineData("""{"sourceMode":"selfTree","selfTree":{"table":"department","table":"other","parentField":"parent_code"}}""")]
+    public async Task Page_cascade_invalid_edit_rolls_back_in_original_save_transaction(string detail)
+    {
+        using var f=new Fixture();
+        f.Get("config_column",20)["column_name"]="department_id";
+        f.Get("config_column",20)["control_kind"]="CascadeTree";
+        f.Get("config_page_column",40)["control_detail"]="旧值";
+        var before=f.Snapshot();
+        var patch=new Dictionary<string,object?>{{"control_detail",detail}};
+        var error=await Assert.ThrowsAsync<BusinessRuleException>(()=>f.Session.InTransactionAsync(async()=>
+        {
+            Assert.Equal(1,await f.Store.UpdateAsync("config_page_column",40,patch));
+            await f.Observer.BeforeCommitAsync(f.Context("config_page_column",40,patch));
+            return true;
+        }));
+        Assert.StartsWith("CascadeTree ",error.Message);
+        Assert.Equal(before,f.Snapshot());
+    }
+
+    [Theory]
+    [InlineData("""{"sourceMode":"selfTree","selfTree":{"table":"department","parentField":"parent_code","idField":"dept_code","filterMatchMode":"exact"}}""")]
+    [InlineData("""{"levels":[{"table":"country","orderBy":"name DESC, id"},{"table":"department","parentField":"country_id","orderBy":null}]}""")]
+    [InlineData("""{"levels":[{"key":"root","columnPrefix":"parent_department","table":"department"},{"key":"child","table":"department","parentField":"parent_id","orderBy":"`name` DESC, id"}]}""", "int64")]
+    [InlineData(null)]
+    [InlineData("")]
+    public async Task Page_cascade_valid_edit_keeps_original_payload_and_can_reset_to_inheritance(string? detail, string logicalType="string")
+    {
+        using var f=new Fixture();
+        f.Get("config_column",20)["column_name"]="department_id";
+        f.Get("config_column",20)["control_kind"]="CascadeTree";
+        f.Get("config_column",20)["logical_type"]=logicalType;
+        f.Get("config_page_column",40)["control_detail"]="历史配置照常保留";
+        await f.Session.InTransactionAsync(async()=>
+        {
+            await f.Observer.BeforeCommitAsync(f.Context("config_page_column",40,new(){["name"]="仅改标题"}));
+            Assert.Equal("历史配置照常保留",f.Get("config_page_column",40)["control_detail"]);
+
+            var patch=new Dictionary<string,object?>{{"control_detail",detail}};
+            Assert.Equal(1,await f.Store.UpdateAsync("config_page_column",40,patch));
+            await f.Observer.BeforeCommitAsync(f.Context("config_page_column",40,patch));
+            return true;
+        });
+        Assert.Equal(detail,f.Get("config_page_column",40)["control_detail"]);
+    }
+
 
     [Fact]
     public async Task Real_sort_workbench_and_copy_page_use_current_target_values()

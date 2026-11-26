@@ -21,6 +21,11 @@ public sealed partial class ConfigurationMutationObserver
         await OwnedRowAsync("config_table",SqlRowStore.Id(page,"config_table_id"),project,token);
         if(context.IsCreate||context.SubmittedFields.ContainsKey("config_column_id"))
             ConfigurationMaterializedValues.RequirePageColumn(row,column);
+        // 只验证实际编辑的覆盖，未触及明细继续沿用原保存值。
+        if (SqlRowStore.Text(column, "control_kind") == "CascadeTree" &&
+            (context.IsCreate || context.SubmittedFields.ContainsKey("config_column_id") || context.SubmittedFields.ContainsKey("control_detail")))
+            ConfigurationCascadeRules.ValidatePageOverride(SqlRowStore.Text(row, "control_detail"),
+                SqlRowStore.Text(column, "column_name"), SqlRowStore.Text(column, "logical_type"));
     }
 
     /// <summary>改表名只同步当前目标的活动引用；先发现跨项目损坏，再按ID锁定自身引用并重验。</summary>
