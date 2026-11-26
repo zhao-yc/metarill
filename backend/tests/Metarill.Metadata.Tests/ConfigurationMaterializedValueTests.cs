@@ -223,6 +223,75 @@ public sealed partial class ConfigurationMaterializedValueTests
     }
 
 
+    [Theory]
+    [InlineData("department_name","column_type","date")]
+    [InlineData("department_name","control_kind","FileLibrary")]
+    [InlineData("department_name","is_virtual_column",1)]
+    [InlineData("country_id","is_join_column",1)]
+    [InlineData("country_id","control_kind","List")]
+    public async Task Editing_an_existing_cascade_auxiliary_column_rejects_changes_that_break_storage(
+        string name,string key,object value)
+    {
+        using var f=new Fixture();
+        var foreign=f.Get("config_column",20);
+        foreign["column_name"]="department_id";
+        foreign["logical_type"]="int64";
+        foreign["column_type"]="bigint";
+        foreign["control_kind"]="CascadeTree";
+        foreign["control_detail"]=name.EndsWith("_id",StringComparison.Ordinal)
+            ? """{"levels":[{"table":"country"},{"table":"department","parentField":"country_id"}]}"""
+            : """{"sourceMode":"selfTree","selfTree":{"table":"department","parentField":"parent_id"}}""";
+        f.Add("config_column",Row(("id",21L),("config_table_id",10L),("yz_project_id",1L),("column_name",name),
+            ("column_type",name=="country_id"?"bigint":"nvarchar"),("logical_type",name=="country_id"?"int64":"string")));
+        var before=f.Snapshot();
+        var patch=new Dictionary<string,object?>{{key,value}};
+        var failure=await Assert.ThrowsAsync<BusinessRuleException>(()=>f.Session.InTransactionAsync(async()=>
+        {
+            Assert.Equal(1,await f.Store.UpdateAsync("config_column",21,patch));
+            await f.Observer.BeforeCommitAsync(f.Context("config_column",21,patch));
+            return true;
+        }));
+        Assert.Contains(name,failure.Message);
+        Assert.Equal(before,f.Snapshot());
+
+        patch=new Dictionary<string,object?>{{"name","更新显示标题"}};
+        await f.Session.InTransactionAsync(async()=>
+        {
+            Assert.Equal(1,await f.Store.UpdateAsync("config_column",21,patch));
+            await f.Observer.BeforeCommitAsync(f.Context("config_column",21,patch));
+            return true;
+        });
+        Assert.Equal("更新显示标题",f.Get("config_column",21)["name"]);
+    }
+
+    [Fact]
+    public async Task Batch_auxiliary_column_creation_validates_existing_cascade_ownership()
+    {
+        using var f=new Fixture();
+        var foreign=f.Get("config_column",20);
+        foreign["column_name"]="department_id";
+        foreign["logical_type"]="int64";
+        foreign["column_type"]="bigint";
+        foreign["control_kind"]="CascadeTree";
+        foreign["control_detail"]="""{"sourceMode":"selfTree","selfTree":{"table":"department","parentField":"parent_id"}}""";
+        var workbench=new MetadataWorkbenchBusiness(f.Store,f.Authorization,f.Registry,f.Ids,f.Observer);
+        JsonElement Request(string type) => JsonSerializer.SerializeToElement(new { config_table_id="10",content=
+            JsonSerializer.Serialize(new[]{new{name="部门名称",columnName="department_name",columnType=type}}) });
+        var before=f.Snapshot();
+        var invalid=Request("date");
+        var preview=await workbench.PreviewBatchColumnsAsync(invalid);
+        Assert.False(preview.Valid);
+        Assert.Contains("department_name",Assert.Single(preview.Rows[0].Errors).Message);
+        await Assert.ThrowsAsync<BatchColumnValidationException>(()=>workbench.SaveBatchColumnsAsync(invalid));
+        Assert.Equal(before,f.Snapshot());
+
+        var valid=Request("nvarchar");
+        Assert.True((await workbench.PreviewBatchColumnsAsync(valid)).Valid);
+        await workbench.SaveBatchColumnsAsync(valid);
+        Assert.Single(f.Provider.Rows["config_column"],row=>SqlRowStore.Text(row,"column_name")=="department_name");
+    }
+
+
     [Fact]
     public async Task Real_sort_workbench_and_copy_page_use_current_target_values()
     {

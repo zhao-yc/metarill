@@ -97,23 +97,7 @@ public sealed partial class MetadataWorkbenchBusiness
                 row.ControlDetail=JsonSerializer.Serialize(new{table=row.JoinTable,tableId=id.ToString(CultureInfo.InvariantCulture),nameField,whereSql=Value("whereSql"),orderBy=Value("orderBy")},JsonDefaults.Options);
             }
         }
-        // 全批列名和类型可用于识别显式辅助字段，保存时仍由同一配置事务重验。
-        if (rows.Any(row => row.ControlKind == "CascadeTree" && row.Errors.Count == 0))
-        {
-            var declared = hasPhysicalSchema ? scope.Columns.Select(MetadataRepository.DecodeRow<ColumnMetadata>).ToArray() : [];
-            var pending = hasPhysicalSchema ? rows.Where(row => row.Errors.Count == 0)
-                .Select(row => new ColumnMetadata { ColumnName = row.ColumnName, LogicalType = row.LogicalType }).ToArray() : [];
-            foreach (var row in rows.Where(row => row.ControlKind == "CascadeTree" && row.Errors.Count == 0))
-                try
-                {
-                    ConfigurationCascadeRules.ValidateTableField(row.ControlDetail, row.ColumnName, row.LogicalType,
-                        declared.Concat(pending.Where(column => column.ColumnName != row.ColumnName)));
-                }
-                catch (BusinessRuleException error)
-                {
-                    BatchColumnParser.Error(row, "controlDetail", "INVALID_RELATION", error.Message);
-                }
-        }
+        ValidateBatchCascadeColumns(scope.Columns, rows, hasPhysicalSchema);
 
         // 保存沿用同一事务中核对的最大排序号，预检为首条超限输入返回行错误。
         var maximum = scope.Columns.Count == 0 ? 0 :
@@ -122,5 +106,49 @@ public sealed partial class MetadataWorkbenchBusiness
         if (rows.All(row => row.Errors.Count == 0) && rows.Count > remaining)
             BatchColumnParser.Error(rows[remaining], "sortNo", "INVALID_ORDER", "字段排序号已达到上限，请先调整排序");
         return (BatchColumnParser.Preview(rows), maximum);
+    }
+
+    /// <summary>预检兼顾本批新级联和已有级联，配置写入在原事务锁内再次校验。</summary>
+    private static void ValidateBatchCascadeColumns(List<Dictionary<string, object?>> current,
+        IReadOnlyList<BatchColumnPreviewRow> rows, bool entityTable)
+    {
+        var valid = rows.Where(row => row.Errors.Count == 0).ToArray();
+        var declaresCascade = valid.Any(row => row.ControlKind == "CascadeTree");
+        var canOccupyManagedColumns = entityTable && valid.Any(row => ConfigurationCascadeRules.CanBeManagedColumn(row.ColumnName)) &&
+            current.Any(row => SqlRowStore.Text(row, "control_kind") == "CascadeTree");
+        if (!declaresCascade && !canOccupyManagedColumns) return;
+
+        var declared = entityTable ? current.Select(MetadataRepository.DecodeRow<ColumnMetadata>).ToArray() : [];
+        var pending = valid.ToDictionary(row => row, row => new ColumnMetadata
+        {
+            ColumnName = row.ColumnName, LogicalType = row.LogicalType, ControlKind = row.ControlKind
+        });
+        var managed = ConfigurationCascadeRules.ExistingManagedColumns(declared);
+        foreach (var (row, field) in pending)
+        {
+            if (row.ControlKind == "CascadeTree")
+            {
+                try
+                {
+                    var others = entityTable ? pending.Values.Where(column => column != field) : Enumerable.Empty<ColumnMetadata>();
+                    ConfigurationCascadeRules.ValidateTableField(row.ControlDetail, row.ColumnName, row.LogicalType,
+                        declared.Concat(others));
+                }
+                catch (BusinessRuleException error)
+                {
+                    BatchColumnParser.Error(row, "controlDetail", "INVALID_RELATION", error.Message);
+                    continue;
+                }
+            }
+
+            try
+            {
+                ConfigurationCascadeRules.ValidateManagedColumn(field, managed);
+            }
+            catch (BusinessRuleException error)
+            {
+                BatchColumnParser.Error(row, "columnName", "INVALID_RELATION", error.Message);
+            }
+        }
     }
 }

@@ -5,7 +5,7 @@ using Metarill.Core.Metadata;
 
 namespace Metarill.Runtime.Metadata;
 
-/// <summary>校验原页面级联明细的定义形状，不重写输入或表级绑定。</summary>
+/// <summary>校验级联定义及实体受管列，不重写输入或表级绑定。</summary>
 internal static class ConfigurationCascadeRules
 {
     /// <summary>页面可清空覆盖以继承表级定义。显式设置须满足原自树或跨表的字段约束。</summary>
@@ -17,6 +17,51 @@ internal static class ConfigurationCascadeRules
     /// <summary>表字段必须有实际定义。显式辅助字段可沿用，系统字段及不兼容的已有列不能被接管。</summary>
     internal static void ValidateTableField(string detail, string columnName, string logicalType,
         IEnumerable<ColumnMetadata> declaredColumns)
+    {
+        var slots = ManagedColumns(detail, columnName, logicalType);
+        foreach (var column in declaredColumns)
+            ValidateManagedColumn(column, slots);
+    }
+
+    /// <summary>仅这些字段名可能占用自树或跨表级联的持久化字段。</summary>
+    internal static bool CanBeManagedColumn(string name) =>
+        name.EndsWith("_id", StringComparison.OrdinalIgnoreCase) || name.EndsWith("_name", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>普通字段编辑和批量新增沿表内实际级联声明查找已受管的回填列。</summary>
+    internal static IReadOnlyDictionary<string, (string Name, bool IsId)> ExistingManagedColumns(IEnumerable<ColumnMetadata> declaredColumns)
+    {
+        var managed = new Dictionary<string, (string Name, bool IsId)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var source in declaredColumns.Where(column => column.ControlKind == "CascadeTree" &&
+            column.IsVirtualColumn == 0 && !IsJoinColumn(column)))
+        {
+            try
+            {
+                foreach (var slot in ManagedColumns(source.ControlDetail, source.ColumnName, source.LogicalType))
+                    managed.TryAdd(slot.Key, slot.Value);
+            }
+            catch (BusinessRuleException)
+            {
+                // 旧无效定义不能证明字段受管。修复其定义或生成时继续按原规则报告。
+            }
+        }
+        return managed;
+    }
+
+    /// <summary>显式字段可继续承担共享层或名称缓存，但类型、数组及存储属性必须与各级联一致。</summary>
+    internal static void ValidateManagedColumn(ColumnMetadata column, IReadOnlyDictionary<string, (string Name, bool IsId)> slots)
+    {
+        if (!slots.TryGetValue(column.ColumnName, out var slot)) return;
+        // 辅助 ID 可以由同组级联共用，普通下拉等独立控件不能接管它的写入。
+        var incompatibleType = slot.IsId
+            ? IsJoinColumn(column) || column.LogicalType is not ("string" or "int64") || column.ControlKind is not ("" or "CascadeTree")
+            : column.LogicalType != "string";
+        if (column.ColumnName != slot.Name || column.IsVirtualColumn != 0 || incompatibleType ||
+            column.ControlKind is "Title" or "Tab" || ArrayFieldControl.UsesJsonArray(column.LogicalType, column.ControlKind))
+            throw Error("受管列与已有字段类型或存储属性冲突：" + column.ColumnName);
+    }
+
+    /// <summary>从已校验定义推导同表受管列，避免保存入口分别猜测前缀与用途。</summary>
+    private static Dictionary<string, (string Name, bool IsId)> ManagedColumns(string detail, string columnName, string logicalType)
     {
         if (string.IsNullOrWhiteSpace(detail)) throw Error("控件明细不能为空。");
         var prefixes = ValidateDefinition(detail, columnName, logicalType);
@@ -37,16 +82,11 @@ internal static class ConfigurationCascadeRules
                 throw Error("受管列不能使用系统字段或无效列名：" + name);
         }
 
-        foreach (var column in declaredColumns)
-        {
-            if (!slots.TryGetValue(column.ColumnName, out var slot)) continue;
-            // 同名显式列须满足存储合同。共享层仍由完整生成计划核对各分支的实际路径。
-            var joined = column.Extra.TryGetValue("isJoinColumn", out var join) && (join.ValueKind == JsonValueKind.True || join.ToString() == "1");
-            if (column.ColumnName != slot.Name || column.IsVirtualColumn != 0 ||
-                (slot.IsId ? joined || column.LogicalType is not ("string" or "int64") : column.LogicalType != "string"))
-                throw Error("受管列与已有字段类型或存储属性冲突：" + column.ColumnName);
-        }
+        return slots;
     }
+
+    private static bool IsJoinColumn(ColumnMetadata column) =>
+        column.Extra.TryGetValue("isJoinColumn", out var join) && (join.ValueKind == JsonValueKind.True || join.ToString() == "1");
 
     /// <summary>保存与批量预检共用定义解析，返回用于核对实体辅助列的前缀。</summary>
     private static IReadOnlyList<string> ValidateDefinition(string detail, string columnName, string logicalType)

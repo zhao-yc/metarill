@@ -1,3 +1,4 @@
+using Metarill.Core.Metadata;
 using Metarill.Core.Persistence;
 using Metarill.Runtime.Persistence;
 
@@ -26,6 +27,45 @@ public sealed partial class ConfigurationMutationObserver
             (context.IsCreate || context.SubmittedFields.ContainsKey("config_column_id") || context.SubmittedFields.ContainsKey("control_detail")))
             ConfigurationCascadeRules.ValidatePageOverride(SqlRowStore.Text(row, "control_detail"),
                 SqlRowStore.Text(column, "column_name"), SqlRowStore.Text(column, "logical_type"));
+    }
+
+    /// <summary>明细保存检查本字段的级联定义，类型或存储属性变化也须复核已有级联对本字段的占用。</summary>
+    private async Task ValidateCascadeColumnAsync(RecordMutationContext context, long project,
+        IReadOnlyDictionary<string, object?> table, Dictionary<string, object?> row, string type, bool cascade,
+        CancellationToken token)
+    {
+        var changed = context.SubmittedFields;
+        var definitionChanged = context.IsCreate || changed.Keys.Any(key =>
+            key is "control_kind" or "control_detail" or "column_name" or "logical_type" or "column_type" or "config_table_id");
+        var name = SqlRowStore.Text(row, "column_name");
+        var entity = SqlRowStore.Id(table, "is_view") == 0 && SqlRowStore.Id(table, "is_function_table") == 0;
+        var validateDefinition = cascade && definitionChanged;
+        var validateManagedField = entity && ConfigurationCascadeRules.CanBeManagedColumn(name) &&
+            (definitionChanged || changed.ContainsKey("is_virtual_column") || changed.ContainsKey("is_join_column"));
+        if (!validateDefinition && !validateManagedField) return;
+
+        ColumnMetadata[] declared = [];
+        if (entity)
+        {
+            var filters = new Dictionary<string, object?>
+            {
+                ["config_table_id"] = SqlRowStore.Id(table), ["yz_project_id"] = project
+            };
+            if (!validateDefinition) filters["control_kind"] = "CascadeTree";
+            declared = (await store.ReadAsync("config_column", filters, token))
+                .Where(candidate => SqlRowStore.Id(candidate) != context.RecordId)
+                .Select(MetadataRepository.DecodeRow<ColumnMetadata>).ToArray();
+        }
+
+        if (validateDefinition)
+            ConfigurationCascadeRules.ValidateTableField(SqlRowStore.Text(row, "control_detail"), name, type, declared);
+
+        if (validateManagedField)
+        {
+            var field = MetadataRepository.DecodeRow<ColumnMetadata>(row);
+            field.LogicalType = type;
+            ConfigurationCascadeRules.ValidateManagedColumn(field, ConfigurationCascadeRules.ExistingManagedColumns(declared));
+        }
     }
 
     /// <summary>改表名只同步当前目标的活动引用；先发现跨项目损坏，再按ID锁定自身引用并重验。</summary>
