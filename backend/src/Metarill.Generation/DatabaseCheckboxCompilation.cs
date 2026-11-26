@@ -53,6 +53,8 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal IReadOnlyList<ColumnModel> CompoundSourceDependencies { get; init; } = [];
     internal PageModel? GlobalParentPage { get; init; }
     internal bool GlobalParent => GlobalParentPage is not null;
+    // 共享文本范围已用同一发布路径验证实际父页。
+    internal bool RequiresGlobalParentLookup => GlobalParent&&SharedTextParent is null;
     internal bool IntegerLabel => Name.Type is ("int?" or "long?");
     internal bool TypedLabel => Metarill.Core.Contracts.MultiValueLabel.IsTyped(Name.Source.LogicalType);
     internal string Endpoint=>"findNameId"+GenerationModel.Pascal(Source.Source.ColumnName[..^4])+Source.Source.Id;
@@ -203,7 +205,8 @@ internal static class DatabaseCheckboxCompilation
             // 普通物理父范围由实际两端页面证明，逻辑来源继续使用已有的级联路径。
             var sourceScopeColumns=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
             var sharedTextParent=namePage is null?null:SharedRedundantParentCompilation.CommonTextParent(model,table,page,target,namePage,allowSparseTarget:true)??
-                NonRedundantCrossParentCompilation.CommonTextParent(model,table,page,target,namePage,allowStoredTarget:true);
+                NonRedundantCrossParentCompilation.CommonTextParent(model,table,page,target,namePage,
+                    allowStoredTarget:true,allowGlobalSparseTarget:true);
             // 文本父键沿已证明祖先比较，非冗余字典的名称联接沿同一发布页独立验证。
             if(sharedTextParent is not null&&(name.Type!="string?"&&!scalarLabel||
                 explicitPage!=fixedPage||target.Source.IsRongyu!=0&&(derived||FixedPageConditionCompilation.HasLogicalFields(namePage!)||
@@ -484,6 +487,8 @@ internal static class DatabaseCheckboxCompilation
                     BindFormParent(binding,owner);
                 if(binding.Global)
                 {
+                    if(binding.Logical&&binding.LogicalAlternateKey(model.Catalog,target.Source)?.LogicalType=="string"&&sharedTextParent is null)
+                        return Gap("全局复选的来源与目标父范围必须使用同一个已发布文本业务键。");
                     _=Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(model.Catalog,target.Source.Id,scopedPage.Source.Id);
                     globalParentPage=scopedPage;
                     if(owner.AdditionalColumns.Count>0)

@@ -39,7 +39,7 @@ internal static class DatabaseCheckboxRenderer
                 result.Append(FixedPageConditionCompilation.Declaration(def.GlobalPage,"CheckboxGlobalCondition"+suffix));
             if(def.DerivedName)result.Append(DerivedCheckboxNamesRenderer.Service(model,table,page,def,
                 sharedCaches?caches.Select(cache=>cache.Value).DistinctBy(label=>label.Source.Id).ToArray():[]));
-            if(def.GlobalParentPage is {} parentPage)
+            if(def.RequiresGlobalParentLookup&&def.GlobalParentPage is {} parentPage)
                 result.Append(MultiGlobalParentCompilation.Declaration(model,parentPage,"CheckboxGlobalParent"+suffix));
             result.AppendLine("    /// <summary>来源身份、真实父和发布条件始终进入数据库；写校验使用当前事务锁读。</summary>")
                 .AppendLine($"    private async Task<ISelect<{def.Target.EntityType}>> CheckboxScope{suffix}Async(string? parentId,RuntimeActor actor,IReadOnlyDictionary<string,object?> formValues,bool locking,CancellationToken cancellationToken)")
@@ -54,7 +54,7 @@ internal static class DatabaseCheckboxRenderer
                 // 同一个实际父记录也要通过每条发布路径的范围核验；写入口复用原事务。
                 foreach(var path in def.LogicalSourcePaths)
                     result.AppendLine($"        await CrossReader{page.Source.Id}_{path.Read.Source.Source.Id}(actor,locking,false){NonRedundantCrossParentCompilation.PathSuffix(path.Read,path.Index,"parentKey")};");
-                if(def.GlobalParent)result.AppendLine(MultiGlobalParentCompilation.Check("CheckboxGlobalParent"+suffix,"parentKey","locking"));
+                if(def.RequiresGlobalParentLookup)result.AppendLine(MultiGlobalParentCompilation.Check("CheckboxGlobalParent"+suffix,"parentKey","locking"));
             }
             else if(def.IndependentTextSource||def.SharedTextParent is not null)
             {
@@ -67,7 +67,7 @@ internal static class DatabaseCheckboxRenderer
                 var textParent = def.UsesFunctionTextParent;
                 if (!textParent)
                     result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var parentKey)||parentKey<=0||parentId!=parentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"来源父ID必须为规范正整数字符串。\");");
-                if(def.GlobalParent)
+                if(def.RequiresGlobalParentLookup)
                 {
                     // 功能表可选已发布的全局业务键，父页账号范围和当前读边界由同一查询处理。
                     var plan="CheckboxGlobalParent"+suffix;

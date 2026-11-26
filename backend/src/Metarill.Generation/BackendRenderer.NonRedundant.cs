@@ -280,7 +280,7 @@ internal static partial class BackendRenderer
             model.Tables.Any(table=>table.Pages.Any(page=>MultiGlobalParentCompilation.SingleTarget(model,table,page) is not null||
             MultiGlobalParentCompilation.PhysicalPageParent(model,table,page) is not null||
             MultiSelectCompilation.ForService(model,table,page).Any(multi=>multi.GlobalParent)||
-            DatabaseCheckboxCompilation.ForService(model,table,page).Any(checkbox=>checkbox.GlobalParent))))
+            DatabaseCheckboxCompilation.ForService(model,table,page).Any(checkbox=>checkbox.RequiresGlobalParentLookup))))
             helpers+="    /// <summary>校验实际多值目标页绑定的全局父。源码冻结后只接受规范ID。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileMultiGlobalParent(string tableId,string pageId)=>Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(Snapshot,tableId,pageId);\n";
         if(model.Tables.Any(table=>table.Pages.Any(page=>
             DatabaseCheckboxCompilation.ForService(model,table,page).Any(def=>DerivedCheckboxNamesCompilation.UsesScopedCheckboxLabel(model,def)))))
