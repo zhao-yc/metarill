@@ -116,19 +116,26 @@ public sealed class FileCommandFactoryTests
         Assert.Equal(1, provider.Last.Rollbacks);
     }
 
-    /// <summary>上传计划按原文件控件的默认及显式大小校验，服务器上限仍然优先。</summary>
+    private const string SizeLimitError = "文件大小超过字段限制";
+    private const string SuffixLimitError = "文件后缀不在字段允许范围内";
+
+    /// <summary>上传计划按原文件控件的默认和显式大小、后缀校验，服务器上限仍然优先。</summary>
     [Theory]
-    [InlineData("", true, 100, 50, 0, true)]
-    [InlineData("", true, 100, 50, 1, false)]
-    [InlineData("{}", true, 100, 50, 1, false)]
-    [InlineData("{\"maxSizeMb\":null}", true, 100, 50, 1, false)]
-    [InlineData("{\"maxSizeMb\":80}", true, 100, 80, 0, true)]
-    [InlineData("{\"maxSizeMb\":80}", true, 100, 80, 1, false)]
-    [InlineData("{\"maxSizeMb\":80}", true, 60, 60, 1, false)]
-    [InlineData("", true, 30, 30, 1, false)]
-    [InlineData("", false, 100, 80, 0, true)]
-    public async Task Web_upload_plan_shares_original_file_field_size_limit(
-        string detail, bool published, int hostLimit, int sizeMb, int extraBytes, bool allowed)
+    [InlineData("", true, 100, 50, 0, "plan.txt", null)]
+    [InlineData("", true, 100, 50, 1, "plan.txt", SizeLimitError)]
+    [InlineData("{}", true, 100, 50, 1, "plan.txt", SizeLimitError)]
+    [InlineData("{\"maxSizeMb\":null}", true, 100, 50, 1, "plan.txt", SizeLimitError)]
+    [InlineData("{\"maxSizeMb\":80}", true, 100, 80, 0, "plan.txt", null)]
+    [InlineData("{\"maxSizeMb\":80}", true, 100, 80, 1, "plan.txt", SizeLimitError)]
+    [InlineData("{\"maxSizeMb\":80}", true, 60, 60, 1, "plan.txt", SizeLimitError)]
+    [InlineData("", true, 30, 30, 1, "plan.txt", SizeLimitError)]
+    [InlineData("", false, 100, 80, 0, "plan.txt", null)]
+    [InlineData("{\"extensions\":[\" TXT \",\" .PDF \"]}", true, 100, 1, 0, "plan.TXT", null)]
+    [InlineData("{\"extensions\":[\" TXT \",\" .PDF \"]}", true, 100, 1, 0, "plan.pdf", null)]
+    [InlineData("{\"extensions\":[\" TXT \",\" .PDF \"]}", true, 100, 1, 0, "plan.csv", SuffixLimitError)]
+    [InlineData("{\"extensions\":[\"txt\",\" .EXE \"]}", true, 100, 1, 0, "plan.exe", SuffixLimitError)]
+    public async Task Web_upload_plan_shares_original_file_field_limits(
+        string detail, bool published, int hostLimit, int sizeMb, int extraBytes, string fileName, string? expectedError)
     {
         const long mib = 1024L * 1024L;
         var table = new TableMetadata { Id = "10", TableName = "attachment_form", IsFunctionTable = 1 };
@@ -155,9 +162,9 @@ public sealed class FileCommandFactoryTests
         var files = new FileLibraryService(new SqlRowStore(session, MetadataCatalogComposition.MergePhysical(catalog, infrastructure)),
             new FileMetadataContext([catalog]), new SnowflakeIdGenerator(29), new FunctionFileAuthorization("upload"),
             new FileLibraryOptions { MaxFileBytes = hostLimit * mib });
-        var request = new FileUploadRequest("plan.txt", null, sizeMb * mib + extraBytes, published ? field.Id : null);
+        var request = new FileUploadRequest(fileName, null, sizeMb * mib + extraBytes, published ? field.Id : null);
 
-        if (allowed)
+        if (expectedError is null)
         {
             Assert.True((await files.PlanUploadAsync(request)).FileId > 0);
             Assert.Contains("INSERT INTO `yz_file_library`", Assert.Single(writes));
@@ -166,7 +173,7 @@ public sealed class FileCommandFactoryTests
         else
         {
             var failure = await Assert.ThrowsAsync<BusinessRuleException>(() => files.PlanUploadAsync(request));
-            Assert.Equal("文件大小超过字段限制", failure.Message);
+            Assert.Equal(expectedError, failure.Message);
             Assert.Empty(writes);
             Assert.Equal(1, provider.Last!.Rollbacks);
         }

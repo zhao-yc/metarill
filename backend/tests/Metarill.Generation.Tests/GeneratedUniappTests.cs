@@ -26,12 +26,14 @@ public sealed class GeneratedUniappTests
             Assert.Contains("remarkRtfDo('edit')", detail); Assert.DoesNotContain("此控件待移植，当前只读</text></uni-forms-item>", detail);
             Assert.Contains("access-mode='PUBLIC' accept='image,video' :max-count='2' :max-size-mb='3'", detail);
             Assert.Contains(":allow-library='false' :crop-images='true'", detail);
+            Assert.Contains(":extensions=\"[&quot;.png&quot;,&quot;.webp&quot;]\"", list);
             Assert.Contains("access-mode='PROTECTED'", detail);
             Assert.Contains("\"value\":\"9007199254740993\"", detail);
             var vo = File.ReadAllText(Path.Combine(output, "VOs/CustomerPage101Vo.g.cs"));
             Assert.Contains("JsonPropertyName(\"statusShow\")", vo); Assert.Contains("JsonPropertyName(\"groupName\")", vo); Assert.DoesNotContain("JsonPropertyName(\"ownerName\")", vo);
             using var capabilities = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "generation-capabilities.json")));
-            Assert.Contains(capabilities.RootElement.GetProperty("unsupportedControls").EnumerateArray(), item => item.GetProperty("column").GetString() == "attachments" && item.GetProperty("usage").GetString() == "filter");
+            Assert.Contains("filters.attachments", list);
+            Assert.DoesNotContain(capabilities.RootElement.GetProperty("unsupportedControls").EnumerateArray(), item => item.GetProperty("column").GetString() == "attachments" && item.GetProperty("usage").GetString() == "filter");
             Assert.DoesNotContain(result.Warnings, warning => warning.Contains("RTF", StringComparison.Ordinal));
             await RunProbe(output);
         }
@@ -115,7 +117,7 @@ public sealed class GeneratedUniappTests
         Add("20", "group_id", "int64", "List", "{\"tableId\":\"2\",\"nameField\":\"name\"}", search: true);
         Add("21", "group_name", "string", readOnly: true);
         Add("22", "owner_id", "int64", "List", "{\"tableId\":\"2\",\"nameField\":\"name\"}");
-        Add("23", "attachments", "string", "FileLibrary", "{\"accessMode\":\"PUBLIC\",\"accept\":\"image,video\",\"maxCount\":2,\"maxSizeMb\":3,\"extensions\":[\"PNG\",\".webp\"],\"allowLibrary\":false,\"cropImages\":true}", search: true);
+        Add("23", "attachments", "string", "FileLibrary", "{\"accessMode\":\"PUBLIC\",\"accept\":\"image,video\",\"maxCount\":2,\"maxSizeMb\":3,\"extensions\":[\" PNG \",\" .webp \",\" .PNG \"],\"allowLibrary\":false,\"cropImages\":true}", search: true);
         Add("24", "protected_files", "string", "FileLibrary");
         Add("25", "large_enum", "int64", "ConstList", "大整数|9007199254740993");
         Add("26", "fee", "decimal", "ConstList", "一个单位|1.00,同值重复|1");

@@ -156,7 +156,13 @@ public static partial class FileValidation
             }
             if (detail.RootElement.TryGetProperty("maxCount", out var limit) && limit.ValueKind != JsonValueKind.Null) count = limit.GetInt32();
             if (detail.RootElement.TryGetProperty("extensions", out var list) && list.ValueKind == JsonValueKind.Array && list.GetArrayLength() > 0)
-                extensions = list.EnumerateArray().Select(x => "." + (x.GetString() ?? "").TrimStart('.').ToLowerInvariant()).Where(options.AllowedExtensions.Contains).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            {
+                // 与原控件一样先去掉后缀两端的空白，再按服务端允许范围取交集。
+                extensions = list.EnumerateArray()
+                    .Select(item => "." + (item.GetString() ?? "").Trim().TrimStart('.').ToLowerInvariant())
+                    .Where(options.AllowedExtensions.Contains)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            }
         }
         if (access is not ("PUBLIC" or "PROTECTED") || count is < 1 or > 100) throw new InvalidOperationException("文件控件访问模式或数量上限无效。");
         return new FileControlPolicy(access, maximum, count, extensions);

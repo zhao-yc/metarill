@@ -245,8 +245,15 @@ internal static class ControlRenderer
             if (maximum is < 1 or > 100 || size is < 1 or > 10240) throw new InvalidOperationException("文件库数量或大小上限无效。");
             if (detail.TryGetProperty("extensions", out value) && value.ValueKind != JsonValueKind.Null)
             {
-                if (value.ValueKind != JsonValueKind.Array || value.EnumerateArray().Any(item => item.ValueKind != JsonValueKind.String || !Regex.IsMatch(item.GetString() ?? "", @"^\.?[A-Za-z0-9]+$"))) throw new InvalidOperationException("文件库扩展名必须是合法数组。");
-                extensions = value.EnumerateArray().Select(item => "." + item.GetString()!.TrimStart('.').ToLowerInvariant()).Distinct(StringComparer.Ordinal).ToArray();
+                if (value.ValueKind != JsonValueKind.Array) throw new InvalidOperationException("文件库扩展名必须是合法数组。");
+                // 原文件控件忽略后缀两端的空白，生成时按去掉空白后的值验证。
+                var suffixes = value.EnumerateArray()
+                    .Select(item => item.ValueKind == JsonValueKind.String ? item.GetString()!.Trim() : "")
+                    .ToArray();
+                if (suffixes.Any(suffix => !Regex.IsMatch(suffix, @"^\.?[A-Za-z0-9]+$")))
+                    throw new InvalidOperationException("文件库扩展名必须是合法数组。");
+                extensions = suffixes.Select(suffix => "." + suffix.TrimStart('.').ToLowerInvariant())
+                    .Distinct(StringComparer.Ordinal).ToArray();
             }
             if (detail.TryGetProperty("allowLibrary", out value) && value.ValueKind != JsonValueKind.Null) allow = value.GetBoolean();
             if (detail.TryGetProperty("cropImages", out value) && value.ValueKind != JsonValueKind.Null) crop = value.GetBoolean();
