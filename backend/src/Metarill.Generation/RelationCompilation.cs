@@ -23,9 +23,9 @@ internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target
     internal bool CompoundGlobalSource { get; init; }
     internal bool FunctionForm { get; init; }
     internal string? ControlParentPageId { get; init; }
-    /// <summary>控件独立父键和复合全局父的物理文本都按规范主键比较。</summary>
-    internal bool CanonicalFunctionGlobalParent=>FunctionForm&&FixedParent is {Global:true,Logical:false} parent&&
-        (ControlParentPageId is not null||parent.AdditionalTargets.Count>0);
+    /// <summary>功能表的物理父字段共用规范主键，文本键按精确值比较。</summary>
+    internal bool CanonicalFunctionParent=>FunctionForm&&FixedParent is {Logical:false} parent&&
+        (ControlParentPageId is not null||parent.AdditionalTargets.Count>0||!parent.Global&&parent.Target.LogicalType=="string");
     internal bool ExcelTargetExact { get; init; }
     internal ColumnModel? SharedTextParent { get; init; }
     internal bool MixedStoredTextParent=>SharedTextParent is not null&&LogicalSourceParent&&Target.Source.IsRongyu==1;
@@ -186,6 +186,9 @@ internal static class RelationCompilation
                     fixedParent=controlParent.Scope;
                     controlParentPageId=controlParent.Page.Id;
                 }
+                else if(!target.IsGlobal&&fixedParent is (null or {Global:false,Logical:false})&&
+                    scopes.Any(scope=>scope.Source=="parent"))
+                    fixedParent=FunctionTableSelectionCompilation.ProjectListParent(model,target,targetPage,scopes);
             }
             if(globalList&&conditions is {JoinedFields.Count:>0}&&
                 !conditions.JoinedFields.SetEquals(GlobalCrossTableTarget.ListJoinedConditionFields(model.Catalog,

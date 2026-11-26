@@ -35,9 +35,13 @@ internal static class DerivedRelationNamesCompilation
     internal static bool EmbedsParentScope(TableModel target,MultiTargetParentScope? parent)=>
         parent is {Logical:true} or {AdditionalTargets.Count:>0}||!target.IsGlobal&&parent is {Global:true};
 
-    /// <summary>控件独立父字段由候选过滤器承接，字典页读计划只嵌入自己的父参数。</summary>
+    /// <summary>功能表的项目内物理父键从请求和当前项目确定，使用已验证的标量过滤。</summary>
+    private static bool UsesFunctionProjectParent(RelationModel relation)=>
+        relation.FunctionForm&&!relation.Target.IsGlobal&&relation.FixedParent is {Global:false,Logical:false};
+
+    /// <summary>控件独立父字段和功能表的项目内物理父键由候选过滤器承接。</summary>
     internal static bool EmbedsParentScope(RelationModel relation)=>
-        relation.ControlParentPageId is null&&EmbedsParentScope(relation.Target,relation.FixedParent);
+        relation.ControlParentPageId is null&&!UsesFunctionProjectParent(relation)&&EmbedsParentScope(relation.Target,relation.FixedParent);
 
     /// <summary>冗余全局字典的物理父范围由普通全局候选编译，保留实际发布页约束。</summary>
     internal static bool UsesStoredGlobalParentPlan(RelationModel relation)=>

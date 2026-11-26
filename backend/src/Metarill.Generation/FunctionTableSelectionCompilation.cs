@@ -43,7 +43,8 @@ internal static class FunctionTableSelectionCompilation
         if (!targetPage.Scopes.Any(scope => scope.Source == "parent")) return null;
         var condition = FixedConditionPlan.Compile(targetPage.Source.WhereSql, target.Columns.Select(column => column.Source.ColumnName));
         var parent=DerivedRelationNamesCompilation.SingleParent(model,target,targetPage)??
-            MultiTargetParentScope.Compile(model.Catalog,target.Source,condition)??
+            (target.IsGlobal?MultiTargetParentScope.Compile(model.Catalog,target.Source,condition):
+                MultiTargetParentScope.CompileListPage(model.Catalog,target.Source,condition.Terms))??
             throw new InvalidOperationException("功能表实际目标页缺少可证明的父级。");
         if(parent is {Global:true,AdditionalTargets.Count:>0})
             _=NonRedundantReads.MultiGlobalParentPageId(model.Catalog,target.Source.Id,targetPage.Source.Id);
@@ -64,6 +65,17 @@ internal static class FunctionTableSelectionCompilation
             throw new InvalidOperationException("List 的附加父字段缺少固定发布关系。")).ToArray();
         NonRedundantReads.RequireAdditionalGlobalParentTargets(model.Catalog,target.Source.Id,targetPage.Source.Id,additional);
         return parent with{AdditionalTargets=[..parent.AdditionalTargets,..additional]};
+    }
+
+    /// <summary>List 的页面及控件父键都使用当前表单的一份项目内主键。</summary>
+    internal static MultiTargetParentScope ProjectListParent(GenerationModel model,TableModel target,PageModel targetPage,
+        IReadOnlyList<(ColumnModel Column,string Source)> controlScopes)
+    {
+        var conditions=targetPage.Scopes.Concat(controlScopes).Where(scope=>scope.Source=="parent")
+            .Select(scope=>scope.Column.Source.ColumnName+"=@parentId").Distinct(StringComparer.Ordinal);
+        var syntax=FixedConditionPlan.Compile(string.Join(" AND ",conditions),target.Columns.Select(column=>column.Source.ColumnName));
+        return MultiTargetParentScope.CompileListPage(model.Catalog,target.Source,syntax.Terms) is {Global:false,Logical:false} parent
+            ?parent:throw new InvalidOperationException("功能表的 List 父字段须绑定同一个项目内普通父表。");
     }
 
     /// <summary>功能表没有来源记录，父值只能来自原页面已开放且关联同一父表的字段。</summary>
