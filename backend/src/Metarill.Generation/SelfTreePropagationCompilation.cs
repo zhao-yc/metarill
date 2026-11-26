@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Metarill.Data.Relations;
 namespace Metarill.Generation;
 
@@ -21,7 +20,7 @@ internal static class SelfTreePropagationCompilation
         if(table.Source.IsRongyu!=1)return [];var result=new List<RelationPropagationBinding>();
         foreach(var page in table.Pages)foreach(var source in table.Columns.Where(c=>c.Source.ControlKind=="CascadeTree"&&!NonRedundantCrossTableSubset.Declared(c)))
         {
-            var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(f=>f.ConfigPageId==page.Source.Id&&f.ConfigColumnId==source.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(source.Source.ControlDetail)))continue;
+            if(!CascadeTreeReadCompilation.KeepsStoredTree(model,page,source))continue;
             var plan=CascadeTreeWriteCompilation.Resolve(model,table,page,source).Definition;if(plan is null)continue;
             try
             {

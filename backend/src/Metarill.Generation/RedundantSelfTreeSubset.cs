@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Metarill.Core.Metadata;
 namespace Metarill.Generation;
 
@@ -11,7 +10,7 @@ internal static class RedundantSelfTreeSubset
     /// <summary>单控件证明不反向调用跨表门槛，避免相互递归；隐藏同伴也必须完整。</summary>
     internal static bool FixedTarget(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {
-        var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(f=>f.ConfigPageId==page.Source.Id&&f.ConfigColumnId==source.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(source.Source.ControlDetail)))return false;
+        if(!CascadeTreeReadCompilation.KeepsStoredTree(model,page,source))return false;
         var plan=CascadeTreeWriteCompilation.Resolve(model,table,page,source).Definition;if(plan is null||plan.Read.Target.Source.IsView!=0||plan.Read.Target.Source.IsFunctionTable!=0)return false;
         Realm(model,plan.Read.Target,plan.Read.TargetPage);return SelfTreePropagationCompilation.ForTable(model,table).Any(binding=>binding.Foreign.Source.Id==source.Source.Id&&binding.Target.Source.Id==plan.Read.Target.Source.Id&&binding.Value.Source.Id==plan.Read.Name.Source.Id&&binding.Cache.Source.Id==plan.Name.Source.Id&&binding.SelfTreePageId==SelfTreePropagationCompilation.PageId(table,plan.Read));
     }

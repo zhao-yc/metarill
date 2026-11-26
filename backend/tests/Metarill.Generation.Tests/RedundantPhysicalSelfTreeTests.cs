@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Metarill.Core.Metadata;
 using Xunit;
 namespace Metarill.Generation.Tests;
@@ -20,22 +21,89 @@ public sealed class RedundantPhysicalSelfTreeTests
     }
     /// <summary>原完整包实际构建、挂载原Vue、更新两轮并保护手写partial。</summary>
     [Theory][InlineData("string","int64","single")][InlineData("int64","string","mixed")][InlineData("string","string","shared")][InlineData("int64","int64","globalShared")][InlineData("string","int64","same")][InlineData("int64","string","double")]
-    public async Task Full_packages_build_original_controls_and_keep_handwritten_partial(string type,string parent,string mode)
+    [InlineData("string","int64","single",true)][InlineData("string","int64","r0",true)]
+    public async Task Full_packages_build_original_controls_and_keep_handwritten_partial(string type,string parent,string mode,bool pageOptions=false)
     {
-        var c=Catalog("r1_self",type,parent,mode);var model=GenerationModel.Create(c,"Example.R1SelfFull");var table=model.Tables.Single(t=>t.Source.TableName=="r1_self_"+(mode=="same"?"node":"source"));var root=NonRedundantApplicationFixture.Root();var boundary=Path.Combine(Path.GetTempPath(),"metarill-r1-self-full");var dir=Path.Combine(boundary,Guid.NewGuid().ToString("N"));var output=Path.Combine(dir,"app");
+        var c=Catalog("r1_self",type,parent,mode);
+        if(pageOptions)
+        {
+            var sourcePage=c.ConfigPages.Single(page=>page.Id=="201");
+            sourcePage.IsImport=sourcePage.IsExport=1;
+            sourcePage.Extra["importMethod"]=JsonSerializer.SerializeToElement(mode=="r0"?"OverWriteByFirstColumn":"OnlyNew");
+            sourcePage.Extra["exportMethod"]=JsonSerializer.SerializeToElement(mode=="r0"?"edit":"list");
+            var control=c.ConfigColumns.Single(column=>column.Id=="25");
+            var overlay=JsonNode.Parse(control.ControlDetail)!;
+            overlay["displayJoiner"]=" > ";
+            var tree=overlay["selfTree"]!.AsObject();
+            tree["label"]="页面节点";
+            tree["orderBy"]="name desc";
+            tree["filterMatchMode"]="exact";
+            tree["idField"]="id";
+            var field=c.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId==control.Id);
+            field.Extra["controlDetail"]=JsonSerializer.SerializeToElement(overlay.ToJsonString());
+            field.Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+        }
+        var model=GenerationModel.Create(c,"Example.R1SelfFull");var table=model.Tables.Single(t=>t.Source.TableName=="r1_self_"+(mode=="same"?"node":"source"));var root=NonRedundantApplicationFixture.Root();var boundary=Path.Combine(Path.GetTempPath(),"metarill-r1-self-full");var dir=Path.Combine(boundary,Guid.NewGuid().ToString("N"));var output=Path.Combine(dir,"app");
+        if(pageOptions)
+        {
+            Assert.Empty(GenerationCapabilityAudit.Collect(model));
+            var page=table.Pages.Single(item=>item.Source.Id=="201");
+            var control=table.Columns.Single(column=>column.Source.Id=="25");
+            var read=Assert.IsType<CascadeTreeReadModel>(CascadeTreeReadCompilation.Resolve(model,table,page,control).Definition);
+            Assert.True(read.Exact);
+            Assert.Equal(" > ",read.Joiner);
+            Assert.Equal(new[]{("name",true),("id",false)},read.Order
+                .Select(entry=>(entry.Column.Source.ColumnName,entry.Descending)));
+            var cache=Assert.Single(SelfTreePropagationCompilation.ForTable(model,table));
+            Assert.Equal(control.Source.Id,cache.Foreign.Source.Id);
+            Assert.Equal(read.Target.Source.Id,cache.Target.Source.Id);
+            Assert.Equal(read.Name.Source.Id,cache.Value.Source.Id);
+        }
         try
         {
             new ApplicationPackager().Create(c,output,model.Namespace,root);var hand=Path.Combine(output,"backend/generated/Services/"+table.Name+"Service.cs");await File.AppendAllTextAsync(hand,"\n// R1自树及混合级联手写业务。\n");var bytes=await File.ReadAllBytesAsync(hand);var candidate=Path.Combine(dir,"candidate");new ApplicationPackager().Create(c,candidate,model.Namespace,root);var updater=new LocalGenerationUpdater();var actions=new[]{"generate-project-config","sync-runtime","generate-all-page"};var plan=updater.Preview(output,candidate,actions);Assert.True(plan.CanApply);updater.Apply(plan,plan.PlanSha256);Assert.Equal(bytes,await File.ReadAllBytesAsync(hand));var repeated=updater.Preview(output,candidate,actions);Assert.Equal("unchanged",updater.Apply(repeated,repeated.PlanSha256).Status);
             foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(output,operation);Assert.Equal(File.ReadAllBytes(Path.Combine(root,"frontend/metarill_uni_admin/components/yzp-cascade-tree/yzp-cascade-tree.vue")),File.ReadAllBytes(Path.Combine(output,"frontend/components/yzp-cascade-tree/yzp-cascade-tree.vue")));
-            var probe=NonRedundantApplicationFixture.Start("node",output);probe.ArgumentList.Add(Path.Combine(NonRedundantApplicationFixture.TestDirectory(),"RedundantPhysicalSelfTreeVueProbe.mjs"));probe.ArgumentList.Add(Path.Combine(output,"frontend"));probe.ArgumentList.Add(mode);await NonRedundantApplicationFixture.RunAsync(probe);
+            if(pageOptions)
+            {
+                var detail=await File.ReadAllTextAsync(Path.Combine(output,"frontend/pages/yzp/r1_self_source-detail-201.vue"));
+                var definition=System.Text.RegularExpressions.Regex.Match(detail,@"<yzp-cascade-tree\b[^>]*:definition='([^']+)'");
+                Assert.True(definition.Success,"原自树组件缺少配置。");
+                using var json=JsonDocument.Parse(System.Net.WebUtility.HtmlDecode(definition.Groups[1].Value));
+                Assert.Equal("页面节点",json.RootElement.GetProperty("selfTree").GetProperty("label").GetString());
+                var controller=await File.ReadAllTextAsync(Path.Combine(output,"backend/generated/Controllers/R1SelfSourcePage201Controller.g.cs"));
+                Assert.Contains("HttpPost(\"initExport\")",controller);
+                Assert.Contains("HttpPost(\"importDatas201\")",controller);
+                var service=await File.ReadAllTextAsync(Path.Combine(output,"backend/generated/Services/R1SelfSourceService.g.cs"));
+                Assert.Contains("FilterIdsAsync(selected.Value,true,cancellationToken)",service);
+            }
+            else
+            {
+                var probe=NonRedundantApplicationFixture.Start("node",output);probe.ArgumentList.Add(Path.Combine(NonRedundantApplicationFixture.TestDirectory(),"RedundantPhysicalSelfTreeVueProbe.mjs"));probe.ArgumentList.Add(Path.Combine(output,"frontend"));probe.ArgumentList.Add(mode);await NonRedundantApplicationFixture.RunAsync(probe);
+            }
         }
         finally{await TestDirectoryCleanup.DeleteAsync(dir,boundary);}
     }
     /// <summary>无效隐藏树、动态覆盖、未发布、全局／派生名称、假缓存及未知自树父上下文仍拒绝Full。</summary>
-    [Theory][InlineData("hidden")][InlineData("overlay")][InlineData("sourceRealm")][InlineData("targetRealm")][InlineData("global")][InlineData("derived")][InlineData("virtualCache")][InlineData("wrongPath")][InlineData("where")][InlineData("ambiguous")][InlineData("selfParent")]
+    [Theory][InlineData("hidden")][InlineData("overlay")][InlineData("differentNode")][InlineData("sourceRealm")][InlineData("targetRealm")][InlineData("global")][InlineData("derived")][InlineData("virtualCache")][InlineData("wrongPath")][InlineData("where")][InlineData("ambiguous")][InlineData("unboundSourceParent")]
     public void Invalid_self_companion_stays_closed_before_staging(string kind)
     {
-        var c=Catalog("r1_self","string","int64","mixed");var control=c.ConfigColumns.Single(x=>x.Id=="81");if(kind=="hidden"){c.ConfigPageColumns.RemoveAll(f=>f.ConfigColumnId=="81");control.ControlDetail="{\"sourceMode\":\"selfTree\",\"selfTree\":{}}";}if(kind=="overlay")c.ConfigPageColumns.Single(f=>f.ConfigPageId=="201"&&f.ConfigColumnId=="81").Extra["controlDetail"]=JsonSerializer.SerializeToElement("{}");if(kind=="sourceRealm")c.ConfigTables.Single(t=>t.Id=="2").YzProjectId="";if(kind=="targetRealm")c.ConfigPages.Single(p=>p.Id=="601").YzProjectId="";if(kind=="global")c.ConfigTables.Single(t=>t.Id=="6").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");if(kind=="derived"){c.ConfigTables.Single(t=>t.Id=="6").IsRongyu=0;c.ConfigColumns.Single(x=>x.Id=="62").Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);}if(kind is "virtualCache" or "wrongPath"){var cache=new ColumnMetadata{Id="6099",ConfigTableId="2",YzProjectId=c.YzProjectId,ColumnName="tree_name",LogicalType="string"};c.ConfigColumns.Add(cache);if(kind=="virtualCache")cache.IsVirtualColumn=1;else{cache.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);cache.Extra["columnFullName"]=JsonSerializer.SerializeToElement("tree.unrelated");}}if(kind=="where")control.ControlDetail=control.ControlDetail.Replace("\"selfTree\":{","\"whereSql\":\"1=1\",\"selfTree\":{");if(kind=="ambiguous"){var p=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(c.ConfigPages.Single(p=>p.Id=="601")))!;p.Id="602";c.ConfigPages.Add(p);foreach(var f in c.ConfigPageColumns.Where(f=>f.ConfigPageId=="601").ToArray()){var copy=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(f))!;copy.Id="602_"+copy.Id;copy.ConfigPageId="602";c.ConfigPageColumns.Add(copy);}}if(kind=="selfParent")c.ConfigPages.Single(p=>p.Id=="201").WhereSql+=" AND tree_id=@parent_id";
+        var c=Catalog("r1_self","string","int64","mixed");var control=c.ConfigColumns.Single(x=>x.Id=="81");if(kind=="hidden"){c.ConfigPageColumns.RemoveAll(f=>f.ConfigColumnId=="81");control.ControlDetail="{\"sourceMode\":\"selfTree\",\"selfTree\":{}}";}if(kind=="overlay")c.ConfigPageColumns.Single(f=>f.ConfigPageId=="201"&&f.ConfigColumnId=="81").Extra["controlDetail"]=JsonSerializer.SerializeToElement("{}");if(kind=="sourceRealm")c.ConfigTables.Single(t=>t.Id=="2").YzProjectId="";if(kind=="targetRealm")c.ConfigPages.Single(p=>p.Id=="601").YzProjectId="";if(kind=="global")c.ConfigTables.Single(t=>t.Id=="6").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");if(kind=="derived"){c.ConfigTables.Single(t=>t.Id=="6").IsRongyu=0;c.ConfigColumns.Single(x=>x.Id=="62").Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);}if(kind is "virtualCache" or "wrongPath"){var cache=new ColumnMetadata{Id="6099",ConfigTableId="2",YzProjectId=c.YzProjectId,ColumnName="tree_name",LogicalType="string"};c.ConfigColumns.Add(cache);if(kind=="virtualCache")cache.IsVirtualColumn=1;else{cache.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);cache.Extra["columnFullName"]=JsonSerializer.SerializeToElement("tree.unrelated");}}if(kind=="where")control.ControlDetail=control.ControlDetail.Replace("\"selfTree\":{","\"whereSql\":\"1=1\",\"selfTree\":{");if(kind=="ambiguous"){var p=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(c.ConfigPages.Single(p=>p.Id=="601")))!;p.Id="602";c.ConfigPages.Add(p);foreach(var f in c.ConfigPageColumns.Where(f=>f.ConfigPageId=="601").ToArray()){var copy=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(f))!;copy.Id="602_"+copy.Id;copy.ConfigPageId="602";c.ConfigPageColumns.Add(copy);}}
+        if(kind=="unboundSourceParent")
+        {
+            c.ConfigColumns.Add(new(){Id="6097",ConfigTableId="2",YzProjectId=c.YzProjectId,
+                ColumnName="absent_parent_id",LogicalType="int64"});
+            c.ConfigPages.Single(page=>page.Id=="201").WhereSql+=" AND absent_parent_id=@parent_id";
+        }
+        if(kind=="differentNode")
+        {
+            c.ConfigColumns.Add(new(){Id="6098",ConfigTableId="6",YzProjectId=c.YzProjectId,
+                ColumnName="alternate_name",LogicalType="string"});
+            c.ConfigPageColumns.Add(new(){Id="6016098",ConfigPageId="601",ConfigColumnId="6098",YzProjectId=c.YzProjectId});
+            var changed=JsonNode.Parse(control.ControlDetail)!;
+            changed["selfTree"]!["nameField"]="alternate_name";
+            c.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId==control.Id)
+                .Extra["controlDetail"]=JsonSerializer.SerializeToElement(changed.ToJsonString());
+        }
         var output=Path.Combine(Path.GetTempPath(),"metarill-r1-self-rejected",Guid.NewGuid().ToString("N"));Assert.ThrowsAny<Exception>(()=>new ApplicationPackager().Create(c,output,"Example.RejectedSelf",NonRedundantApplicationFixture.Root()));Assert.False(Directory.Exists(output));
     }
     /// <summary>复用既有目录源头，只有本轮明确的存储与组合变化；不修改实际平台按钮或路径Excel规则。</summary>
