@@ -985,7 +985,9 @@ public sealed class TextCascadeParentRelationTests
     [InlineData("OnlyNew","list",true,false)]
     [InlineData("OnlyNew","list",true,true)]
     [InlineData("OverWriteByFirstColumn","edit",true,true)]
-    public async Task Sparse_source_stored_target_share_text_parent(string import,string export,bool global=false,bool extraPage=false)
+    [InlineData("OnlyNew","list",true,true,true)]
+    [InlineData("OverWriteByFirstColumn","edit",true,true,true)]
+    public async Task Sparse_source_stored_target_share_text_parent(string import,string export,bool global=false,bool extraPage=false,bool compoundTarget=false)
     {
         var catalog=Catalog(0,import,export);
         if(global)
@@ -996,6 +998,7 @@ public sealed class TextCascadeParentRelationTests
         if(extraPage)AddUnrelatedGlobalParentPage(catalog);
         ScopeTarget(catalog,"81");
         ScopeTarget(catalog,"82");
+        if(compoundTarget)AddStoredDictionarySecondaryPaths(catalog,"81","82");
         if(global)AddStoredDictionaryAccountScopes(catalog,"81","82");
         var model=GenerationModel.Create(catalog,"Example.SparseStoredTextParent");
         var table=model.Tables.Single(item=>item.Source.Id=="2");
@@ -1040,6 +1043,7 @@ public sealed class TextCascadeParentRelationTests
             Assert.Equal(from,Assert.IsType<string>(frozenSql.GetType().GetProperty("From",flags)!.GetValue(frozenSql)));
             var service=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/Services/TextrelSourceService.g.cs"));
             Assert.Contains("ApplyTextParent(query,session,\"country_id\",targetParentId!,businessKey:true)",service);
+            if(compoundTarget)Assert.Contains("ApplyTextParent(query,session,\"other_country_id\",targetParentId!,businessKey:true)",service);
             Assert.Contains("OptionsScope201_700Async(logicalRelationParentId, null, actor, cancellationToken, true, false",service);
             Assert.Contains("OptionsScope201_702Async(logicalRelationParentId, null, actor, cancellationToken, true, false",service);
             Assert.Contains("ImportRelation201_700Async",service);
@@ -1053,15 +1057,19 @@ public sealed class TextCascadeParentRelationTests
     [Theory]
     [InlineData("81")]
     [InlineData("84")]
-    public void Sparse_source_stored_dictionary_rejects_conflicting_global_parent_page(string targetId)
+    [InlineData("81",true)]
+    [InlineData("84",true)]
+    public void Sparse_source_stored_dictionary_rejects_conflicting_global_parent_page(string targetId,bool compoundTarget=false)
     {
         var catalog=Catalog(0,"OnlyNew","list");
         ConfigureGlobalTextAncestor(catalog);
         AddSecondTextAncestor(catalog);
         AddUnrelatedGlobalParentPage(catalog);
         ScopeTarget(catalog,targetId);
+        if(compoundTarget)AddStoredDictionarySecondaryPaths(catalog,targetId);
         AddStoredDictionaryAccountScopes(catalog,targetId);
-        catalog.ConfigColumns.Single(column=>column.Id==targetId+"04")
+        var parentId=targetId+(compoundTarget?"90":"04");
+        catalog.ConfigColumns.Single(column=>column.Id==parentId)
             .Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("303");
         var model=GenerationModel.Create(catalog,"Example.SparseStoredParentConflict");
         Assert.Contains(GenerationCapabilityAudit.Collect(model),gap=>
@@ -1348,7 +1356,9 @@ public sealed class TextCascadeParentRelationTests
     [InlineData("OnlyNew","list",true,false)]
     [InlineData("OnlyNew","list",true,true)]
     [InlineData("OverWriteByFirstColumn","edit",true,true)]
-    public async Task Sparse_source_stored_multi_targets_share_text_parent(string import,string export,bool global=false,bool extraPage=false)
+    [InlineData("OnlyNew","list",true,true,true)]
+    [InlineData("OverWriteByFirstColumn","edit",true,true,true)]
+    public async Task Sparse_source_stored_multi_targets_share_text_parent(string import,string export,bool global=false,bool extraPage=false,bool compoundTarget=false)
     {
         var catalog=Catalog(0,import,export);
         if(global)
@@ -1365,6 +1375,7 @@ public sealed class TextCascadeParentRelationTests
                 .Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
             catalog.ConfigColumns.Single(column=>column.Id==id).Extra["filterControlKind"]=JsonSerializer.SerializeToElement("CheckBox");
         }
+        if(compoundTarget)AddStoredDictionarySecondaryPaths(catalog,"83","84");
         if(global)AddStoredDictionaryAccountScopes(catalog,"83","84");
         var model=GenerationModel.Create(catalog,"Example.SparseStoredMultiTextParent");
         var table=model.Tables.Single(item=>item.Source.Id=="2");
@@ -1391,6 +1402,11 @@ public sealed class TextCascadeParentRelationTests
             Assert.Contains("targetParentId=LogicalParentId201(parentId)",service);
             Assert.Contains("ApplyTextParent(query,session,\"country_id\",targetParentId!,businessKey:true)",service);
             Assert.Contains("ApplyTextParent(query,session,\"country_id\",parentId!,businessKey:true)",service);
+            if(compoundTarget)
+            {
+                Assert.Contains("ApplyTextParent(query,session,\"other_country_id\",targetParentId!,businessKey:true)",service);
+                Assert.Contains("ApplyTextParent(query,session,\"other_country_id\",parentId!,businessKey:true)",service);
+            }
             Assert.Contains("CheckboxScope201_706Async(logicalRelationParentId",service);
             Assert.Contains("ExportCheckbox201_706Async(entities,actor,request.ParentId",service);
             Assert.DoesNotContain("out var targetParentKey",service);
@@ -1416,6 +1432,7 @@ public sealed class TextCascadeParentRelationTests
             {
                 Assert.Contains("BINARY CAST(multi_value.`country_id` AS CHAR)=BINARY CAST((CASE WHEN",sql);
                 Assert.DoesNotContain("multi_parent.",sql);
+                if(compoundTarget)Assert.Contains("BINARY CAST(multi_value.`other_country_id` AS CHAR)",sql);
             });
             return filters.OrderBy(filter=>filter.Key,StringComparer.Ordinal).Select(filter=>filter.Value).ToArray();
         }
@@ -2822,6 +2839,27 @@ public sealed class TextCascadeParentRelationTests
         catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql+=" AND store_id=@current_store_id";
     }
 
+    /// <summary>字典页增加独立级联角色，两个父字段用同一个发布业务键验证。</summary>
+    private static void AddStoredDictionarySecondaryPaths(MetadataCatalog catalog,params string[] tables)
+    {
+        foreach(var id in tables)
+        {
+            var page=catalog.ConfigPages.Single(item=>item.ConfigTableId==id);
+            var definition=System.Text.Json.Nodes.JsonNode.Parse(catalog.ConfigColumns.Single(column=>column.Id==id+"06").ControlDetail)!;
+            var levels=definition["levels"]!.AsArray();
+            levels.RemoveAt(2);
+            levels[0]!["columnPrefix"]="other_country";
+            levels[1]!["columnPrefix"]="other_area";
+            catalog.ConfigColumns.AddRange([
+                new(){Id=id+"90",ConfigTableId=id,ColumnName="other_country_id",LogicalType="string",ColumnLength="50",
+                    LinkConfigTableId="3",YzProjectId=catalog.YzProjectId},
+                new(){Id=id+"91",ConfigTableId=id,ColumnName="other_area_id",LogicalType="int64",ControlKind="CascadeTree",
+                    LinkConfigTableId="4",ControlDetail=definition.ToJsonString(),YzProjectId=catalog.YzProjectId}
+            ]);
+            catalog.ConfigPageColumns.Add(new(){Id=page.Id+"91",ConfigPageId=page.Id,ConfigColumnId=id+"91",YzProjectId=catalog.YzProjectId});
+            page.WhereSql+=" AND other_country_id=@parent_id";
+        }
+    }
     /// <summary>冗余字典保存全局父名称时，持久行须能证明实际门店归属。</summary>
     private static void AddStoredDictionaryAccountScopes(MetadataCatalog catalog,params string[] tables)
     {
@@ -2836,7 +2874,7 @@ public sealed class TextCascadeParentRelationTests
     {
         var target=model.Tables.Single(item=>item.Source.Id==targetId);
         var targetPage=Assert.Single(target.Pages);
-        var targetScope=Assert.Single(targetPage.Scopes,scope=>scope.Source=="parent");
+        var targetScope=Assert.Single(targetPage.Scopes,scope=>scope.Source=="parent"&&scope.Column.Source.ColumnName=="country_id");
         var current=CrossTableWriteCompilation.Resolve(model,target,targetPage,target.Columns.Single(field=>field.Source.Id==targetId+"06"));
         Assert.True(current.Definition is not null,current.Reason);
         var path=Assert.Single(SharedRedundantParentCompilation.ForColumn(model,target,targetPage,targetScope.Column));

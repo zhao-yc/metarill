@@ -86,7 +86,11 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
 
     /// <summary>下拉字典把实际页面和控件的父参数合成同一组发布范围。</summary>
     public static MultiTargetParentScope? CompileListPage(MetadataCatalog catalog,TableMetadata table,
-        IEnumerable<FixedConditionTerm> terms)
+        IEnumerable<FixedConditionTerm> terms)=>CompileListPage(catalog,table,terms,allowGlobalParent:table.IsRongyu==0);
+
+    /// <summary>混合存储的字典页开放全局物理父字段后，由调用方继续核对真实级联。</summary>
+    public static MultiTargetParentScope? CompileListPage(MetadataCatalog catalog,TableMetadata table,
+        IEnumerable<FixedConditionTerm> terms,bool allowGlobalParent)
     {
         // 同一物理列可重复声明，原前端的两种父参数拼法语义一致。
         var declarations=terms.Where(ParentTerm).Select(term=>
@@ -95,7 +99,22 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         var fields=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id))
             .Select(column=>column.ColumnName);
         var condition=FixedConditionPlan.Compile(string.Join(" AND ",declarations),fields);
-        return CompileSelectionPage(catalog,table,condition,allowGlobalParent:table.IsRongyu==0,allowStoredPhysicalParents:true);
+        return CompileSelectionPage(catalog,table,condition,allowGlobalParent,allowStoredPhysicalParents:true);
+    }
+
+    /// <summary>识别可能由冗余级联证明的全局文本父范围，实际发布层位仍由调用方复核。</summary>
+    public static MultiTargetParentScope? CompileStoredTextGlobalPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition)
+    {
+        if(table.IsRongyu!=1||GlobalCrossTableTarget.Declared(table))return null;
+        var terms=condition.Terms.Where(ParentTerm).ToArray();
+        if(terms.Length==0)return null;
+        var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id)
+            .ToDictionary(column=>column.ColumnName,StringComparer.Ordinal);
+        if(terms.Any(term=>!columns.TryGetValue(term.Field,out var column)||
+            !catalog.ConfigTables.Any(parent=>parent.Id==column.LinkConfigTableId&&GlobalCrossTableTarget.Declared(parent))||
+            !CrossTableStorageColumns.DeclaresStoredTextKey(catalog,table,column)))return null;
+        return CompileSelectionPage(catalog,table,condition,allowGlobalParent:true,allowStoredPhysicalParents:true)
+            is {Global:true,Logical:false} parent?parent:null;
     }
 
     private static MultiTargetParentScope? CompilePublishedPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition,

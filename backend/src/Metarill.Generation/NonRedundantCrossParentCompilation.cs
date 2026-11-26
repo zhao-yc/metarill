@@ -47,15 +47,16 @@ internal static class NonRedundantCrossParentCompilation
         if(paths.Any(path=>path is not {Level.TextKey:true})||
             paths.Select(path=>SharedRedundantParentCompilation.Identity(path!)).Distinct(StringComparer.Ordinal).Count()!=1)
             return null;
-        return SharedTextTarget(model,target,targetPage,paths[0]!);
+        return SharedTextTarget(model,target,targetPage,paths[0]!,allowCompoundStoredTarget:true);
     }
 
     /// <summary>逐层比对真实发布页、父边和文本键。多个目标必须都能使用来源的同一父参数。</summary>
-    internal static ColumnModel? SharedTextTarget(GenerationModel model,TableModel target,PageModel page,SharedRedundantParentPath source)
+    internal static ColumnModel? SharedTextTarget(GenerationModel model,TableModel target,PageModel page,SharedRedundantParentPath source,
+        bool allowCompoundStoredTarget=false)
     {
         var fields=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column)
             .DistinctBy(column=>column.Source.Id).OrderBy(column=>column.Source.Id,StringComparer.Ordinal).ToArray();
-        if(fields.Length==0||target.Source.IsRongyu==1&&fields.Length!=1)return null;
+        if(fields.Length==0||target.Source.IsRongyu==1&&fields.Length!=1&&!allowCompoundStoredTarget)return null;
         var identity=SharedRedundantParentCompilation.Identity(source);
         foreach(var field in fields)
         {

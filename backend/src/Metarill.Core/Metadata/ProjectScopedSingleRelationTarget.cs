@@ -164,7 +164,8 @@ public static class ProjectScopedSingleRelationTarget
             page.Extra.GetValueOrDefault("type").ToString()!="1")return null;
         var columns=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id));
         var condition=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
-        if(target.IsRongyu==1&&PageParent(catalog,target,page) is {Global:true})return null;
+        if(target.IsRongyu==1&&(PageParent(catalog,target,page) is {Global:true}||
+            MultiTargetParentScope.CompileStoredTextGlobalPage(catalog,target,condition) is not null))return null;
         var scope=MultiTargetParentScope.CompileListPage(catalog,target,condition.Terms);
         return scope is {Logical:false,Global:false}?scope:null;
     }

@@ -160,7 +160,8 @@ internal static class MultiSelectFieldRenderer
     }
 
     /// <summary>同一目标父谓词用于多选保存和 Excel；普通物理父依旧按声明字段比较。</summary>
-    internal static string ParentFilter(MultiSelectModel def,ColumnModel column,string indent)=>def.SharedTextParent==column
+    internal static string ParentFilter(MultiSelectModel def,ColumnModel column,string indent)=>def.SharedTextParent==column||
+        def is {SharedTextParent:not null,LogicalSourceParent:true,Target.Source.IsRongyu:1}&&column.Type=="string?"
         ?$"{indent}query=global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent(query,session,{Literal(column.Source.ColumnName)},targetParentId!,businessKey:true);"
         :$"{indent}query = query.Where(row => row.{column.Property} == {Scope(column,"targetParentId!")});";
 

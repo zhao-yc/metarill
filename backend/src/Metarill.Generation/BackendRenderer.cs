@@ -1183,7 +1183,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             foreach (var (column, _) in targetParentScopes)
             {
                 // 与名称联接使用同一种规范十进制比较，字符串父键不能因数据库排序规则而跨范围。
-                if(relation.SharedTextParent==column)
+                if(relation.SharedTextParent==column||relation.UsesStoredTextParent(column))
                     result.AppendLine($"        query = global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent(query,session,{Literal(column.Source.ColumnName)},targetParentId!,businessKey:true);");
                 else if(canonicalParent&&column.Type=="string?")
                     result.AppendLine($"        query = global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent(query,session,{Literal(column.Source.ColumnName)},targetParentId!);");

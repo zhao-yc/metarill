@@ -311,7 +311,8 @@ internal static class DatabaseCheckboxCompilation
                     return Gap("同一名称副本的页面必须沿用表级复选候选条件。");
             }
             var (scopes,conditions)=RelationConditionsCompilation.Compile(model,table,page,target,whereSql);
-            if(sharedTextParent is not null&&scopes.Any(scope=>scope.Source=="parent"&&scope.Column!=sharedTextParent))
+            if(sharedTextParent is not null&&scopes.Any(scope=>scope.Source=="parent"&&scope.Column!=sharedTextParent&&
+                !(table.Source.IsRongyu==0&&target.Source.IsRongyu==1&&namePage!.Scopes.Contains(scope))))
                 return Gap("复选的控件父范围必须与发布的文本父字段一致。");
             if(projectForm is not null&&page.Searchable.Contains(source)&&conditions!.Forms.Any(binding=>
                 !sourceScopeColumns.Contains(binding.Column)&&!ControlRenderer.HasScalarSourceFilter(model,page,binding.Column)))

@@ -334,7 +334,10 @@ public static partial class MySqlNonRedundantReadCompiler
         var parent=checkbox?MultiParent(catalog,page,checkbox:true):
             GlobalCrossTableTarget.DeclaresExactSingle(table,page)?GlobalCrossTableTarget.ExactSingleParent(catalog,table,page):
             ProjectScopedSingleRelationTarget.PageParent(catalog,table,page)??
-            (table.IsRongyu==1?GlobalCrossTableTarget.PhysicalSingleParent(catalog,table,page):null)??MultiParent(catalog,page);
+            (table.IsRongyu==1?GlobalCrossTableTarget.PhysicalSingleParent(catalog,table,page):null)??
+            MultiTargetParentScope.CompileStoredTextGlobalPage(catalog,table,FixedConditionPlan.Compile(page.WhereSql,
+                RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id))
+                    .Select(column=>column.ColumnName)))??MultiParent(catalog,page);
         if(parent is not{Global:true})throw new NotSupportedException("多值全局父须显式声明全局表关系。");
         var scopes=parent.AdditionalTargets.Prepend(parent).ToArray();
         var storedLevels=scopes.Select(scope=>PublishedStoredTextParent(catalog,table,page,scope)).ToArray();

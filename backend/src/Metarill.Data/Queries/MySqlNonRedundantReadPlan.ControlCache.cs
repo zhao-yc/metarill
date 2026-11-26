@@ -149,11 +149,12 @@ public static partial class MySqlNonRedundantReadCompiler
             }
             else
             {
+                var storedGlobalParent=source.IsRongyu==0&&!GlobalCrossTableTarget.Declared(source)
+                    ?MultiTargetParentScope.CompileStoredTextGlobalPage(catalog,target,pageCondition):null;
                 parent=relation.ControlKind=="SelectPage"
-                    ?ProjectScopedSingleRelationTarget.PhysicalSelectionParent(catalog,target,page)??
-                        (MultiTargetParentScope.Compile(catalog,target,pageCondition) is {Global:true,Logical:false} storedGlobal&&
-                         CrossTableStorageColumns.DeclaresStoredTextKey(catalog,target,storedGlobal.Target)?storedGlobal:null)
-                    :MultiTargetParentScope.CompileListPage(catalog,target,terms);
+                    ?ProjectScopedSingleRelationTarget.PhysicalSelectionParent(catalog,target,page)??storedGlobalParent
+                    :MultiTargetParentScope.CompileListPage(catalog,target,terms,
+                        allowGlobalParent:target.IsRongyu==0||storedGlobalParent is not null);
             }
             // 已保存的名称按来源行授权，候选和写入的精确匹配仍通过实际目标页处理。
             var physicalExact=ProjectScopedSingleRelationTarget.HasPhysicalSingleExact(catalog,target,page,relation.ControlKind);
@@ -240,16 +241,17 @@ public static partial class MySqlNonRedundantReadCompiler
         {
             // 每个稀疏字段都须从本页还原同一真实文本祖先，不能只证明代表列。
             var fields=sourceParent.AdditionalColumns.Prepend(sourceParent.Column);
-            var matches=fields.Select(field=>UsesSharedStoredTextParent(source,new(field,sourceParent.LogicalPages),target,
-                [targetPage],targetParent.Target,targetParent.AdditionalTargets.Count>0)).ToArray();
+            var targets=targetParent.AdditionalTargets.Prepend(targetParent).ToArray();
+            var matches=fields.SelectMany(field=>targets.Select(scope=>UsesSharedStoredTextParent(source,
+                new(field,sourceParent.LogicalPages),target,[targetPage],scope.Target,compoundStored:false))).ToArray();
             if(matches.Any(match=>match)&&matches.Any(match=>!match))
                 throw new InvalidOperationException("非冗余复合来源父必须逐条使用相同发布文本父路径。");
             if(!matches.All(match=>match))return false;
-            if(targetParent.Global)
+            foreach(var scope in targets.Where(scope=>scope.Global))
             {
-                var level=PublishedStoredTextParent(catalog,target,targetPage,targetParent)??
+                var level=PublishedStoredTextParent(catalog,target,targetPage,scope)??
                     throw new InvalidOperationException("全局物理文本父缺少实际发布级联层位。");
-                _=PublishedPhysicalMultiParent(catalog,targetParent,level.PageId);
+                _=PublishedPhysicalMultiParent(catalog,scope,level.PageId);
             }
             return true;
         }

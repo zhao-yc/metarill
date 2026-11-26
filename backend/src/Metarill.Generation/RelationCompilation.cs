@@ -32,6 +32,10 @@ internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target
     internal bool ExcelTargetExact { get; init; }
     internal ColumnModel? SharedTextParent { get; init; }
     internal bool MixedStoredTextParent=>SharedTextParent is not null&&LogicalSourceParent&&Target.Source.IsRongyu==1;
+    /// <summary>冗余字典的已证实父字段在普通查询和固定名称导出中都按原文本比较。</summary>
+    internal bool UsesStoredTextParent(ColumnModel column)=>Target.Source.IsRongyu==1&&
+        (SharedTextParent==column||MixedStoredTextParent&&column.Type=="string?"&&
+            TargetPage.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==column.Source.Id));
     internal string ExcelScopeArgument => ExcelTargetExact ? ", excelScope: true" : "";
     /// <summary>原 V8 路由按来源字段去掉 Id/Ids 后缀，不能用目标表名替代业务别名。</summary>
     public string LegacyEndpoint
@@ -220,7 +224,8 @@ internal static class RelationCompilation
                         allowStoredTarget:true,allowCompoundSource:true);
                 // 非冗余字典的联接名称交由实际发布页的固定投影证明，父键仍使用两页共同的文本业务键。
                 var nameStorage=MetadataStoragePolicy.ForTable(model.Catalog,target.Source).Kind(name.Source);
-                if(sharedTextParent is null||binding.Declared||scopes.Any(scope=>scope.Source=="parent"&&scope.Column!=sharedTextParent)||
+                if(sharedTextParent is null||binding.Declared||scopes.Any(scope=>scope.Source=="parent"&&scope.Column!=sharedTextParent&&
+                    !(owner.Source.IsRongyu==0&&target.Source.IsRongyu==1&&targetPage.Scopes.Contains(scope)))||
                     nameStorage!=MetadataFieldStorage.Physical&&(target.Source.IsRongyu!=0||nameStorage!=MetadataFieldStorage.Join)||
                     name.Type!="string?"&&!typedName||
                     target.Source.IsRongyu!=0&&(FixedPageConditionCompilation.HasLogicalFields(targetPage)||

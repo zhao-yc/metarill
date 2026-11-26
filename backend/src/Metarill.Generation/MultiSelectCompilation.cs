@@ -192,7 +192,7 @@ internal static class MultiSelectCompilation
             }
             if(functionForm)scopedParent??=MultiGlobalParentCompilation.PhysicalPageParent(model,target,targetPage);
             var targetParents = scopedParent is not null?[model.Tables.Single(parent=>parent.Source.Id==scopedParent.Parent.Id)]:
-                targetPage.Scopes.Where(scope => scope.Source == "parent").Select(scope => scope.Column==sharedTextParent&&target.Source.IsRongyu==1
+                targetPage.Scopes.Where(scope => scope.Source == "parent").Select(scope => sharedTextParent is not null&&target.Source.IsRongyu==1
                     ?SharedRedundantParentCompilation.ForColumn(model,target,targetPage,scope.Column).Single().Level.Target:Parent(scope.Column))
                     .DistinctBy(parent => parent.Source.Id).ToArray();
             if (scopedParent?.Global!=true&&sharedTextParent is null&&targetParents.Any(parent => !parent.Columns.Any(column => column.Source.ColumnName == "yz_project_id"))) return Gap("目标父表未声明项目归属。");
