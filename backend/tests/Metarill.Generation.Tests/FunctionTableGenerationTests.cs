@@ -926,6 +926,10 @@ public sealed class FunctionTableGenerationTests : IDisposable
     [InlineData("local_projectStoredExactCompoundSplitText")]
     [InlineData("local_projectExactCompoundControlPlain")]
     [InlineData("local_projectStoredExactCompoundControlPlain")]
+    [InlineData("logicalText")]
+    [InlineData("logicalTextPlain")]
+    [InlineData("logicalIntegerBusiness")]
+    [InlineData("logicalIntegerBusinessPlain")]
     public async Task Function_original_list_uses_one_candidate_scope(string scenario)
     {
         var localParent=scenario.StartsWith("local_",StringComparison.Ordinal);
@@ -943,7 +947,10 @@ public sealed class FunctionTableGenerationTests : IDisposable
         var controlOnly=singleControl||withoutProject||scenario.EndsWith("Control",StringComparison.Ordinal);
         var variant=ordinary?scenario[..^8]:textParent?scenario[..^9]:splitWithoutProject?scenario[..^19]:split?scenario[..^5]:
             singleControl?scenario[..^13]:withoutProject?scenario[..^21]:controlOnly?scenario[..^7]:scenario;
-        var catalog = WithFunctionList(Catalog(), variant=="treeExact"?"logical":variant);
+        var businessParent=variant is "logicalText" or "logicalIntegerBusiness";
+        var businessText=variant=="logicalText";
+        var catalog = WithFunctionList(Catalog(), businessParent||variant=="treeExact"?"logical":variant);
+        if(businessParent)ConfigureBusinessSelectionParent(catalog,businessText);
         if(localParent)
         {
             // 与全局父版本共用字段配置，仅将父表切换为带行项目列的本项目实体。
@@ -1083,6 +1090,21 @@ public sealed class FunctionTableGenerationTests : IDisposable
             Assert.Contains("DerivedOptionsPlan102_39.BindAccount(actor)",service);
         }
         await VerifyVueAsync(output, "GeneratedFunctionListProbe.mjs", compound?"global":scenario);
+        if(businessParent)
+        {
+            Assert.DoesNotContain("entity.Id == targetParentKey",service);
+            Assert.Contains("targetParent0 = targetParent0.Where(entity => entity.DeleteNo == null);",service);
+            if(businessText)
+            {
+                Assert.Contains("""ApplyTextParent(targetParent0,session,"business_key",targetParentId!,businessKey:true)""",service);
+                Assert.Contains("""ForTextParent("country_id",targetParentId!,businessKey:true)""",service);
+            }
+            else
+            {
+                Assert.Contains("entity.BusinessKey == targetParentKey && entity.YzProjectId ==",service);
+                Assert.Contains("targetParentId!=targetParentKey.ToString(CultureInfo.InvariantCulture)",service);
+            }
+        }
         await BuildFullAsync(output);
         var context = new AssemblyLoadContext("FunctionList." + Guid.NewGuid().ToString("N"), isCollectible: true);
         try
@@ -1090,7 +1112,24 @@ public sealed class FunctionTableGenerationTests : IDisposable
             using var binary = File.OpenRead(Path.Combine(output, "backend/Application.Host/bin/Debug/net10.0/Application.Host.dll"));
             var runtime = context.LoadFromStream(binary).GetType("Example.FunctionForm.Generated.Services.SummaryFormService", true)!;
             RuntimeHelpers.RunClassConstructor(runtime.TypeHandle);
-            if(localParent||plain||globalControl||split&&variant.StartsWith("global",StringComparison.Ordinal))
+            if (businessParent)
+            {
+                // 从完整应用取实际候选计划，核对逻辑层及文本／整数谓词。
+                var plan = Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(runtime.GetField("DerivedOptionsPlan102_39",
+                    System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.GetValue(null));
+                const System.Reflection.BindingFlags hidden = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+                var mysql = plan.GetType().GetProperty("MySql", hidden)!.GetValue(plan)!;
+                Assert.Equal("country_id", mysql.GetType().GetProperty("RequiredMultiParent", hidden)!.GetValue(mysql));
+                var parentFilter = businessText
+                    ? Metarill.Data.Queries.FixedReadFilter.ForTextParent("country_id", "0007-Ab", businessKey: true)
+                    : new Metarill.Data.Queries.FixedReadFilter("country_id", Metarill.Data.Queries.FixedReadComparison.Equal, 9007199254742000L);
+                var render = typeof(Metarill.Data.Queries.MySqlNonRedundantReader)
+                    .GetMethod("Filter", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
+                var sql = Assert.IsType<string>(render.Invoke(null, [mysql, parentFilter, 0]));
+                Assert.Contains(businessText ? "=BINARY @filter_0" : "@filter_0", sql);
+                Assert.DoesNotContain(businessText ? "0007-Ab" : "9007199254742000", sql);
+            }
+            if(localParent||plain&&!businessParent||globalControl||split&&variant.StartsWith("global",StringComparison.Ordinal))
             {
                 // 冻结候选同时保留字典账号约束和实际声明的行项目范围。
                 var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(runtime.GetField("DerivedOptionsPlan102_39",

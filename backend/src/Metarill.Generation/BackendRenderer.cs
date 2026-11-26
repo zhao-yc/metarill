@@ -1017,7 +1017,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         result.AppendLine("    }");
         void AppendNumericSourceParent()=>result.AppendLine("        if (!long.TryParse(parentId, NumberStyles.None, CultureInfo.InvariantCulture, out var sourceParentKey) || sourceParentKey <= 0) throw new ArgumentException(\"关联来源页要求有效 parentId。\");");
         /// <summary>候选按固定父定义无锁验证；常量关系写入使用同事务当前读锁。</summary>
-        void Parent(TableModel parent, string key, string variable, bool current = false,bool sourceContext=false)
+        void Parent(TableModel parent, string key, string variable, bool current = false,bool sourceContext=false, ColumnModel? businessKey=null)
         {
             var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);
             if(sourceContext)
@@ -1042,7 +1042,15 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             if(sourceContext&&textSourceParent)
                 throw new InvalidOperationException("关联来源缺少匹配文本父业务键的固定路径。");
             var project = parent.Columns.Single(column => column.Source.ColumnName == "yz_project_id");
-            result.AppendLine($"        var {variable} = session.Select<{parent.EntityType}>().Where(entity => entity.Id == {key} && entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
+            var ownerScope = $"entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")}";
+            if (businessKey is { Type: "string?" })
+            {
+                // 文本业务键保留字节，认证项目和软删除范围仍直接约束父记录。
+                result.AppendLine($"        var {variable} = session.Select<{parent.EntityType}>().Where(entity => {ownerScope});")
+                    .AppendLine($"        {variable} = global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent({variable},session,{Literal(businessKey.Source.ColumnName)},{key},businessKey:true);");
+            }
+            else
+                result.AppendLine($"        var {variable} = session.Select<{parent.EntityType}>().Where(entity => entity.{businessKey?.Property ?? "Id"} == {key} && {ownerScope});");
             if (parent.Columns.Any(column => column.Source.ColumnName == "delete_no")) result.AppendLine($"        {variable} = {variable}.Where(entity => entity.DeleteNo == null);");
             if (current)
                 result.AppendLine($"        if (locking) {{ if ((await {variable}.ForUpdate().Limit(1).ToListAsync(entity => new {{ entity.Id }}, cancellationToken)).Count != 1) throw new InvalidOperationException(\"关联父记录不存在、已删除或不属于当前项目。\"); }}")
@@ -1110,7 +1118,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 .DistinctBy(scope=>scope.Column.Source.Id).ToArray();
             // 目标复合父键本身就要求规范 ID，独立表单和仅单列的来源也使用相同的比较。
             var canonicalParent=relation.CompoundProjectSource||relation.CompoundProjectTarget||relation.CanonicalProjectParent||
-                relation.CanonicalFunctionParent||
+                relation.CanonicalFunctionParent||relation.FunctionParentBusinessKey is {Type:"long?"}||
                 relation.ScopedStoredSingle&&!relation.Target.IsGlobal&&targetParentScopes.Length>1||
                 relation.FixedGlobalSelection&&targetParentScopes.Any(scope=>scope.Column.Type=="string?");
             if(relation.SharedTextParent is not null)
@@ -1129,9 +1137,14 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                     result.AppendLine($"        if(targetParentId is not null&&targetParentId!=parentId)throw new ArgumentException({Literal(conflict)});");
                 }
                 if (sameParent) result.AppendLine("        targetParentId ??= parentId; // 元数据证明同父时兼容原 parentId。");
-                result.AppendLine($"        if (!long.TryParse(targetParentId, NumberStyles.None, CultureInfo.InvariantCulture, out var targetParentKey) || targetParentKey <= 0) throw new ArgumentException({Literal("关联目标范围要求有效 targetParentId，请使用 " + relation.Endpoint + "/page 分页合同。")});");
-                if(canonicalParent)
-                    result.AppendLine("        if(targetParentId!=targetParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"关联目标范围要求规范正整数 targetParentId。\");");
+                if (relation.UsesFunctionTextParent)
+                    result.AppendLine("        if (string.IsNullOrWhiteSpace(targetParentId)) throw new ArgumentException(\"关联目标范围要求非空文本业务键。\");");
+                else
+                {
+                    result.AppendLine($"        if (!long.TryParse(targetParentId, NumberStyles.None, CultureInfo.InvariantCulture, out var targetParentKey) || targetParentKey <= 0) throw new ArgumentException({Literal("关联目标范围要求有效 targetParentId，请使用 " + relation.Endpoint + "/page 分页合同。")});");
+                    if(canonicalParent)
+                        result.AppendLine("        if(targetParentId!=targetParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"关联目标范围要求规范正整数 targetParentId。\");");
+                }
                 if (relation.ParentBinding?.Binding is null)
                 {
                     if(accountParents.Count>0)
@@ -1148,7 +1161,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                                 .AppendLine(MultiGlobalParentCompilation.Check(targetParentPlan,"targetParentKey","locking"));
                         }
                         else if(!accountParents.Any(path=>path.Levels[^1].TableId==parent.Source.Id))
-                            Parent(parent,"targetParentKey","targetParent"+index,lockScope);
+                            Parent(parent,relation.UsesFunctionTextParent?"targetParentId!":"targetParentKey",
+                                "targetParent"+index,lockScope,businessKey:relation.FunctionParentBusinessKey);
                     }
                 }
             }

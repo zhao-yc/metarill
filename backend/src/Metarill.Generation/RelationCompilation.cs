@@ -22,6 +22,8 @@ internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target
     internal bool ExcelOnly { get; init; }
     internal bool CompoundGlobalSource { get; init; }
     internal bool FunctionForm { get; init; }
+    internal ColumnModel? FunctionParentBusinessKey { get; init; }
+    internal bool UsesFunctionTextParent => FunctionParentBusinessKey is { Type: "string?" };
     internal string? ControlParentPageId { get; init; }
     /// <summary>功能表的物理父字段共用规范主键，文本键按精确值比较。</summary>
     internal bool CanonicalFunctionParent=>FunctionForm&&FixedParent is {Logical:false} parent&&
@@ -336,6 +338,18 @@ internal static class RelationCompilation
                 ? FunctionTableSelectionCompilation.ResolveParentField(page, source, targetParents[0].Source)
                 : mixedStoredTextParent ? sourceKeys.Single()
                 : sourceBinding is null ? null : owner.Columns.Single(column => column.Source.Id == sourceBinding.Column.Id);
+            ColumnModel? functionParentBusinessKey = null;
+            if (functionForm && source.Source.ControlKind == "List" && targetParents is [var functionParent] &&
+                fixedParent is { Global: false, Logical: true } &&
+                fixedParent.LogicalAlternateKey(model.Catalog, target.Source) is {} publishedKey)
+            {
+                // 单个表单值只能绑定同一个发布键，不能同时代入主键和业务键的范围。
+                if (!fixedParent.HasSameLogicalKey(model.Catalog, target.Source) ||
+                    targetPage.Scopes.Concat(scopes).Any(scope => scope.Source == "parent" &&
+                        !fixedParent.HasTarget(scope.Column.Source.Id, logicalOnly: true)))
+                    throw new InvalidOperationException("功能表 List 的父级范围必须共用同一个已发布业务键。");
+                functionParentBusinessKey = functionParent.Columns.Single(column => column.Source.Id == publishedKey.Id);
+            }
             var relation=new RelationModel(source,target,targetPage,name,"findNameId"+target.Name+source.Source.Id,scopes,sourceParents,targetParents,binding,ordering,conditions,
                 fixedSourceParent,fixedParent,mixedStoredTextParent||sourceBinding?.LogicalPages.Count>0)
             {
@@ -348,6 +362,7 @@ internal static class RelationCompilation
                 CanonicalProjectParent = canonicalProjectParent,
                 IndependentOrder = independentOrder,
                 FunctionForm = functionForm,
+                FunctionParentBusinessKey = functionParentBusinessKey,
                 ControlParentPageId = controlParentPageId,
                 ImportCondition = selection?.ImportCondition,
                 ExcelOnly = excelOnly,

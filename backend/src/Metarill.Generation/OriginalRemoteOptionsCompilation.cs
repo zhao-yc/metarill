@@ -21,6 +21,7 @@ internal static class OriginalRemoteOptionsCompilation
             ["requireParent"]=relation.SourceParents.Count>0,["requireTargetParent"]=relation.TargetParents.Count>0&&!context.ServerDerivedTargetParent,
             ["sameParent"]=context.SameParent,["targetParentField"]=context.TargetParentField,["readonlyField"]=filter?null:column.JsonName+"ReadOnly"
         };
+        if (relation.UsesFunctionTextParent) definition["textTargetParent"] = true;
         if (RelationConditionsCompilation.HasForms(relation))
         {
             var forms = relation.Conditions!.Forms;

@@ -5,11 +5,13 @@ import { mountGenerated, plain } from './GeneratedOriginalVueHarness.mjs'
 
 const frontend = join(process.argv[2], 'frontend')
 const global = process.argv[3] === 'global'
+const businessText = process.argv[3] === 'logicalText'
+const businessParent = businessText || process.argv[3] === 'logicalIntegerBusiness'
 const label = process.argv[3] === 'derived' ? 'reviewCountryLabel' : 'reviewName'
 const source = await readFile(join(frontend, 'pages/yzp/summary_form-detail-102.vue'), 'utf8')
 assert.match(source, /<zxz-uni-data-select v-model='entity.reviewId'/)
 const form = mountGenerated(source, {}, {}, { runtimeDirectory: join(frontend, 'common/yzp_runtime') })
-const parentA = '9007199254742000', parentB = '9007199254742001'
+const [parentA, parentB] = businessText ? ['0007-Ab', '0008-aB'] : ['9007199254742000', '9007199254742001']
 const id = '9007199254740997'
 const endpoint = '/admin/auto/summary_form/102/findNameIdReview39'
 const pages = () => form.requests.filter(request => request.options.url === endpoint + '/page')
@@ -18,11 +20,18 @@ try {
  await form.flush()
  form.state.openOriginalRemoteOptions('39')
  assert.equal(pages().length, 0)
+ if (businessText) {
+  form.state.entity.reviewCountryId = '  '
+  await form.flush()
+  form.state.openOriginalRemoteOptions('39')
+  assert.equal(pages().length, 0)
+ }
  form.state.entity.title = '第一次范围'
  form.state.entity.reviewCountryId = parentA
  await form.flush()
  form.state.openOriginalRemoteOptions('39')
  const previous = pages().at(-1)
+ assert.ok(previous, '已发布的父级必须允许读取候选')
  assert.equal(previous.options.data.targetParentId, parentA)
  if (!global) assert.equal(previous.options.data.formParameters.summaryForm.title, '第一次范围')
  form.state.entity.title = '第二次范围'
@@ -32,9 +41,16 @@ try {
  assert.deepEqual(plain(form.state.review_list), [])
 
  form.state.openOriginalRemoteOptions('39')
- const current = pages().at(-1)
+ let current = pages().at(-1)
  assert.equal(current.options.data.targetParentId, parentB)
  if (!global) assert.equal(current.options.data.formParameters.summaryForm.title, '第二次范围')
+ if (businessParent) {
+  form.state.searchOriginalRemoteOptions('39', '当前')
+  await new Promise(resolve => setTimeout(resolve, 350))
+  current = pages().at(-1)
+  assert.equal(current.options.data.keyword, '当前')
+  assert.equal(current.options.data.targetParentId, parentB)
+ }
  form.respond(current, { records: [row('当前候选')], total: 1, pages: 1 })
  assert.equal(form.state.review_list[0].name, '当前候选')
  form.state.reviewIdDetailChange(form.state.review_list[0])

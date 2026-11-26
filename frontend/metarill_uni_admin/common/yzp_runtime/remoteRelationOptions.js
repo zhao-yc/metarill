@@ -12,9 +12,38 @@ export function createRemoteRelationOptions({ request, getContext, onChange = ()
  /** 同步 SDK 异常也执行失败/完成边界，不留下永久加载状态。 */
  function start(options) { try { return request(options) } catch (error) { options.fail?.(error); options.complete?.(); return undefined } }
  /** 身份及已声明表单快照只隔离响应，父键、条件和权限仍由固定端点验证。 */
- function context() { const c = getContext() || {}; return { ...(c.formParameters === undefined ? {} : { formParameters: JSON.parse(JSON.stringify(c.formParameters)) }), endpoint: c.endpoint || '', identity: c.identity || '', authenticated: c.authenticated !== false, parentId: keyOf(c.parentId) || null, targetParentId: c.targetParentId === undefined || c.targetParentId === null ? null : keyOf(c.targetParentId), requireParent: !!c.requireParent, requireTargetParent: !!c.requireTargetParent, sameParent: !!c.sameParent, readonly: !!c.readonly } }
+ function context() {
+  const c = getContext() || {}
+  // 仅生成定义可以选择文本目标父键，普通记录 ID 继续复用原检查。
+  const parent = c.targetParentId
+  const targetParentId = parent == null ? null : c.textTargetParent && typeof parent !== 'string' ? '' : keyOf(parent)
+  return {
+   ...(c.formParameters === undefined ? {} : { formParameters: JSON.parse(JSON.stringify(c.formParameters)) }),
+   endpoint: c.endpoint || '',
+   identity: c.identity || '',
+   authenticated: c.authenticated !== false,
+   parentId: keyOf(c.parentId) || null,
+   targetParentId,
+   requireParent: !!c.requireParent,
+   requireTargetParent: !!c.requireTargetParent,
+   textTargetParent: !!c.textTargetParent,
+   sameParent: !!c.sameParent,
+   readonly: !!c.readonly
+  }
+ }
  /** 未知双父上下文只读提示，不猜索引到表等跨层关系。 */
- function checked() { const c = context(); let error = ''; if (!fixedEndpoint.test(c.endpoint)) error = '关系候选尚未编译，保留原值。'; else if (!c.authenticated) error = '请先登录后读取关联名称。'; else if (c.requireParent && !validId(c.parentId)) error = '请先保存或选择来源父记录，当前关联保留原值。'; if (!error && c.requireTargetParent) { if (c.targetParentId === null && c.sameParent) c.targetParentId = c.parentId; if (!validId(c.targetParentId)) error = '缺少明确的目标父记录，当前关联只读并保留原值。' } return { c, error } }
+ function checked() {
+  const c = context()
+  if (!fixedEndpoint.test(c.endpoint)) return { c, error: '关系候选尚未编译，保留原值。' }
+  if (!c.authenticated) return { c, error: '请先登录后读取关联名称。' }
+  if (c.requireParent && !validId(c.parentId)) return { c, error: '请先保存或选择来源父记录，当前关联保留原值。' }
+  if (c.requireTargetParent) {
+   if (c.targetParentId === null && c.sameParent) c.targetParentId = c.parentId
+   const validParent = c.textTargetParent ? !!c.targetParentId?.trim() : validId(c.targetParentId)
+   if (!validParent) return { c, error: '缺少明确的目标父记录，当前关联只读并保留原值。' }
+  }
+  return { c, error: '' }
+ }
  /** 返回副本，未知/不可用 ID 也保留原顺序。 */
  function snapshot() { return { records: records.map(r => ({ ...r })), selected: values.map(value => ({ ...(cache.get(keyOf(value)) || { id: keyOf(value), value, name: keyOf(value), text: keyOf(value), unavailable: !!selectedError }) })), known: [...cache.values()].map(r => ({ ...r })), loading, selectedLoading, hasMore, keyword, pageNo, blocked: !!scopeError, message: [...new Set([scopeError, selectedError, pageError].filter(Boolean))].join(' ') } }
  /** 状态回调只更新视图，不产生实体写入。 */

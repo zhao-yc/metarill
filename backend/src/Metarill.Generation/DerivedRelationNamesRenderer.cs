@@ -89,7 +89,8 @@ internal static class DerivedRelationNamesRenderer
         // 固定名称查询单独执行，冗余字典的文本业务键与普通候选使用同一字节比较规则。
         var storedBusinessParent=relation.Target.Source.IsRongyu==1?relation.SharedTextParent:null;
         var filters=string.Join("\n",relation.TargetPage.Scopes.Concat(relation.Scopes).DistinctBy(scope=>scope.Column.Source.Id)
-            .Select(scope=>scope.Source=="parent"&&scope.Column==storedBusinessParent
+            .Select(scope=>scope.Source=="parent"&&(scope.Column==storedBusinessParent||
+                relation.UsesFunctionTextParent&&relation.FixedParent?.HasTarget(scope.Column.Source.Id,logicalOnly:true)==true)
                 ?$"        filters.Add(FixedReadFilter.ForTextParent({Literal(scope.Column.Source.ColumnName)},targetParentId!,businessKey:true));"
                 :(relation.CompoundProjectSource||relation.CompoundProjectTarget||relation.CanonicalProjectParent||
                 relation.FixedGlobalSelection||relation.CanonicalFunctionParent)&&
