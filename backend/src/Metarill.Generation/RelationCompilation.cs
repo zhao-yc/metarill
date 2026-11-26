@@ -178,7 +178,7 @@ internal static class RelationCompilation
             {
                 if(fixedParent is {Global:true,Logical:false} pageParent)
                     fixedParent=FunctionTableSelectionCompilation.ApplyListParentScopes(model,target,targetPage,pageParent,scopes);
-                else if(fixedParent is null&&!target.IsGlobal&&scopes.Any(scope=>scope.Source=="parent"&&
+                else if(fixedParent is null&&scopes.Any(scope=>scope.Source=="parent"&&
                     ForeignValidationRenderer.Target(model,scope.Column)?.IsGlobal==true))
                 {
                     var fields=scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column.Source.Id).ToArray();

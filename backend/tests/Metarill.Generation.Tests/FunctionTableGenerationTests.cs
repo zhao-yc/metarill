@@ -752,17 +752,23 @@ public sealed class FunctionTableGenerationTests : IDisposable
     [InlineData("projectStoredExactCompoundControl")]
     [InlineData("projectExactCompoundControlSingle")]
     [InlineData("projectStoredExactCompoundControlSingle")]
+    [InlineData("globalExactCompoundControlSingle")]
+    [InlineData("globalRowProjectExactCompoundControl")]
+    [InlineData("globalStoredExactCompoundControl")]
+    [InlineData("globalStoredExactCompoundControlWithoutProject")]
     public async Task Function_original_list_uses_one_candidate_scope(string scenario)
     {
         var ordinary=scenario.EndsWith("Ordinary",StringComparison.Ordinal);
         var textParent=scenario.EndsWith("SplitText",StringComparison.Ordinal);
         var split=textParent||scenario.EndsWith("Split",StringComparison.Ordinal);
         var singleControl=scenario.EndsWith("ControlSingle",StringComparison.Ordinal);
-        var controlOnly=singleControl||scenario.EndsWith("Control",StringComparison.Ordinal);
+        var withoutProject=scenario.EndsWith("ControlWithoutProject",StringComparison.Ordinal);
+        var controlOnly=singleControl||withoutProject||scenario.EndsWith("Control",StringComparison.Ordinal);
         var variant=ordinary?scenario[..^8]:textParent?scenario[..^9]:split?scenario[..^5]:
-            singleControl?scenario[..^13]:controlOnly?scenario[..^7]:scenario;
+            singleControl?scenario[..^13]:withoutProject?scenario[..^21]:controlOnly?scenario[..^7]:scenario;
         var catalog = WithFunctionList(Catalog(), variant=="treeExact"?"logical":variant);
         var compound=variant.EndsWith("ExactCompound",StringComparison.Ordinal);
+        var globalControl=controlOnly&&variant.StartsWith("global",StringComparison.Ordinal);
         if(ordinary)
         {
             // 普通业务页只从当前功能表字段配置选用，表级关系不写入选择页。
@@ -787,6 +793,11 @@ public sealed class FunctionTableGenerationTests : IDisposable
             var targetPage=catalog.ConfigPages.Single(page=>page.Id=="103");
             targetPage.WhereSql=targetPage.WhereSql.Replace("scope_id=@parent_id AND ","",StringComparison.Ordinal)
                 .Replace(" AND other_scope_id=@parentId","",StringComparison.Ordinal);
+            if(withoutProject)
+            {
+                catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId=="7"&&column.ColumnName=="yz_project_id");
+                targetPage.WhereSql=targetPage.WhereSql.Replace("yz_project_id=@current_yz_project_id AND ","",StringComparison.Ordinal);
+            }
             var targetField=catalog.ConfigColumns.Single(column=>column.Id=="39");
             if(singleControl)catalog.ConfigColumns.RemoveAll(column=>column.Id=="708");
             else catalog.ConfigColumns.Single(column=>column.Id=="708").LogicalType="string";
@@ -841,7 +852,7 @@ public sealed class FunctionTableGenerationTests : IDisposable
         }
         if(controlOnly)
         {
-            Assert.Contains("OptionsPageCondition102_39.BindAccount(actor)",service);
+            Assert.Contains(globalControl?"CompileGlobalExactSingleCandidate":"OptionsPageCondition102_39.BindAccount(actor)",service);
             var dictionary=await File.ReadAllTextAsync(Path.Combine(generated,"Services/FunctionOptionService.g.cs"));
             Assert.DoesNotContain("PageMultiGlobalParent103",dictionary);
         }
@@ -853,6 +864,19 @@ public sealed class FunctionTableGenerationTests : IDisposable
             using var binary = File.OpenRead(Path.Combine(output, "backend/Application.Host/bin/Debug/net10.0/Application.Host.dll"));
             var runtime = context.LoadFromStream(binary).GetType("Example.FunctionForm.Generated.Services.SummaryFormService", true)!;
             RuntimeHelpers.RunClassConstructor(runtime.TypeHandle);
+            if(globalControl)
+            {
+                // 冻结候选同时保留字典账号约束和实际声明的行项目范围。
+                var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(runtime.GetField("DerivedOptionsPlan102_39",
+                    System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic)!.GetValue(null));
+                const System.Reflection.BindingFlags instance=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+                var mysql=plan.GetType().GetProperty("MySql",instance)!.GetValue(plan)!;
+                var scope=Assert.IsType<string>(mysql.GetType().GetProperty("Scope",instance)!.GetValue(mysql));
+                Assert.Contains("b.`store_id`",scope);
+                Assert.Equal(variant!="globalExactCompound"&&!withoutProject,scope.Contains("b.`yz_project_id`=@project_scope_number",StringComparison.Ordinal));
+                Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(new Metarill.Core.Security.RuntimeActor(7,"合成账号",false,"100","70")));
+                RuntimeHelpers.RunClassConstructor(runtime.Assembly.GetType("Example.FunctionForm.Generated.Services.FunctionOptionService",true)!.TypeHandle);
+            }
         }
         finally { context.Unload(); }
     }
