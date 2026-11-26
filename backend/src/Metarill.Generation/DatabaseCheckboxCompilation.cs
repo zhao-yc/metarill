@@ -12,6 +12,7 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal bool CompoundTargetParents { get; init; }
     internal bool RealtimeLogicalParentScope { get; init; }
     internal bool GlobalRealtimeNameOverride { get; init; }
+    internal bool GlobalPageOverride { get; init; }
     // 没有逻辑候选条件的显式目标页仍决定名称路径内每个关系角色。
     internal PageModel? NameTargetPage { get; init; }
     // 普通目标页的物理条件参与原候选、保存和 Excel。
@@ -122,10 +123,18 @@ internal static class DatabaseCheckboxCompilation
             var storedStaticPage=false;
             var scopedGlobalAccountPage=false;
             var scopedGlobalParentPage=false;
+            var globalPageOverride=false;
             if(target.IsGlobal&&!functionForm)
             {
                 var proof=table.Source.IsRongyu==1?GlobalMultipleRelationTarget.RequireCached(model.Catalog,table.Source,source.Source,target.Source):GlobalMultipleRelationTarget.Require(model.Catalog,table.Source,source.Source,target.Source);
-                if(definition.PageId.Length>0&&definition.PageId!=proof.Page.Id)return Gap("全局复选页级目标覆盖与固定关系不一致。");
+                if(definition.PageId.Length>0&&definition.PageId!=proof.Page.Id)
+                {
+                    if(table.Source.IsRongyu!=0||target.Source.IsRongyu!=0)
+                        return Gap("全局复选的冗余字典或物理名称副本必须沿用固定关系。");
+                    proof=GlobalMultipleRelationTarget.RequirePage(model.Catalog,table.Source,source.Source,target.Source,page.Source);
+                    if(definition.PageId!=proof.Page.Id)return Gap("全局复选的目标页与实际来源配置不一致。");
+                    globalPageOverride=true;
+                }
                 // 复选的搜索、回读与 Excel 必须沿已发布缓存目标页的同一固定范围。
                 publishedGlobalPage=target.Pages.Single(page=>page.Source.Id==proof.Page.Id);
                 // 物理字典的账号条件直接进入复选查询，名称副本仍沿同一发布页重算。
@@ -136,7 +145,7 @@ internal static class DatabaseCheckboxCompilation
                 scopedGlobalAccountPage=table.IsGlobal&&proof.UsesNonRedundantAccountPage;
                 scopedGlobalParentPage=proof.UsesPhysicalParentPage;
                 storedStaticPage=table.IsGlobal&&proof.UsesStoredStaticPage;
-                if(storedAccountPage||storedProjectPage||storedStaticPage||scopedGlobalParentPage||NonRedundantReadCompilation.HasGlobalRowProject(target)||FixedPageConditionCompilation.HasMultiTargetScope(model,target,publishedGlobalPage,includeProjectFixedScope:false)||
+                if(globalPageOverride||storedAccountPage||storedProjectPage||storedStaticPage||scopedGlobalParentPage||NonRedundantReadCompilation.HasGlobalRowProject(target)||FixedPageConditionCompilation.HasMultiTargetScope(model,target,publishedGlobalPage,includeProjectFixedScope:false)||
                     GlobalPhysicalRelationValue.IsPublishedTypedCache(model.Catalog,MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,proof.Name)||
                     table.Source.IsRongyu==1&&publishedGlobalPage.Condition is not null)
                     globalPage=publishedGlobalPage;
@@ -223,7 +232,7 @@ internal static class DatabaseCheckboxCompilation
                 // 非冗余页仍通过原数组实时投影；冗余名称副本沿发布范围独立证明。
                 var realtimeFixedName=table.Source.IsRongyu==0&&
                     (target.Source.IsRongyu==0||storedIdentityPage||storedStaticPage||scopedGlobalParentPage)&&
-                    exactTarget is null&&namePage is not null&&namePage.Source.Id==fixedPage;
+                    exactTarget is null&&namePage is not null&&(namePage.Source.Id==fixedPage||globalPageOverride);
                 var storage=MetadataStoragePolicy.ForTable(model.Catalog,target.Source);
                 bool TextLabel(ColumnModel label)=>target.IsGlobal&&realtimeFixedName&&target.Source.IsRongyu==0
                     ?GlobalMultipleRelationTarget.IsPublishedCheckboxText(model.Catalog,target.Source,label.Source,namePage!.Source)
@@ -245,7 +254,7 @@ internal static class DatabaseCheckboxCompilation
                      CrossTableStorageColumns.IsLogicalPathField(target.Source,model.Catalog.ConfigColumns,scope.Column.Source.ColumnName)||
                      target.IsGlobal&&model.Tables.Any(parent=>parent.IsGlobal&&parent.Source.Id==scope.Column.Source.LinkConfigTableId))))?namePage:null;
             // 同一候选即使由表级继承，也必须用当前普通非冗余来源页的父键重新证明。
-            var pageRead=namePage is not null&&table.Source.IsRongyu==0&&target.Source.IsRongyu==0&&!target.IsGlobal&&
+            var pageRead=globalPageOverride||namePage is not null&&table.Source.IsRongyu==0&&target.Source.IsRongyu==0&&!target.IsGlobal&&
                 (explicitPage!=fixedPage||logicalPage?.Scopes.Any(scope=>scope.Source=="parent")==true);
             if(explicitPage!=fixedPage&&!pageRead&&(logicalPage is not null||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,candidate,includeProjectFixedScope:false))))
                 return Gap("复选不能用页覆盖替换表级固定范围。");
@@ -431,6 +440,7 @@ internal static class DatabaseCheckboxCompilation
                 // 冗余全局字典按所有来源页证明同一持久父键，无父路由时取各详情实际开放的表单外键。
                 var owner=sharedLogicalParentScope||storedGlobalParent is not null
                     ?binding.CheckboxSource(model.Catalog,table.Source,source.Source):
+                    globalPageOverride?binding.CheckboxSource(model.Catalog,table.Source,source.Source,page.Source):
                     pageRead?binding.Source(model.Catalog,table.Source,source.Source,page.Source):
                     binding.Source(model.Catalog,table.Source,source.Source);
                 if(sourceScopeColumns.Length==0&&(sharedLogicalParentScope||storedGlobalParent is not null))
@@ -501,6 +511,7 @@ internal static class DatabaseCheckboxCompilation
                 CompoundPhysicalSource=ordinaryCompoundSource||projectStoredAccount&&sourceScopeColumns.Length>1,
                 ProjectFormScope=projectForm is not null,
                 GlobalRealtimeNameOverride=globalRealtimeNameOverride,
+                GlobalPageOverride=globalPageOverride,
                 RealtimeLogicalParentScope=realtimeRead&&exactTarget is null&&logicalPage is not null&&
                     logicalPage.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,target,logicalPage,scope.Column)),
                 ExactTarget=exactTarget,

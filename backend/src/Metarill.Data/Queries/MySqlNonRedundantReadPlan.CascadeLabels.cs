@@ -31,7 +31,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 var compoundPhysical=selected is null&&namePage is not null&&source is not null&&sourcePage is not null&&
                     HasCompoundMultiSelectSource(catalog,source,sourcePage,relation,namePage);
                 var globalOverride=sourcePage is not null&&namePage is not null&&target.IsRongyu==0&&
-                    relation.ControlKind=="MultiSelectPage"&&GlobalCrossTableTarget.Declared(target);
+                    GlobalCrossTableTarget.Declared(target);
                 if(compoundPhysical||globalOverride)selected=namePage;
                 // 普通备用页没有附加 SQL 条件，但宿主仍需用实际覆盖核对候选页。
                 if(selected is null&&sourcePage is not null&&namePage is not null&&!checkbox&&
@@ -511,7 +511,7 @@ public static partial class MySqlNonRedundantReadCompiler
             yield return (owner,table,name,column,null,defaultPage);
 
             var global=GlobalCrossTableTarget.Declared(table);
-            var globalSelection=global&&table.IsRongyu==0&&column.ControlKind=="MultiSelectPage";
+            var globalSelection=global&&table.IsRongyu==0;
             if(owner is not {IsRongyu:0}||!globalSelection&&(GlobalCrossTableTarget.Declared(owner)||global))
                 continue;
             foreach(var sourcePage in catalog.ConfigPages.Where(page=>page.ConfigTableId==owner.Id&&
@@ -552,7 +552,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var overlay=field.Extra.GetValueOrDefault("controlDetail").ToString();
             var kind=field.Extra.GetValueOrDefault("controlKind").ToString();
             if(string.IsNullOrWhiteSpace(overlay)||kind.Length>0&&kind!=relation.ControlKind)return null;
-            if(relation.ControlKind=="MultiSelectPage"&&GlobalCrossTableTarget.Declared(target))
+            if(GlobalCrossTableTarget.Declared(target))
             {
                 var source=catalog.ConfigTables.Single(table=>table.Id==sourcePage.ConfigTableId);
                 return GlobalMultipleRelationTarget.RequirePage(catalog,source,relation,target,sourcePage).Page;

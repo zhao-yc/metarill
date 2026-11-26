@@ -136,9 +136,14 @@ internal static class DerivedCheckboxNamesCompilation
         def.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,def.Target,page,scope.Column));
 
 
+    /// <summary>全局备用页及没有行项目列的实际字典页直接把发布条件编入派生名称计划。</summary>
+    internal static bool UsesPublishedGlobalScope(DatabaseCheckboxModel def)=>
+        def.DerivedName&&def.GlobalPage is not null&&def.Target.Source.IsRongyu==0&&
+        (def.GlobalPageOverride||!NonRedundantReadCompilation.HasGlobalRowProject(def.Target));
+
     /// <summary>文本父键与精确权限共用目标候选计划，由同一查询核对父键与当前角色匹配值。</summary>
     internal static bool UsesScopedCheckboxLabel(GenerationModel model,DatabaseCheckboxModel def)=>
-        !UsesGlobalExactPage(def)&&(def.HasStoredProjectParentScope||def.GlobalRealtimeNameOverride||def.SharedDerivedPageScope||def.SharedLogicalParentScope||def.ProjectFormScope||
+        !UsesGlobalExactPage(def)&&(def.HasStoredProjectParentScope||UsesPublishedGlobalScope(def)||def.GlobalRealtimeNameOverride||def.SharedDerivedPageScope||def.SharedLogicalParentScope||def.ProjectFormScope||
             def.RealtimeLogicalParentScope||def.CompoundTargetParents||
             def is {SharedTextParent:not null,LogicalTargetPage:not null,ExactTarget:not null}||
             def.LogicalTargetPage?.Scopes.Any(scope=>scope.Source=="parent"&&

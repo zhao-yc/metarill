@@ -16,6 +16,7 @@ internal static class DerivedCheckboxNamesRenderer
         var scopes=def.Scopes.Select(scope=>"        filters.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+Value(scope.Column,scope.Source=="project"?"actor.ProjectId":"parentId!")+"));");
         var variables=def.Conditions is{} condition?RelationConditionsCompilation.Variables(condition,"parentId"):"";
         var pageCondition=!def.GlobalRealtimeNameOverride&&!def.SharedDerivedPageScope&&!DerivedCheckboxNamesCompilation.UsesGlobalExactPage(def)&&
+            !DerivedCheckboxNamesCompilation.UsesPublishedGlobalScope(def)&&
             (def.PhysicalTargetPage??DerivedCheckboxNamesCompilation.ExactMembershipPage(model,def)) is {Condition:not null} filterPage?
             "        var publishedCondition="+FixedPageConditionCompilation.Bound(filterPage,"CheckboxTargetCondition"+suffix)+
             "; condition=condition is null?publishedCondition:condition.And(publishedCondition);":"";

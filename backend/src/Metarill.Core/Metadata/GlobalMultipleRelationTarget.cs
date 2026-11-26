@@ -17,14 +17,14 @@ public static class GlobalMultipleRelationTarget
 {
     /// <summary>读取原多选或复选定义；目标页面只是已发布关系归属，复选仍使用自己的原候选条件。</summary>
     public static GlobalMultipleRelationPlan Require(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target)=>RequireSource(catalog,owner,foreign,target,false);
-    /// <summary>非冗余多选可以按实际来源页选用同一全局实体的另一发布页，名称合同沿用表级定义。</summary>
+    /// <summary>非冗余多选或复选按实际来源页选择同一全局实体的另一发布页。</summary>
     public static GlobalMultipleRelationPlan RequirePage(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,
         TableMetadata target,PageMetadata sourcePage)
     {
-        if(foreign.ControlKind!="MultiSelectPage"||target.IsRongyu!=0||
+        if(foreign.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase")||target.IsRongyu!=0||
             sourcePage.ConfigTableId!=owner.Id||sourcePage.YzProjectId!=catalog.YzProjectId||
             !ReferenceEquals(catalog.ConfigPages.SingleOrDefault(page=>page.Id==sourcePage.Id),sourcePage))
-            throw new NotSupportedException("全局多选页面覆盖要求当前项目实际发布的非冗余来源和字典页。");
+            throw new NotSupportedException("全局多值页面覆盖要求当前项目实际发布的非冗余来源和字典页。");
         return RequireSource(catalog,owner,foreign,target,cached:false,sourcePage:sourcePage);
     }
 
@@ -122,7 +122,10 @@ public static class GlobalMultipleRelationTarget
         var sourceColumns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==owner.Id).ToArray();var storage=MetadataStoragePolicy.ForTable(catalog,owner);var project=sourceColumns.SingleOrDefault(column=>column.ColumnName=="yz_project_id");
         if(owner.IsRongyu!=(cached?1:0)||owner.IsView!=0||owner.IsFunctionTable!=0||owner.YzProjectId!=catalog.YzProjectId||project is null||project.LogicalType is not("int64" or "string")||!GlobalPhysicalRelationValue.IsScalar(storage,owner,project))throw new NotSupportedException("全局多值关系要求明确发布且有真实项目列的来源。");
         if(foreign.ConfigTableId!=owner.Id||foreign.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase")||!foreign.ColumnName.EndsWith("_ids",StringComparison.Ordinal)||foreign.LogicalType!="string"||foreign.IsVirtualColumn!=0||!storage.IsPhysical(foreign))throw new NotSupportedException("全局多值关系必须使用本表物理JSON文本ID数组。");
-        using var document=foreign.ControlKind=="MultiCheckBoxDatabase"?null:JsonDocument.Parse(foreign.ControlDetail);var definition=foreign.ControlKind=="MultiCheckBoxDatabase"?DatabaseCheckboxDefinition.Parse(foreign.ControlDetail).ReadDefinition(foreign):document!.RootElement;
+        var checkbox=foreign.ControlKind=="MultiCheckBoxDatabase";
+        var checkboxDefinition=checkbox?DatabaseCheckboxDefinition.Parse(foreign.ControlDetail):null;
+        using var document=checkbox?null:JsonDocument.Parse(foreign.ControlDetail);
+        var definition=checkboxDefinition?.ReadDefinition(foreign)??document!.RootElement;
         if(definition.ValueKind!=JsonValueKind.Object||definition.EnumerateObject().Select(x=>x.Name).Distinct(StringComparer.Ordinal).Count()!=definition.EnumerateObject().Count())throw new InvalidOperationException("全局多值定义必须为无重复键对象。");
         string Value(string key)=>!definition.TryGetProperty(key,out var value)||value.ValueKind==JsonValueKind.Null?"":value.ValueKind is JsonValueKind.String or JsonValueKind.Number?value.ToString():throw new InvalidOperationException("全局多值映射必须是标量。");
         string Extra(string key)=>foreign.Extra.TryGetValue(key,out var value)&&value.ValueKind!=JsonValueKind.Null?value.ToString():"";
@@ -133,7 +136,20 @@ public static class GlobalMultipleRelationTarget
         {
             var field=catalog.ConfigPageColumns.SingleOrDefault(item=>item.ConfigPageId==sourcePage.Id&&item.ConfigColumnId==foreign.Id);
             var overlay=field?.Extra.GetValueOrDefault("controlDetail").ToString();
-            if(!string.IsNullOrWhiteSpace(overlay))
+            if(checkboxDefinition is not null)
+            {
+                var actual=checkboxDefinition.WithPageOverride(overlay);
+                if(actual.TableId.Length>0&&actual.TableId!=target.Id||actual.Table.Length>0&&actual.Table!=target.TableName||
+                    field?.Extra.GetValueOrDefault("controlKind").ToString() is {Length:>0} kind&&kind!=foreign.ControlKind)
+                    throw new InvalidOperationException("全局复选页面覆盖必须沿用表级目标实体和控件。");
+                if(actual.PageId.Length>0&&actual.PageId!=pageId)
+                {
+                    if(pageId.Length==0||!catalog.ConfigPages.Any(item=>item.Id==pageId&&item.ConfigTableId==target.Id))
+                        throw new InvalidOperationException("全局复选需要同一字典表的表级发布页。");
+                    pageId=actual.PageId;
+                }
+            }
+            else if(!string.IsNullOrWhiteSpace(overlay))
             {
                 using var documentOverlay=JsonDocument.Parse(overlay);
                 var declared=documentOverlay.RootElement;
@@ -168,7 +184,8 @@ public static class GlobalMultipleRelationTarget
         var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).ToArray();
         var expanded=RelationStorageColumns.Expand(target,columns);
         var condition=FixedConditionPlan.Compile(page.WhereSql,expanded.Select(column=>column.ColumnName));
-        var checkbox=foreign.ControlKind=="MultiCheckBoxDatabase";
+        if(sourcePage is not null&&checkbox&&page.Extra.GetValueOrDefault("type").ToString() is not ("" or "0" or "1" or "2"))
+            throw new NotSupportedException("全局复选必须引用实际发布的字典业务或选择页。");
         var joinedFields=GlobalCrossTableTarget.PageJoinedConditionFields(catalog,target,page);
         var storedAccount=(checkbox||pageId.Length>0)&&IsStoredAccountPage(target,page,condition,checkbox);
         var selfTreeScope=condition.Fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field));
@@ -194,8 +211,9 @@ public static class GlobalMultipleRelationTarget
             MultiTargetParentScope.CompileGlobalPage(catalog,target,condition,checkbox) is {Logical:false} parent&&
             parent.AdditionalTargets.All(scope=>!scope.Logical))
         {
-            var sourceParent=sourcePage is not null?parent.Source(catalog,owner,foreign,sourcePage):
-                checkbox?parent.CheckboxSource(catalog,owner,foreign):parent.Source(catalog,owner,foreign);
+            var sourceParent=checkbox
+                ?sourcePage is null?parent.CheckboxSource(catalog,owner,foreign):parent.CheckboxSource(catalog,owner,foreign,sourcePage)
+                :sourcePage is null?parent.Source(catalog,owner,foreign):parent.Source(catalog,owner,foreign,sourcePage);
             // 多个来源物理键须经同一发布父页校验，原单父字段继续沿用已证明的持久键。
             physicalParentPage=sourceParent.LogicalPages.Count==0&&(sourceParent.AdditionalColumns.Count==0||parent.Global);
         }
@@ -206,8 +224,7 @@ public static class GlobalMultipleRelationTarget
             GlobalDerivedRelationSource.RequireTable(catalog,owner);
         }
         if(cached&&checkbox&&(projectPage||storedParent is not null||GlobalCrossTableTarget.Declared(owner)&&(storedStatic||nonRedundantAccountPage))&&
-            !DatabaseCheckboxDefinition.Parse(foreign.ControlDetail)
-                .IsCoveredByStaticPage(condition,expanded.Select(column=>column.ColumnName)))
+            !checkboxDefinition!.IsCoveredByStaticPage(condition,expanded.Select(column=>column.ColumnName)))
             throw new NotSupportedException("全局复选的冗余名称要求控件条件由实际发布字典页覆盖。");
         if(foreign.ControlKind=="MultiSelectPage"&&GlobalCrossTableTarget.DeclaresExactMulti(target,page)||
             foreign.ControlKind=="MultiCheckBoxDatabase"&&GlobalCrossTableTarget.DeclaresExactPage(target,page))

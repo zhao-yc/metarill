@@ -76,8 +76,10 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(pageId.Length==0)pageId=Text(relation,"linkConfigPageId");
                 if(GlobalCrossTableTarget.Declared(target))
                 {
-                    // 即使旧配置省略页面 ID，也只接受全局发布证明选中的唯一目录。
+                    // 非冗余备用页从实际来源字段重证，旧配置仍沿唯一默认页。
                     var published=GlobalMultipleRelationTarget.Require(catalog,table,relation,target);
+                    if(target.IsRongyu==0&&pageId.Length>0&&pageId!=published.Page.Id)
+                        published=GlobalMultipleRelationTarget.RequirePage(catalog,table,relation,target,source);
                     if(pageId.Length>0&&pageId!=published.Page.Id||selected?.Id!=published.Page.Id||!binding.ApplyPageScope)
                         throw new InvalidOperationException("全局复选名称与已发布目标页不一致。");
                     pageId=globalPageId=published.Page.Id;

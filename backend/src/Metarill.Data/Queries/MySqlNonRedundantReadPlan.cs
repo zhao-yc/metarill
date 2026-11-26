@@ -839,6 +839,8 @@ public static partial class MySqlNonRedundantReadCompiler
                         sourcePage is not null&&overridden is not null&&relation.ControlKind=="MultiSelectPage"
                             ?GlobalMultipleRelationTarget.RequirePage(catalog,table,relation,target,sourcePage)
                             :GlobalMultipleRelationTarget.Require(catalog,table,relation,target);
+                    if(sourcePage is not null&&overridden is not null&&overridden.Id!=proof.Page.Id&&target.IsRongyu==0)
+                        proof=GlobalMultipleRelationTarget.RequirePage(catalog,table,relation,target,sourcePage);
                     // 只有当前来源页已按同一发布目标重新证明的复选名称，才可覆盖表级名称。
                     if(proof.Name.ColumnName!=display&&nameOverride is null)
                         throw new NotSupportedException("全局多值显示必须与固定名称声明一致。");
