@@ -244,14 +244,33 @@ public sealed class SelectionNameFilterCompilationTests
     public Task Live_project_selection_keeps_physical_exact_dictionary_scope(bool accountScope,bool sourceHasParent) =>
         VerifyLiveProjectSelectionScope(accountScope,sourceHasParent,exactTarget:true);
 
-    private static async Task VerifyLiveProjectSelectionScope(bool accountScope,bool sourceHasParent,bool exactTarget)
+    /// <summary>物理父级的发布页同时沿实际字典联接执行固定条件，保留原选档和 Excel。</summary>
+    [Theory]
+    [InlineData(true,false,false)]
+    [InlineData(true,true,false)]
+    [InlineData(true,true,true)]
+    [InlineData(false,true,true)]
+    public Task Live_project_single_with_physical_parent_keeps_joined_dictionary_scope(
+        bool selection,bool textParent,bool exact) =>
+        VerifyLiveProjectSelectionScope(accountScope:true,sourceHasParent:true,exact,joinedPhysical:true,selection,textParent);
+
+    /// <summary>名称副本使用相同字典范围，终点变化进入统一回填计划。</summary>
+    [Theory]
+    [InlineData(true,false)]
+    [InlineData(false,true)]
+    public Task Stored_project_single_with_physical_parent_keeps_joined_dictionary_scope(bool selection,bool textParent) =>
+        VerifyLiveProjectSelectionScope(accountScope:true,sourceHasParent:true,exactTarget:false,
+            joinedPhysical:true,selection,textParent,storedSource:true);
+
+    private static async Task VerifyLiveProjectSelectionScope(bool accountScope,bool sourceHasParent,bool exactTarget,
+        bool joinedPhysical=false,bool selection=true,bool textParent=false,bool storedSource=false)
     {
         const string ns="Example.LiveStoredSelection";
         var catalog=RedundantMultiNameCacheTests.Published(RelationOptionsContractTests.Catalog());
-        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=0;
-        catalog.ConfigTables.Single(table=>table.Id=="3").IsRongyu=1;
+        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=storedSource?1:0;
+        catalog.ConfigTables.Single(table=>table.Id=="3").IsRongyu=joinedPhysical?0:1;
         var foreign=catalog.ConfigColumns.Single(column=>column.Id=="25");
-        foreign.ControlKind="SelectPage";
+        foreign.ControlKind=selection?"SelectPage":"List";
         foreign.ControlDetail="""{"pageId":"301","tableId":"3","nameField":"name"}""";
         var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="201");
         sourcePage.IsImport=sourcePage.IsExport=1;
@@ -262,6 +281,32 @@ public sealed class SelectionNameFilterCompilationTests
         targetPage.Extra["type"]=JsonSerializer.SerializeToElement(1);
         targetPage.WhereSql="yz_project_id=@current_yz_project_id AND status=1";
         catalog.ConfigColumns.Add(new(){Id="37",ConfigTableId="3",ColumnName="status",LogicalType="int32",YzProjectId=catalog.YzProjectId});
+        if(joinedPhysical)
+        {
+            targetPage.WhereSql+=" AND parent_id=@parentId AND region_name <> '隐藏地区'";
+            if(textParent)
+                foreach(var column in catalog.ConfigColumns.Where(column=>column.Id is "26" or "36"))
+                    column.LogicalType="string";
+            var project=catalog.YzProjectId;
+            catalog.ConfigTables.Add(new(){Id="4",TableName="relation_region",YzProjectId=project,IsRongyu=1});
+            catalog.ConfigColumns.AddRange([
+                new(){Id="41",ConfigTableId="4",ColumnName="id",LogicalType="int64",YzProjectId=project,IsDbNotNull=1},
+                new(){Id="42",ConfigTableId="4",ColumnName="name",LogicalType="string",YzProjectId=project},
+                new(){Id="43",ConfigTableId="4",ColumnName="yz_project_id",LogicalType="int64",YzProjectId=project},
+                new(){Id="44",ConfigTableId="4",ColumnName="store_id",LogicalType="int64",YzProjectId=project},
+                new(){Id="45",ConfigTableId="3",ColumnName="region_id",LogicalType="int64",YzProjectId=project,
+                    ControlKind="List",LinkConfigTableId="4",ControlDetail="""{"pageId":"401","tableId":"4","nameField":"name"}""",
+                    Extra={["linkConfigPageId"]=JsonSerializer.SerializeToElement("401")}},
+                new(){Id="46",ConfigTableId="3",ColumnName="region_name",LogicalType="string",YzProjectId=project,Extra={
+                    ["columnFullName"]=JsonSerializer.SerializeToElement("region.name"),["isJoinColumn"]=JsonSerializer.SerializeToElement(1)}}
+            ]);
+            catalog.ConfigPages.Add(new(){Id="401",ConfigTableId="4",YzProjectId=project,YzAdminTypeId="5",
+                WhereSql="yz_project_id=@current_yz_project_id AND store_id=@current_store_id AND name <> '字典停用'"});
+            catalog.ConfigPageColumns.Add(new(){Id="40142",ConfigPageId="401",ConfigColumnId="42",YzProjectId=project,IsShow=1});
+            catalog.ConfigPageColumns.Add(new(){Id="30145",ConfigPageId="301",ConfigColumnId="45",YzProjectId=project,IsShow=1});
+            catalog.ConfigMenus.Add(new(){Id="8401",ConfigPageId="401",YzProjectId=project,YzAdminTypeId="5",
+                Kind="GENERATED_PAGE",Name="地区"});
+        }
         if(exactTarget)
         {
             catalog.ConfigColumns.Add(new(){Id="39",ConfigTableId="3",ColumnName="grant_code",LogicalType="string",YzProjectId=catalog.YzProjectId});
@@ -272,19 +317,55 @@ public sealed class SelectionNameFilterCompilationTests
             catalog.ConfigColumns.Add(new(){Id="38",ConfigTableId="3",ColumnName="store_id",LogicalType="int64",YzProjectId=catalog.YzProjectId});
             targetPage.WhereSql+=" AND store_id=@current_store_id";
         }
+        if(storedSource)
+        {
+            var project=catalog.YzProjectId;
+            catalog.ConfigColumns.AddRange([
+                new(){Id="27",ConfigTableId="2",ColumnName="target_name",LogicalType="string",YzProjectId=project,
+                    Extra={["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("target.name")}},
+                new(){Id="28",ConfigTableId="2",ColumnName="store_id",LogicalType="int64",YzProjectId=project}
+            ]);
+            catalog.ConfigPageColumns.Add(new(){Id="20127",ConfigPageId="201",ConfigColumnId="27",YzProjectId=project,IsShow=1});
+            sourcePage.WhereSql+=" AND store_id=@current_store_id";
+        }
         catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="25")
             .Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
         var model=GenerationModel.Create(catalog,ns);
         var table=model.Tables.Single(item=>item.Source.Id=="2");
         var page=Assert.Single(table.Pages);
-        var published=Assert.Single(NonRedundantReadCompilation.ProjectSingleTargets(model,table,page,["target_name"]));
-        Assert.Equal("301",published.PageId);
-        Assert.Equal("201",published.SourcePageId);
-        Assert.Equal("201",published.ControlSourcePageId);
-        Assert.True(published.ApplyPageCondition);
+        if(storedSource)
+        {
+            var maintenance=MixedRelationPropagationCompilation.ForModel(model);
+            Assert.Contains("target_name",maintenance.MixedSourceColumns["relation_source"]);
+            Assert.Contains("relation_region",maintenance.MixedTargets);
+            var definitions=RelationPropagationCompilation.Definitions(
+                RelationPropagationCompilation.DerivedBindings(model).Where(binding=>binding.Source.Source.Id=="2").ToArray());
+            var compiler=typeof(Metarill.Data.Queries.NonRedundantReads).Assembly.GetType(
+                "Metarill.Data.Queries.MySqlNonRedundantReadCompiler",throwOnError:true)!;
+            var published=RelationPropagationCompilation.PublishedMaintenanceMetadata(model,definitions);
+            var compiled=compiler.GetMethod("CompileRefresh",BindingFlags.Static|BindingFlags.NonPublic)!
+                .Invoke(null,[published,"2",new[]{"target_name"},definitions,null])!;
+            const BindingFlags hiddenRead=BindingFlags.Instance|BindingFlags.NonPublic;
+            var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                compiled.GetType().GetProperty("Constants",hiddenRead)!.GetValue(compiled));
+            Assert.Contains("隐藏地区",constants.Values);
+            Assert.Contains("字典停用",constants.Values);
+        }
+        else
+        {
+            var published=Assert.Single(NonRedundantReadCompilation.ProjectSingleTargets(model,table,page,["target_name"]));
+            Assert.Equal("301",published.PageId);
+            if(joinedPhysical)Assert.Equal("26",published.SourceParentId);
+            else
+            {
+                Assert.Equal("201",published.SourcePageId);
+                Assert.Equal("201",published.ControlSourcePageId);
+            }
+            Assert.True(published.ApplyPageCondition);
+        }
         var filter=SelectionNameFilterCompilation.ForPage(model,table,page);
         Assert.Empty(filter.Gaps);
-        Assert.Equal("targetName",Assert.Single(filter.Bindings).FilterKey);
+        if(selection)Assert.Equal("targetName",Assert.Single(filter.Bindings).FilterKey);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
 
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-live-stored-selection-scope");
@@ -296,7 +377,7 @@ public sealed class SelectionNameFilterCompilationTests
             var service=assembly.GetType(ns+".Generated.Services.RelationSourceService",true)!;
             var actor=new RuntimeActor(8,"离线单选范围",false,catalog.YzProjectId,"5"){StoreId=9007199254742011L};
             const BindingFlags hidden=BindingFlags.Instance|BindingFlags.NonPublic;
-            foreach(var member in new[]{"ReadPlan201","ExportReadPlan201"})
+            foreach(var member in storedSource||!selection?Array.Empty<string>():new[]{"ReadPlan201","ExportReadPlan201"})
             {
                 var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
                     service.GetField(member,BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
@@ -308,10 +389,21 @@ public sealed class SelectionNameFilterCompilationTests
                 var from=Assert.IsType<string>(read.GetType().GetProperty("From",hidden)!.GetValue(read));
                 Assert.Contains("`relation_target`",from);
                 Assert.Contains("`status`",from+name);
-                Assert.DoesNotContain("`parent_id`",from+name);
+                if(joinedPhysical)
+                {
+                    Assert.Contains("`parent_id`",from+name);
+                    Assert.Contains("`relation_region`",from+name);
+                    Assert.Contains("`store_id`",from+name);
+                }
+                else Assert.DoesNotContain("`parent_id`",from+name);
                 var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
                     read.GetType().GetProperty("Constants",hidden)!.GetValue(read));
                 Assert.Contains(1,constants.Values);
+                if(joinedPhysical)
+                {
+                    Assert.Contains("隐藏地区",constants.Values);
+                    Assert.Contains("字典停用",constants.Values);
+                }
                 if(accountScope)
                 {
                     Assert.Contains("`store_id`",from+name);
@@ -320,13 +412,38 @@ public sealed class SelectionNameFilterCompilationTests
             }
             Assert.NotNull(service.GetMethod("Import201Async"));
             Assert.NotNull(service.GetMethod("Export201Async"));
+            if(joinedPhysical)
+            {
+                var code=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/RelationSourceService.g.cs"));
+                var singleImport=selection&&!exactTarget;
+                var member=singleImport?"SingleImportReadPlan201_25":"DerivedOptionsPlan201_25";
+                var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                    service.GetField(member,BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
+                Assert.True(plan.RequiresAccount);
+                var read=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan.BindAccount(actor))!;
+                var scope=Assert.IsType<string>(read.GetType().GetProperty("Scope",hidden)!.GetValue(read));
+                var from=Assert.IsType<string>(read.GetType().GetProperty("From",hidden)!.GetValue(read));
+                Assert.Contains("`relation_region`",from+scope);
+                var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                    read.GetType().GetProperty("Constants",hidden)!.GetValue(read));
+                Assert.Contains("字典停用",constants.Values);
+                if(singleImport)Assert.Contains("隐藏地区",constants.Values);
+                var pageCondition=table.Pages.Single().Source.Id+"_25";
+                Assert.Contains("OptionsPageCondition"+pageCondition,code);
+                Assert.Contains("ImportRelation"+pageCondition+"Async",code);
+                Assert.Contains("currentRead:true",code);
+                if(selection&&textParent)
+                    Assert.Contains("""FixedReadFilter.ForTextParent("parent_id",targetParentId!)""",code);
+            }
             if(exactTarget)
             {
                 var code=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/RelationSourceService.g.cs"));
                 Assert.Contains("""targetExactAuthorization.ResolveExactDataManage("301", "list", "")""",code);
                 Assert.Contains("""new("grant_code", FixedReadComparison.In, targetExactScope.ReadLogical("string"))""",code);
-                Assert.Matches(@"await DerivedOptionsScope201_25Async\(parentId,\s*null,\s*actor,cancellationToken,locking:true\)",code);
-                Assert.Contains("await DerivedOptionsRows201_25Async(request.ParentId,",code);
+                Assert.Matches(joinedPhysical
+                    ?@"await DerivedOptionsScope201_25Async\(parentId,\s*parentId,\s*actor,cancellationToken,locking:true\)"
+                    :@"await DerivedOptionsScope201_25Async\(parentId,\s*null,\s*actor,cancellationToken,locking:true\)",code);
+                if(!joinedPhysical)Assert.Contains("await DerivedOptionsRows201_25Async(request.ParentId,",code);
             }
             var app=Path.Combine(directory,"app");
             Assert.True(new ApplicationPackager().Create(catalog,app,ns,NonRedundantApplicationFixture.Root()).FrontendIncluded);

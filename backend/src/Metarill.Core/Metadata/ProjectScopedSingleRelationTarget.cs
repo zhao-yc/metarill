@@ -50,14 +50,14 @@ public static class ProjectScopedSingleRelationTarget
 
     /// <summary>原文本逻辑父级字典的联接条件，保持选择与缓存用途的既有发布范围。</summary>
     public static IReadOnlySet<string> JoinedTextPageFields(MetadataCatalog catalog,TableMetadata target,PageMetadata page)=>
-        PublishedJoinedFields(catalog,target,page,allowOrdinaryPage:false);
+        PublishedJoinedFields(catalog,target,page,allowPhysicalPage:false);
 
-    /// <summary>普通业务页和已证明的文本逻辑父页可按单值联接设置固定条件。</summary>
+    /// <summary>普通业务页、已发布的物理父级单选页及文本逻辑父页可设置固定单值联接条件。</summary>
     public static IReadOnlySet<string> JoinedPageFields(MetadataCatalog catalog,TableMetadata target,PageMetadata page)=>
-        PublishedJoinedFields(catalog,target,page,allowOrdinaryPage:true);
+        PublishedJoinedFields(catalog,target,page,allowPhysicalPage:true);
 
     /// <summary>仅接受发布身份、实际项目列和固定常量，变量沿真实账号或父键验证。</summary>
-    private static IReadOnlySet<string> PublishedJoinedFields(MetadataCatalog catalog,TableMetadata target,PageMetadata page,bool allowOrdinaryPage)
+    private static IReadOnlySet<string> PublishedJoinedFields(MetadataCatalog catalog,TableMetadata target,PageMetadata page,bool allowPhysicalPage)
     {
         var fields=new HashSet<string>(StringComparer.Ordinal);
         if(target is not {IsRongyu:0,IsView:0,IsFunctionTable:0}||
@@ -74,13 +74,17 @@ public static class ProjectScopedSingleRelationTarget
                 .All(term=>term.Values.All(value=>value.Kind!=FixedConditionValueKind.Variable)))
                 fields.Add(column.ColumnName);
         if(fields.Count==0)return fields;
-        var ordinaryPage=allowOrdinaryPage&&page.Extra.GetValueOrDefault("type").ToString() is ("" or "0")&&
+        var pageType=page.Extra.GetValueOrDefault("type").ToString();
+        var ordinaryPage=pageType is "" or "0";
+        var localPage=allowPhysicalPage&&(ordinaryPage||pageType=="1")&&
             columns.Any(column=>column.ColumnName=="yz_project_id"&&column.LogicalType is ("int64" or "string")&&
                 GlobalPhysicalRelationValue.IsScalar(storage,target,column));
-        // 父参数须落到同项目真实父表的物理键，联接谓词仍由原页面的读取及事务范围执行。
-        if(ordinaryPage&&(!syntax.Variables.Any(MultiTargetParentScope.IsParameter)||
-            MultiTargetParentScope.CompileListPage(catalog,target,syntax.Terms) is
-                {Logical:false,Global:false} parent&&parent.Parent.YzProjectId==catalog.YzProjectId))
+        // 原单选页须实际声明父键；父参数只绑定同项目真实父表的物理键。
+        var hasParent=syntax.Variables.Any(MultiTargetParentScope.IsParameter);
+        if(localPage&&(hasParent
+            ?MultiTargetParentScope.CompileListPage(catalog,target,syntax.Terms) is
+                {Logical:false,Global:false} parent&&parent.Parent.YzProjectId==catalog.YzProjectId
+            :ordinaryPage))
             return fields;
         if(PageParent(catalog,target,page) is not {Logical:true,Global:false,Target.LogicalType:"string",AdditionalTargets.Count:0})
             fields.Clear();

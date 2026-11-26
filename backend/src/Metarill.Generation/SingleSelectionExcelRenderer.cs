@@ -36,9 +36,14 @@ internal static class SingleSelectionExcelRenderer
         var parent=mapped is not null
             ?$"        if(!relationContext.TryGetValue({Literal(mapped.JsonName)},out var parentValue)||parentValue.ValueKind==JsonValueKind.Null||string.IsNullOrWhiteSpace(parentValue.ToString()))throw PageImportException.Input(PageImportError.Relation);\n        string? targetParentId=parentValue.ToString();"
             :$"        string? targetParentId={(same?"parentId":"null")};";
+        // 固定反查使用候选相同的规范父键比较，文本外键不交给 MySQL 排序规则等值。
+        var canonicalParent=relation.CanonicalProjectParent||relation.CompoundProjectSource||relation.CompoundProjectTarget;
         var filters=string.Join("\n",relation.TargetPage.Scopes.Select(scope=>
-            "        filters.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+
-            ScopeValue(scope.Column,scope.Source=="project"?"actor.ProjectId":"targetParentId!")+"));"));
+            canonicalParent&&scope.Source=="parent"&&scope.Column.Type=="string?"&&
+                relation.FixedParent?.HasTarget(scope.Column.Source.Id,logicalOnly:true)!=true
+            ?$"        filters.Add(FixedReadFilter.ForTextParent({Literal(scope.Column.Source.ColumnName)},targetParentId!));"
+            :"        filters.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+
+                ScopeValue(scope.Column,scope.Source=="project"?"actor.ProjectId":"targetParentId!")+"));"));
         var name=relation.NameColumn;
         string Match(string field,string value)=>fixedRead
             ?"filters.Add(new("+Literal(field)+",FixedReadComparison.Equal,"+value+"));"

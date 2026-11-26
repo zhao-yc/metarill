@@ -508,7 +508,9 @@ public static partial class MySqlNonRedundantReadCompiler
                 ?compound.AdditionalTargets.Select(parent=>parent.Target.ColumnName).ToHashSet(StringComparer.Ordinal):null;
             if(additional is not null)cascadeLabelPages.Add(page.Id);
             var separateExactScope=exact||storedExact;
-            var pageJoins=ProjectScopedSingleRelationTarget.JoinedTextPageFields(catalog,root,page);
+            var pageJoins=page.Extra.GetValueOrDefault("type").ToString()=="1"
+                ?ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,root,page)
+                :ProjectScopedSingleRelationTarget.JoinedTextPageFields(catalog,root,page);
             var condition=CrossTableParentCondition.Compile(catalog,root,page,storage[root.Id],allowLogical:true,
                 multiParent:MultiCandidateParent?.Target,selfTreeFields:treeNames,separateExactScope:separateExactScope,
                 additionalParents:additional,joinedFields:pageJoins);
@@ -829,7 +831,9 @@ public static partial class MySqlNonRedundantReadCompiler
             // 读取和缓存都按同一个实际父页计算，全局父的各外键或逻辑层位不得各自选择发布页。
             if(additional is not null&&additionalScopes![0].Global)
                 _=PublishedMultiGlobalParent(catalog,table.Id,page.Id);
-            var pageJoins=ProjectScopedSingleRelationTarget.JoinedTextPageFields(catalog,table,page);
+            var pageJoins=page.Extra.GetValueOrDefault("type").ToString()=="1"
+                ?ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,table,page)
+                :ProjectScopedSingleRelationTarget.JoinedTextPageFields(catalog,table,page);
             var condition=CascadeScopeCondition(table,storage[table.Id],members,syntax,parentField,fields,additional,pageJoins);
             var logical=RequireCrossCondition(table,page,condition,parentField,fields,additional,pageJoins);
             if(GlobalCrossTableTarget.Declared(table))scopedGlobalCrossTarget=true;
@@ -838,7 +842,7 @@ public static partial class MySqlNonRedundantReadCompiler
             if(globalExact)GlobalCrossTableTarget.RequireExactSingleCandidate(catalog,table,page);
             var storedExact=cacheOwner is not null&&(globalExact||PublishedSingleExactColumn(catalog,table,page,members) is not null||
                 storedPhysicalExact);
-            if(cacheOwner is {} row&&logical.Count==0)
+            if(cacheOwner is {} row&&logical.Count==0&&pageJoins.Count==0)
             {
                 // 项目范围由已发布目录绑定。账号和父记录仍使用正在回填的来源行。
                 var projectScope=GlobalCrossTableTarget.IsProjectSinglePage(table,page,syntax,allowListPage:true)||
@@ -981,7 +985,10 @@ public static partial class MySqlNonRedundantReadCompiler
                 return(globalNested.Alias,globalNested.Visibility,cacheOwner);
             if(cacheOwner is not null&&singleCachePages.TryGetValue(owner,out var sourcePage)&&
                 ProjectScopedSingleRelationTarget.NestedPage(catalog,table,sourcePage,foreign,target,
-                    allowStoredTarget:multiLabel&&(CrossNamePage(owner) is null||MultiNameSourcePage(owner) is not null)) is {} projectNested)
+                    // 固定单选条件引用物理字典时也要按其实际发布页保留失效和反查。
+                    allowStoredTarget:multiLabel&&(CrossNamePage(owner) is null||MultiNameSourcePage(owner) is not null)||
+                        target.IsRongyu==1&&sourcePage.Extra.GetValueOrDefault("type").ToString()=="1"&&
+                        ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,table,sourcePage).Count>0) is {} projectNested)
             {
                 if(projectNested.Scoped&&target.IsRongyu==1)
                 {

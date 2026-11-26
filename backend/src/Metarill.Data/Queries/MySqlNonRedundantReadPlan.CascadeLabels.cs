@@ -362,7 +362,7 @@ public static partial class MySqlNonRedundantReadCompiler
         }
         var projectFixedScope=IsProjectFixedMultiPage(catalog,table,page,checkboxAccount:storedExactCheckbox,allowStoredTextParent:true);
         var storedParent=GlobalCrossTableTarget.StoredProjectMultiParent(catalog,table,page,storedExactCheckbox);
-        var pageJoins=importPageType=="1"?ProjectScopedSingleRelationTarget.JoinedTextPageFields(catalog,table,page):
+        var pageJoins=importPageType=="1"?ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,table,page):
             FrozenSet<string>.Empty;
         var plan=new Builder(catalog,tableId,matching:true,multiLabel:true,cascadeLabelField:field,crossTables:crossBindings,
             scopedPhysicalCandidate:table.IsRongyu==1&&projectFixedScope,storedMultiParent:storedParent)
@@ -373,7 +373,7 @@ public static partial class MySqlNonRedundantReadCompiler
             AllowsStoredExactCheckbox=storedExactCheckbox,
             MultiNamePathPage=page,
             // 保存及导入的当前读同时锁定候选名称和物理父记录。
-            LockPublishedJoinScopes=storedExactCheckbox||storedParent is not null||projectFixedScope&&parent is not null,
+            LockPublishedJoinScopes=pageJoins.Count>0||storedExactCheckbox||storedParent is not null||projectFixedScope&&parent is not null,
             AllowLiteralMultiScope=extraFields.Count>0||allowLiteralMultiScope||projectFixedScope,
             MultiImportFields=extraFields,
             MultiImportCrossFields=crossFields,
