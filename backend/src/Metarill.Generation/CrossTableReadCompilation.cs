@@ -93,7 +93,7 @@ internal static class CrossTableReadCompilation
             if(plan.HasTextKeys&&(model.Catalog.DatabaseProvider!="mysql"||table.Source.IsView!=0||table.IsGlobal||
                 result.Any(level=>level.Target.Source.IsView!=0)||
                 !functionForm&&!SupportsSourceParent(model,table,source,result)))
-                return Gap("文本业务键要求已发布的 MySQL 候选链，实体来源父范围须唯一。");
+                return Gap("文本业务键要求已发布的 MySQL 候选链，实体来源父范围须证明同一实际文本键。");
             if(functionForm&&!string.IsNullOrWhiteSpace(overlay)&&!CrossTableFrontendProof.KeepsStorageDefinition(model,page,source)&&
                 (result.Any(level=>level.AlternateKey is not null)||HasDeclaredBusinessKey(source.Source.ControlDetail)))
                 return Gap("功能表的页级配置不能替换表级业务节点键或固定路径。");
@@ -117,7 +117,14 @@ internal static class CrossTableReadCompilation
         {
             var parents=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
             if(parents.Length==0)continue;
-            if(parents.Length!=1)return false;
+            if(parents.Length>1)
+            {
+                // 固定字典可声明多个逻辑父级，但不得把不同文本键解释为同一个请求父参数。
+                var syntax=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
+                if(MultiTargetParentScope.CompileSelectionPage(model.Catalog,table.Source,syntax)
+                    ?.HasCompoundLogicalTextKey(model.Catalog,table.Source)!=true)return false;
+                continue;
+            }
             var level=levels.SingleOrDefault(level=>level.Prefix+"_id"==parents[0].Source.ColumnName);
             // 缺少本分支层位时，非冗余父范围必须属于同一已声明的共享组。
             if(level is null&&table.Source.IsRongyu==0)
@@ -134,10 +141,14 @@ internal static class CrossTableReadCompilation
     /// <summary>识别页面已发布的文本级联父，普通文本外键仍按各自原有协议处理。</summary>
     internal static ColumnModel? TextSourceParent(GenerationModel model,TableModel table,PageModel page)
     {
-        var parents=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).Take(2).ToArray();
-        if(parents is not [var parent]||parent.Type!="string?")return null;
-        return NonRedundantCrossParentCompilation.IsText(model,table,page,parent)||
-            SharedRedundantParentCompilation.IsText(model,table,page,parent)?parent:null;
+        var parents=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column)
+            .DistinctBy(column=>column.Source.Id).OrderBy(column=>column.Source.Id,StringComparer.Ordinal).ToArray();
+        if(parents is [var parent]&&parent.Type=="string?")
+            return NonRedundantCrossParentCompilation.IsText(model,table,page,parent)||
+                SharedRedundantParentCompilation.IsText(model,table,page,parent)?parent:null;
+        // 复合页仅在每条已经编译的稀疏路径都证明文本父键时才切换输入类型。
+        return parents.Length>1&&parents.All(column=>column.Type=="string?"&&
+            NonRedundantCrossParentCompilation.IsText(model,table,page,column))?parents[0]:null;
     }
 
     /// <summary>不接受JSON最后值覆盖，结构与读取采用相同键解释。</summary>

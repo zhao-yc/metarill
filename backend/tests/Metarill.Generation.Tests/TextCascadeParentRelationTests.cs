@@ -1805,8 +1805,24 @@ public sealed class TextCascadeParentRelationTests
         VerifyMultiJoinedPage(sourceStorage,"string",import,export,buildPackage:true,joinedPageCondition:true,
             separateConditionPath:true,physicalLabel:true,parentType:"logical-int",compoundParent:true);
 
+    /// <summary>同一个文本业务父键同时限定两个独立级联路径，原候选、Excel 和名称回填共用该范围。</summary>
+    [Theory]
+    [InlineData(0,"OnlyNew","list")]
+    [InlineData(1,"OverWriteByFirstColumn","edit")]
+    public Task Multi_compound_text_parent_keeps_joined_dictionary_scope(
+        int sourceStorage,string import,string export)=>
+        VerifyMultiJoinedPage(sourceStorage,"string",import,export,buildPackage:true,joinedPageCondition:true,
+            separateConditionPath:true,physicalLabel:true,parentType:"logical",compoundParent:true);
+
+    /// <summary>同一父表的另一个唯一文本业务键不能冒充已发布的共同父键。</summary>
+    [Fact]
+    public Task Multi_compound_text_parent_rejects_different_business_keys()=>
+        VerifyMultiJoinedPage(0,"string","OnlyNew","list",buildPackage:false,joinedPageCondition:true,
+            separateConditionPath:true,physicalLabel:true,compoundParent:true,differentTextKeys:true);
+
     private static async Task VerifyMultiJoinedPage(int sourceStorage,string kind,string import,string export,bool buildPackage,
-        bool joinedPageCondition,bool separateConditionPath,bool physicalLabel,string parentType="logical",bool compoundParent=false)
+        bool joinedPageCondition,bool separateConditionPath,bool physicalLabel,string parentType="logical",bool compoundParent=false,
+        bool differentTextKeys=false)
     {
         var catalog=Catalog(sourceStorage,import,export);
         PublishTextParentJoinedLabels(catalog,kind,["83","84"]);
@@ -1821,6 +1837,18 @@ public sealed class TextCascadeParentRelationTests
                 column.ColumnLength="";
             }
         }
+        if(differentTextKeys)
+        {
+            catalog.ConfigColumns.Add(new(){Id="business_secondary",ConfigTableId="3",ColumnName="secondary_key",
+                LogicalType="string",ColumnLength="50",IsDbNotNull=1});
+            var projectId=catalog.ConfigColumns.Single(column=>column.ConfigTableId=="3"&&column.ColumnName=="yz_project_id").Id;
+            catalog.ConfigIndexes.Add(JsonSerializer.SerializeToElement(new{id="different_key",configTableId="3",isUnique=1,
+                indexName="uniq_project_secondary"}));
+            catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id="different_key_project",configIndexId="different_key",
+                configColumnId=projectId,sortNo=1}));
+            catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id="different_key_column",configIndexId="different_key",
+                configColumnId="business_secondary",sortNo=2}));
+        }
         if(compoundParent)
         {
             // 字典另用一条稀疏链指向同一父表，保留各自路径的业务键类型。
@@ -1829,6 +1857,7 @@ public sealed class TextCascadeParentRelationTests
                 var leaves=catalog.ConfigColumns.Where(column=>column.ConfigTableId==id&&
                     column.ColumnName is "country_id" or "area_id" or "place_id").ToArray();
                 var detail=System.Text.Json.Nodes.JsonNode.Parse(leaves.Single(column=>column.ControlKind=="CascadeTree").ControlDetail)!;
+                if(differentTextKeys)detail["levels"]![0]!["idField"]="secondary_key";
                 foreach(var level in detail["levels"]!.AsArray())
                     level!["columnPrefix"]="other_"+level["columnPrefix"]!.GetValue<string>();
                 foreach(var column in leaves)
@@ -1895,6 +1924,14 @@ public sealed class TextCascadeParentRelationTests
                 catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql+=" AND store_id=@current_store_id";
             }
         }
+        if(differentTextKeys)
+        {
+            var target=catalog.ConfigTables.Single(table=>table.Id=="83");
+            var targetPage=catalog.ConfigPages.Single(page=>page.Id=="830");
+            Assert.Empty(ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,target,targetPage));
+            Assert.Throws<InvalidOperationException>(()=>GenerationModel.Create(catalog,"Example.JoinedTextParentLabels"));
+            return;
+        }
         var model=GenerationModel.Create(catalog,"Example.JoinedTextParentLabels");
         var owner=model.Tables.Single(table=>table.Source.Id=="2");
         var page=Assert.Single(owner.Pages);
@@ -1952,7 +1989,9 @@ public sealed class TextCascadeParentRelationTests
             }
             var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/TextrelSourceService.g.cs"));
             Assert.Contains("CompileScopedMultiLabel(\"83\",\"830\",\"name\"",service);
-            if(parentType=="logical")
+            if(compoundParent)
+                Assert.Contains("CompileScopedCheckboxLabel(\"84\",\"840\",\"name\"",service);
+            else if(parentType=="logical")
                 Assert.Contains(sourceStorage==0?"CompileScopedCheckboxLabel(\"84\",\"840\",\"name\"":
                     "CompileScopedMultiLabel(\"84\",\"840\",\"name\"",service);
             else

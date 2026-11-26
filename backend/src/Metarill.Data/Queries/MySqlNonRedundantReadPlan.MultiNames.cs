@@ -240,9 +240,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 UsesSharedStoredTextParent(table,sourceBinding,target,selectedScope,pageParent);
             var sharedSparseTextParent=table.IsRongyu==1&&target.IsRongyu==0&&!global&&
                 !GlobalCrossTableTarget.Declared(table)&&selectedScope is not null&&pageParent is {Logical:true,Global:false}&&
-                sourceBinding is {LogicalPages.Count:0}&&UsesSharedStoredTextParent(target,new(pageParent.Target,[selectedScope]),table,
-                    catalog.ConfigPages.Where(page=>page.ConfigTableId==table.Id).ToArray(),sourceBinding.Column,
-                    pageParent.AdditionalTargets.Count>0||sourceBinding.AdditionalColumns.Count>0,storedToSparse:true);
+                sourceBinding is {LogicalPages.Count:0}&&UsesSharedSparseTextParent(target,selectedScope,pageParent,table,sourceBinding);
             var storedTextPath=selectedScope is not null&&sourceBinding is not null&&pageParent is not null
                 ?StoredTextCacheParent(table,sourceBinding,target,selectedScope,pageParent):null;
             if(pageParent is {Global:true}&&sourceBinding is {AdditionalColumns.Count:>0})

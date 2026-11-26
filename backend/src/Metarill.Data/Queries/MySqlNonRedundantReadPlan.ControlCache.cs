@@ -226,6 +226,19 @@ public static partial class MySqlNonRedundantReadCompiler
             PageMetadata targetPage,MultiTargetParentScope targetParent)=>
             UsesSharedStoredTextParent(source,sourceParent,target,[targetPage],targetParent.Target,targetParent.AdditionalTargets.Count>0);
 
+        /// <summary>稀疏目标的每个文本父层位必须与所有冗余来源页的持久文本键一致。</summary>
+        private bool UsesSharedSparseTextParent(TableMetadata sparse,PageMetadata sparsePage,MultiTargetParentScope scope,
+            TableMetadata stored,MultiSourceParent storedParent)
+        {
+            var storedPages=catalog.ConfigPages.Where(page=>page.ConfigTableId==stored.Id).ToArray();
+            if(scope.HasCompoundLogicalTextKey(catalog,sparse))
+                return scope.AdditionalTargets.Prepend(scope).All(child=>UsesSharedStoredTextParent(
+                    sparse,new(child.Target,[sparsePage]),stored,storedPages,storedParent.Column,
+                    storedParent.AdditionalColumns.Count>0,storedToSparse:true));
+            return UsesSharedStoredTextParent(sparse,new(scope.Target,[sparsePage]),stored,storedPages,storedParent.Column,
+                scope.AdditionalTargets.Count>0||storedParent.AdditionalColumns.Count>0,storedToSparse:true);
+        }
+
         /// <summary>保存、传播和回填也从实际发布的各来源页复核物理文本键，不能按存储类型猜测。</summary>
         private bool UsesSharedStoredTextParent(TableMetadata sparse,MultiSourceParent sparseParent,TableMetadata stored,
             IReadOnlyList<PageMetadata> storedPages,ColumnMetadata storedColumn,bool compoundStored,bool storedToSparse=false)

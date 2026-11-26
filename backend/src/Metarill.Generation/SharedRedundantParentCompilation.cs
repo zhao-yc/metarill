@@ -63,15 +63,10 @@ internal static class SharedRedundantParentCompilation
             sourcePage.Source.YzProjectId!=model.Catalog.YzProjectId||targetPage.Source.YzProjectId!=model.Catalog.YzProjectId)
             return null;
         var sourceFields=sourcePage.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).Take(2).ToArray();
-        var targetFields=targetPage.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).Take(2).ToArray();
-        if(sourceFields is not [var sourceKey]||targetFields is not [var targetKey]||sourceKey.Type!="string?"||targetKey.Type!="string?")
+        if(sourceFields is not [var sourceKey]||sourceKey.Type!="string?"||
+            ForColumn(model,source,sourcePage,sourceKey) is not [var left]||!left.Level.TextKey)
             return null;
-        if(ForColumn(model,source,sourcePage,sourceKey) is not [var left]||!left.Level.TextKey)
-            return null;
-        var right=target.Source.IsRongyu==1
-            ?ForColumn(model,target,targetPage,targetKey).SingleOrDefault()
-            :NonRedundantCrossParentCompilation.Find(model,target,targetPage,targetKey) is {} sparse?new SharedRedundantParentPath(sparse.Read,sparse.Index):null;
-        return right is {Level.TextKey:true}&&Identity(left)==Identity(right)?targetKey:null;
+        return NonRedundantCrossParentCompilation.SharedTextTarget(model,target,targetPage,left);
     }
 
     /// <summary>完整包逐个证明物理父字段，来源项目与后台必须明确发布。</summary>

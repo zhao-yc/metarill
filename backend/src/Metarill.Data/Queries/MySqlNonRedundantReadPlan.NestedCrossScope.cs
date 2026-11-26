@@ -1092,9 +1092,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var sharedTextParent=false;
             if(table.IsRongyu==1&&target.IsRongyu==0&&parent is {Logical:true,Global:false}&&binding is not null&&
                 !GlobalCrossTableTarget.Declared(table)&&!GlobalCrossTableTarget.Declared(target))
-                sharedTextParent=UsesSharedStoredTextParent(target,new(parent.Target,[page]),table,
-                    catalog.ConfigPages.Where(candidate=>candidate.ConfigTableId==table.Id).ToArray(),binding.Column,
-                    parent.AdditionalTargets.Count>0||binding.AdditionalColumns.Count>0,storedToSparse:true);
+                sharedTextParent=UsesSharedSparseTextParent(target,page,parent,table,binding);
             var sourceParent=binding is not null&&(parent?.Logical==true||binding.LogicalPages.Count>0||binding.AdditionalColumns.Count>0)
                 ?SingleSourceParentValue(table,owner,binding,cacheOwner):null;
             // 反查需要从最终写回的根表出发，保存中间记录及逻辑父表达式引用的祖先别名。

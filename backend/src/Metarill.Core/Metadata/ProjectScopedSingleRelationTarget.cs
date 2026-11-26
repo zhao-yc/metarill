@@ -84,11 +84,12 @@ public static class ProjectScopedSingleRelationTarget
             return fields;
         // 原 type=2 页沿多选的父范围证明，不走单值页的父路径识别。
         var logicalParent=pageType=="2"?MultiTargetParentScope.CompileSelectionPage(catalog,target,syntax):PageParent(catalog,target,page);
-        // 整数范围沿已证明的同一父表展开所有层位；文本父仍沿单路径合同。
+        // 字典的复合文本范围还须证明每个逻辑层位使用相同的唯一业务键。
         if(logicalParent is not {Logical:true,Global:false}||
             !(logicalParent.Target.LogicalType=="string"&&logicalParent.AdditionalTargets.Count==0||
-                localPage&&logicalParent.Target.LogicalType=="int64"&&
-                logicalParent.AdditionalTargets.All(scope=>scope is {Logical:true,Target.LogicalType:"int64"})))
+                localPage&&(logicalParent.Target.LogicalType=="int64"&&
+                    logicalParent.AdditionalTargets.All(scope=>scope is {Logical:true,Target.LogicalType:"int64"})||
+                    logicalParent.HasCompoundLogicalTextKey(catalog,target))))
             fields.Clear();
         return fields;
     }
