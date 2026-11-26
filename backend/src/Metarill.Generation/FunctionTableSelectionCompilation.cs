@@ -1,4 +1,5 @@
 using Metarill.Core.Metadata;
+using Metarill.Data.Queries;
 
 namespace Metarill.Generation;
 
@@ -41,8 +42,12 @@ internal static class FunctionTableSelectionCompilation
     {
         if (!targetPage.Scopes.Any(scope => scope.Source == "parent")) return null;
         var condition = FixedConditionPlan.Compile(targetPage.Source.WhereSql, target.Columns.Select(column => column.Source.ColumnName));
-        return MultiTargetParentScope.Compile(model.Catalog, target.Source, condition)
-            ?? throw new InvalidOperationException("功能表实际目标页缺少可证明的父级。");
+        var parent=DerivedRelationNamesCompilation.SingleParent(model,target,targetPage)??
+            MultiTargetParentScope.Compile(model.Catalog,target.Source,condition)??
+            throw new InvalidOperationException("功能表实际目标页缺少可证明的父级。");
+        if(parent is {Global:true,AdditionalTargets.Count:>0})
+            _=NonRedundantReads.MultiGlobalParentPageId(model.Catalog,target.Source.Id,targetPage.Source.Id);
+        return parent;
     }
 
     /// <summary>功能表没有来源记录，父值只能来自原页面已开放且关联同一父表的字段。</summary>

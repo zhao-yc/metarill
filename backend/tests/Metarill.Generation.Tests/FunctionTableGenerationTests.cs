@@ -638,13 +638,16 @@ public sealed class FunctionTableGenerationTests : IDisposable
     [InlineData("derived")]
     [InlineData("logical")]
     [InlineData("global")]
+    [InlineData("projectExactCompound")]
+    [InlineData("projectStoredExactCompound")]
     public async Task Function_single_selection_uses_the_actual_target_page(string scenario)
     {
         var catalog=WithSingleSelection(Catalog(),scenario);
         new ApplicationPackager().Create(catalog,output,"Example.FunctionForm",SourceRoot());
 
         var generated=Path.Combine(output,"backend/generated");
-        var table=scenario=="global"?"FunctionOption":"Customer";
+        var compound=scenario.EndsWith("ExactCompound",StringComparison.Ordinal);
+        var table=scenario=="global"||compound?"FunctionOption":"Customer";
         var controller=await File.ReadAllTextAsync(Path.Combine(generated,$"Controllers/{table}Page103Controller.g.cs"));
         Assert.Contains("Actor(\"list\")",controller);
         var service=await File.ReadAllTextAsync(Path.Combine(generated,$"Services/{table}Service.g.cs"));
@@ -654,6 +657,11 @@ public sealed class FunctionTableGenerationTests : IDisposable
             if(scenario=="logical")Assert.Contains("FixedReadFilter.ForCrossExact(\"assigned_area_name\"",service);
         }
         else Assert.Contains("CandidateReadPlan103.BindAccount(actor)",service);
+        if(compound)
+        {
+            Assert.Contains("CompileMultiGlobalParent",service);
+            Assert.Contains("PageMultiGlobalParent103.BindAccount(actor)",service);
+        }
 
         var sourceService=await File.ReadAllTextAsync(Path.Combine(generated,"Services/SummaryFormService.g.cs"));
         Assert.DoesNotContain("findNameIdReview39",sourceService);
@@ -685,7 +693,8 @@ public sealed class FunctionTableGenerationTests : IDisposable
     /// <summary>覆盖原单选的物理／逻辑独立父、页面覆盖、派生名称及全局候选。</summary>
     private static MetadataCatalog WithSingleSelection(MetadataCatalog catalog,string scenario)
     {
-        if(scenario=="global")
+        var useGlobalParent=scenario=="global"||scenario.EndsWith("ExactCompound",StringComparison.Ordinal);
+        if(useGlobalParent)
         {
             WithGlobalParent(catalog,scenario);
             catalog.ConfigColumns.RemoveAll(field=>field.Id=="39");
@@ -706,7 +715,7 @@ public sealed class FunctionTableGenerationTests : IDisposable
         target.Extra["type"]=JsonSerializer.SerializeToElement(1);
         var name=scenario=="derived"?"country_label":"name";
         var field=new ColumnMetadata {Id="39",ConfigTableId="2",ColumnName="review_id",LogicalType="int64",
-            IsVirtualColumn=1,ControlKind="SelectPage",LinkConfigTableId=scenario=="global"?"":"1"};
+            IsVirtualColumn=1,ControlKind="SelectPage",LinkConfigTableId=useGlobalParent?"":"1"};
         var setting=new PageColumnMetadata {Id="10239",ConfigPageId="102",ConfigColumnId="39",IsEdit=1};
         if(scenario=="derived")
         {
@@ -716,7 +725,7 @@ public sealed class FunctionTableGenerationTests : IDisposable
         else
         {
             field.ControlDetail=JsonSerializer.Serialize(new{pageId="103",nameField=name,
-                whereSql=scenario=="global"?"status=1":"name <> '停用'"});
+                whereSql=useGlobalParent?"status=1":"name <> '停用'"});
         }
         catalog.ConfigColumns.Add(field);
         catalog.ConfigColumns.Add(new(){Id="397",ConfigTableId="2",ColumnName="review_"+name,LogicalType="string",IsVirtualColumn=1});
@@ -731,9 +740,38 @@ public sealed class FunctionTableGenerationTests : IDisposable
     [InlineData("logical")]
     [InlineData("global")]
     [InlineData("treeExact")]
+    [InlineData("projectExactCompound")]
+    [InlineData("projectStoredExactCompound")]
+    [InlineData("projectExactCompoundOrdinary")]
+    [InlineData("projectStoredExactCompoundOrdinary")]
     public async Task Function_original_list_uses_one_candidate_scope(string scenario)
     {
-        var catalog = WithFunctionList(Catalog(), scenario=="treeExact"?"logical":scenario);
+        var ordinary=scenario.EndsWith("Ordinary",StringComparison.Ordinal);
+        var variant=ordinary?scenario[..^8]:scenario;
+        var catalog = WithFunctionList(Catalog(), variant=="treeExact"?"logical":variant);
+        var compound=variant.EndsWith("ExactCompound",StringComparison.Ordinal);
+        if(ordinary)
+        {
+            // 普通业务页只从当前功能表字段配置选用，表级关系不写入选择页。
+            catalog.ConfigPages.Single(page=>page.Id=="103").Extra["type"]=JsonSerializer.SerializeToElement(0);
+            var field=catalog.ConfigColumns.Single(column=>column.Id=="39");
+            catalog.ConfigPageColumns.Single(setting=>setting.Id=="10239").Extra["controlDetail"]=
+                JsonSerializer.SerializeToElement(field.ControlDetail);
+            field.ControlDetail="{}";
+        }
+        if(compound)
+        {
+            var secondParent=catalog.ConfigColumns.Single(column=>column.Id=="708");
+            var original=secondParent.Extra["linkConfigPageId"];
+            try
+            {
+                secondParent.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("801");
+                var error=Assert.Throws<InvalidOperationException>(()=>
+                    Metarill.Data.Queries.NonRedundantReads.MultiGlobalParentPageId(catalog,"7","103"));
+                Assert.Contains("同一个实际发布父页",error.Message);
+            }
+            finally { secondParent.Extra["linkConfigPageId"]=original; }
+        }
         if(scenario=="treeExact")PublishFunctionListTreeExact(catalog);
         new ApplicationPackager().Create(catalog, output, "Example.FunctionForm", SourceRoot());
 
@@ -752,12 +790,18 @@ public sealed class FunctionTableGenerationTests : IDisposable
         else
         {
             Assert.Contains("""ResolveExactDataManage("103", "list", "real_name")""", service);
-            Assert.Contains("ReadOptionsForm102_39", service);
+            if(!compound)Assert.Contains("ReadOptionsForm102_39", service);
             if (scenario == "logical") Assert.Contains("""FixedReadFilter.ForCrossExact("assigned_area_name",""", service);
             if (scenario == "treeExact") Assert.Contains("""new("approval_tree_name", FixedReadComparison.In,""", service);
         }
         Assert.False(File.Exists(Path.Combine(generated, "Entities/SummaryForm.g.cs")));
-        await VerifyVueAsync(output, "GeneratedFunctionListProbe.mjs", scenario);
+        if(compound)
+        {
+            Assert.Contains("CompileMultiGlobalParent",service);
+            Assert.Contains("""new("scope_id",FixedReadComparison.Equal,""",service);
+            Assert.Contains("""new("other_scope_id",FixedReadComparison.Equal,""",service);
+        }
+        await VerifyVueAsync(output, "GeneratedFunctionListProbe.mjs", compound?"global":scenario);
         await BuildFullAsync(output);
         var context = new AssemblyLoadContext("FunctionList." + Guid.NewGuid().ToString("N"), isCollectible: true);
         try
@@ -819,7 +863,7 @@ public sealed class FunctionTableGenerationTests : IDisposable
         var field = catalog.ConfigColumns.Single(column => column.Id == "39");
         field.ControlKind = "List";
         var name = scenario == "derived" ? "country_label" : "name";
-        if (scenario == "global")
+        if (scenario == "global"||scenario.EndsWith("ExactCompound",StringComparison.Ordinal))
             field.ControlDetail = """{"pageId":"103","nameField":"name","whereSql":"status=1"}""";
         else
         {

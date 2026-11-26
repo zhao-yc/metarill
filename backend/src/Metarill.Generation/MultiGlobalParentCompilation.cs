@@ -28,7 +28,9 @@ internal static class MultiGlobalParentCompilation
         // 多父普通业务页仅在实际用作下拉或单选目标时接入单值候选证明。
         if(!table.IsGlobal&&parentCount>1&&!model.Tables.Any(owner=>owner.Columns.Any(column=>
             column.Source.ControlKind is "List" or "SelectPage"&&
-            ForeignValidationRenderer.Target(model,column)?.Source.Id==table.Source.Id&&
+            (owner.Source.IsFunctionTable==1
+                ?column.Source.LinkConfigTableId.Length==0||column.Source.LinkConfigTableId==table.Source.Id
+                :ForeignValidationRenderer.Target(model,column)?.Source.Id==table.Source.Id)&&
             owner.Pages.Any(source=>ProjectSinglePage(model,source,column,table)?.Source.Id==page.Source.Id))))
             return null;
         // 精确多选或业务字典同样是实际发布页，父级校验沿精确范围入口识别。
@@ -296,7 +298,9 @@ internal static class MultiGlobalParentCompilation
     /// <summary>项目内单选取当前页面的有效配置，下拉沿用原目标页回退规则。</summary>
     private static PageModel? ProjectSinglePage(GenerationModel model,PageModel page,ColumnModel column,TableModel target)
     {
-        if(column.Source.ControlKind=="List")return RelationCompilation.ListTargetPage(model,target,page,column,requireExplicit:false);
+        // 功能表可以只在控件或页面覆盖中指定同一字典页，不能按关系字段名推测。
+        if(column.Source.ControlKind=="List"&&model.Tables.Single(owner=>owner.Source.Id==page.Source.ConfigTableId).Source.IsFunctionTable==0)
+            return RelationCompilation.ListTargetPage(model,target,page,column,requireExplicit:false);
         var configuration=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>
             field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==column.Source.Id);
         var definition=SelectionControlDefinition.Resolve(column,configuration);

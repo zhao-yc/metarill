@@ -53,11 +53,13 @@ public static partial class MySqlNonRedundantReadCompiler
         // 已保存名称由来源记录授权。候选和写入仍在自己的入口校验目标页精确权限。
         var storedSingle=projectSingle&&publishedMatch is not null&&pageType is "" or "0" or "1"&&
             projectSingleControlKind is "List" or "SelectPage";
-        if(table.IsRongyu!=0||exactField.Length>0&&!exactParent&&!storedSingle&&!globalExactSingle||
+        var storedExactParent=exactSingleParent&&table.IsRongyu==1
+            ?ProjectScopedSingleRelationTarget.PageParent(catalog,table,page):null;
+        if(table.IsRongyu!=0&&storedExactParent is null||exactField.Length>0&&!exactParent&&!storedSingle&&!globalExactSingle||
             page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)
             throw new NotSupportedException("候选必须属于已发布项目的普通非冗余目标页。");
         if(exactSingleParent&&(global||exactField.Length==0||
-            pageType!="1"&&!(publishedMatch is not null&&pageType is "" or "0")))
+            pageType!="1"&&!((publishedMatch is not null||storedExactParent is not null)&&pageType is "" or "0")))
             throw new NotSupportedException("精确单值候选必须使用已发布的项目内单值页面。");
         if(exactCheckboxParent&&(global||exactField.Length==0||
             page.Extra.GetValueOrDefault("type").ToString() is not ("" or "0" or "1" or "2")))
@@ -69,7 +71,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var listCrosses=(listFields??[]).Where(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field)).ToArray();
         // 复选独立使用已发布的稀疏父字段，普通业务和多选页沿用各自页面类型。
         var projectParent=exactCheckboxParent?MultiTargetParentScope.Compile(catalog,table,syntax):
-            !global?ProjectScopedSingleRelationTarget.PageParent(catalog,table,page):null;
+            !global?(storedExactParent??ProjectScopedSingleRelationTarget.PageParent(catalog,table,page)):null;
         var storage=MetadataStoragePolicy.ForTable(catalog,table);
         var pageJoins=global?GlobalCrossTableTarget.PageJoinedConditionFields(catalog,table,page):
             ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,table,page);
@@ -164,7 +166,8 @@ public static partial class MySqlNonRedundantReadCompiler
         // 范围的绑定按发布页生成，其它绑定仅用于该独立选择页展示额外的路径。
         var bindings=scopes.Concat(displayBindings??[]).DistinctBy(path=>path.SourceColumnId,StringComparer.Ordinal).ToArray();
         var activePages=activeSinglePages??new HashSet<string>(StringComparer.Ordinal);
-        var builder=new Builder(catalog,tableId,deferCascadeNames:projectionTrees.Count>0||accountParentPage||physicalParent is not null,crossTables:bindings,rootAlias:rootAlias,aliasPrefix:aliasPrefix)
+        var builder=new Builder(catalog,tableId,deferCascadeNames:projectionTrees.Count>0||accountParentPage||physicalParent is not null,
+            crossTables:bindings,rootAlias:rootAlias,aliasPrefix:aliasPrefix,scopedPhysicalCandidate:storedExactParent is not null)
         {
             CrossCandidateCondition=condition,
             LockPublishedJoinScopes=lockPublishedJoinScopes||singleTargets is {Count:>0}||pageJoins.Count>0||listJoins.Count>0,

@@ -106,14 +106,27 @@ public static class ProjectScopedSingleRelationTarget
     /// <summary>单值目标读取实际逻辑父或显式全局父，普通项目内单物理父仍走原绑定。</summary>
     public static MultiTargetParentScope? PageParent(MetadataCatalog catalog,TableMetadata target,PageMetadata page)
     {
-        if(target.IsRongyu!=0||GlobalCrossTableTarget.Declared(target)||page.ConfigTableId!=target.Id||
-            page.Extra.GetValueOrDefault("type").ToString()=="2")return null;
+        if(target.IsRongyu is not (0 or 1)||GlobalCrossTableTarget.Declared(target)||page.ConfigTableId!=target.Id||
+            page.Extra.GetValueOrDefault("type").ToString()=="2"||
+            target.IsRongyu==1&&!HasPhysicalSingleExact(catalog,target,page,"List"))return null;
         var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).ToArray();
         var expanded=RelationStorageColumns.Expand(target,columns);
         var condition=FixedConditionPlan.Compile(page.WhereSql,expanded.Select(column=>column.ColumnName));
         var terms=condition.Terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
             MultiTargetParentScope.IsParameter(value.Text))).ToArray();
         if(terms.Length==0)return null;
+        if(target.IsRongyu==1)
+        {
+            // 冗余精确字典仅用已声明的物理字段匹配同一全局父记录，实际父页另行逐列验证。
+            if(terms.Length<2||terms.Any(term=>!columns.Any(column=>column.ColumnName==term.Field&&
+                catalog.ConfigTables.Any(parent=>parent.Id==column.LinkConfigTableId&&GlobalCrossTableTarget.Declared(parent)))))
+                return null;
+            var storage=MetadataStoragePolicy.ForTable(catalog,target);
+            if(condition.Fields.Any(field=>!storage.PhysicalColumns.Any(column=>column.ColumnName==field&&
+                GlobalPhysicalRelationValue.IsScalar(storage,target,column))))return null;
+            return MultiTargetParentScope.CompileSelectionPage(catalog,target,condition,allowGlobalParent:true,
+                allowStoredPhysicalParents:true);
+        }
         if(terms.Length==1&&!CrossTableStorageColumns.IsLogicalPathField(target,columns,terms[0].Field)&&
             !columns.Any(column=>column.ColumnName==terms[0].Field&&catalog.ConfigTables.Any(parent=>
                 parent.Id==column.LinkConfigTableId&&GlobalCrossTableTarget.Declared(parent))))return null;
@@ -127,6 +140,7 @@ public static class ProjectScopedSingleRelationTarget
             page.Extra.GetValueOrDefault("type").ToString()!="1")return null;
         var columns=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id));
         var condition=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
+        if(target.IsRongyu==1&&PageParent(catalog,target,page) is {Global:true})return null;
         var scope=MultiTargetParentScope.CompileListPage(catalog,target,condition.Terms);
         return scope is {Logical:false,Global:false}?scope:null;
     }
