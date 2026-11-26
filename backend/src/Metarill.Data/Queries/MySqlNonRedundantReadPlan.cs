@@ -338,7 +338,8 @@ public static partial class MySqlNonRedundantReadCompiler
             var physicalCheckbox=sharedCheckbox&&checkbox&&parent is {Global:false,Logical:false}&&
                 !GlobalCrossTableTarget.Declared(cacheOwner!.Table)&&
                 MultiTargetParentScope.CompileProjectCheckboxPhysicalPage(catalog,target,selectedPage!) is not null;
-            source=sharedCheckbox||checkbox&&(projectFixedScope||storedParent is not null)
+            source=sharedCheckbox||checkbox&&(projectFixedScope||storedParent is not null)||
+                IsExactGlobalCheckboxPhysicalParent(target,selectedPage,parent,checkbox)
                 ?parent.CheckboxSource(catalog,cacheOwner!.Table,publishedRelation,
                 allowProjectPhysicalColumns:projectFixedScope||physicalCheckbox):
                 parent.Source(catalog,cacheOwner!.Table,publishedRelation);

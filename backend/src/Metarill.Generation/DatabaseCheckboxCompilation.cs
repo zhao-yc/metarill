@@ -178,6 +178,7 @@ internal static class DatabaseCheckboxCompilation
             var namePage=target.Pages.SingleOrDefault(candidate=>candidate.Source.Id==explicitPage);
             if(functionForm&&explicitPage.Length>0&&namePage is null)return Gap("功能表复选的显式目标页未在实际目标表发布。");
             var exactTarget=namePage is null?null:ExactDataManageCompilation.Resolve(model,target,namePage);
+            var exactPhysicalParent=scopedGlobalParentPage&&exactTarget is not null&&target.Source.IsRongyu==0;
             var fixedPage=baseline.PageId.Length>0?baseline.PageId:linkedPage;
             bool UsesProjectStoredAccount(PageModel candidate)=>!functionForm&&
                 Metarill.Data.Queries.NonRedundantReads.IsProjectStoredCheckboxAccountPage(model.Catalog,target.Source,candidate.Source);
@@ -451,13 +452,14 @@ internal static class DatabaseCheckboxCompilation
                 var binding=(storedGlobalParent??(target.IsGlobal
                     ?MultiTargetParentScope.CompileGlobalPage(model.Catalog,target.Source,syntax,checkbox:true)
                     :MultiTargetParentScope.CompileCheckboxPage(model.Catalog,target.Source,syntax,allowGlobalParent:true)))!;
-                // 冗余全局字典按所有来源页证明同一持久父键，无父路由时取各详情实际开放的表单外键。
-                var owner=globalPageOverride?binding.CheckboxSource(model.Catalog,table.Source,source.Source,page.Source):
-                    sharedLogicalParentScope||storedGlobalParent is not null
-                    ?binding.CheckboxSource(model.Catalog,table.Source,source.Source):
+                // 保留实际来源页的父参数。无父路由的精确物理字典从已开放的表单外键取得父值。
+                var usesFormParent=sharedLogicalParentScope||storedGlobalParent is not null||exactPhysicalParent;
+                var owner=globalPageOverride?binding.CheckboxSource(model.Catalog,table.Source,source.Source,page.Source,
+                    allowFormParent:exactPhysicalParent||storedGlobalParent is not null):
+                    usesFormParent?binding.CheckboxSource(model.Catalog,table.Source,source.Source):
                     pageRead?binding.Source(model.Catalog,table.Source,source.Source,page.Source):
                     binding.Source(model.Catalog,table.Source,source.Source);
-                if(sourceScopeColumns.Length==0&&(sharedLogicalParentScope||storedGlobalParent is not null))
+                if(sourceScopeColumns.Length==0&&usesFormParent)
                     BindFormParent(binding,owner);
                 if(binding.Global)
                 {
@@ -521,7 +523,7 @@ internal static class DatabaseCheckboxCompilation
                 SharedLogicalParentScope=sharedLogicalParentScope,
                 HasStoredIdentityScope=storedIdentityPage,
                 HasStoredExactScope=storedExactPage||table.Source.IsRongyu==1&&scopedGlobalExactPage,
-                HasExactPhysicalParentScope=scopedGlobalParentPage&&exactTarget is not null&&target.Source.IsRongyu==0,
+                HasExactPhysicalParentScope=exactPhysicalParent,
                 HasStoredStaticScope=storedStaticPage,
                 HasProjectStoredAccountScope=projectStoredAccount,
                 CompoundPhysicalSource=ordinaryCompoundSource||projectStoredAccount&&sourceScopeColumns.Length>1,

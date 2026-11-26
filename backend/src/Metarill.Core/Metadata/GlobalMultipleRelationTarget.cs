@@ -270,7 +270,8 @@ public static class GlobalMultipleRelationTarget
         {
             // 写入和按来源行回填必须从真实字段得到同一个父键。
             var sourceParent=checkbox
-                ?sourcePage is null?storedParent.CheckboxSource(catalog,owner,foreign):storedParent.CheckboxSource(catalog,owner,foreign,sourcePage)
+                ?sourcePage is null?storedParent.CheckboxSource(catalog,owner,foreign):
+                    storedParent.CheckboxSource(catalog,owner,foreign,sourcePage,allowFormParent:true)
                 :sourcePage is null?storedParent.Source(catalog,owner,foreign):storedParent.Source(catalog,owner,foreign,sourcePage);
             if(sourceParent.LogicalPages.Count>0)
                 throw new NotSupportedException("冗余全局字典要求已发布来源的实际物理父键。");
@@ -282,7 +283,8 @@ public static class GlobalMultipleRelationTarget
             parent.AdditionalTargets.All(scope=>!scope.Logical))
         {
             var sourceParent=checkbox
-                ?sourcePage is null?parent.CheckboxSource(catalog,owner,foreign):parent.CheckboxSource(catalog,owner,foreign,sourcePage)
+                ?sourcePage is null?parent.CheckboxSource(catalog,owner,foreign):
+                    parent.CheckboxSource(catalog,owner,foreign,sourcePage,allowFormParent:exactPage)
                 :sourcePage is null?parent.Source(catalog,owner,foreign):parent.Source(catalog,owner,foreign,sourcePage);
             // 多个来源物理键须经同一发布父页校验，原单父字段继续沿用已证明的持久键。
             physicalParentPage=sourceParent.LogicalPages.Count==0&&(sourceParent.AdditionalColumns.Count==0||parent.Global);

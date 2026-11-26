@@ -467,6 +467,12 @@ public static partial class MySqlNonRedundantReadCompiler
         return field;
     }
 
+    /// <summary>精确全局复选可从已发布的来源表单外键验证真实物理父。</summary>
+    private static bool IsExactGlobalCheckboxPhysicalParent(TableMetadata table,PageMetadata? page,
+        MultiTargetParentScope? parent,bool checkbox)=>
+        checkbox&&table.IsRongyu==0&&page is not null&&GlobalCrossTableTarget.DeclaresExactPage(table,page)&&
+        parent is {Logical:false}&&parent.AdditionalTargets.All(range=>!range.Logical);
+
     /// <summary>按实际发布页解析原父参数，父列可能未在页面显示。</summary>
     private static MultiTargetParentScope? MultiParent(MetadataCatalog catalog,PageMetadata page,bool checkbox=false)
     {

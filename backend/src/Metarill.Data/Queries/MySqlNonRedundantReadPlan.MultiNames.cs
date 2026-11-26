@@ -250,14 +250,16 @@ public static partial class MySqlNonRedundantReadCompiler
                 throw new InvalidOperationException("复选目标页与控件必须绑定同一实际来源父表。");
             // 复选的物理表单父键必须经过实际字典页和来源详情的共同证明，名称读取按来源行绑定。
             var projectCheckbox=checkbox&&projectFixedScope;
-            var allowFormParent=projectCheckbox||formPageParent is not null&&
+            var globalCheckboxParent=checkbox&&storedParent is not null||
+                IsExactGlobalCheckboxPhysicalParent(target,selectedScope,pageParent,checkbox);
+            var allowFormParent=projectCheckbox||globalCheckboxParent||formPageParent is not null&&
                 controlParents.All(range=>formPageParent.HasTarget(range.Target.Id));
             var sourceBinding=fixedParent is {} paired?paired.Source:
-                sharedCheckbox||(checkbox&&storedParent is not null&&sourcePage is null)||(projectCheckbox&&sourcePage is null)
+                sharedCheckbox||sourcePage is null&&(globalCheckboxParent||projectCheckbox)
                 ?parent?.CheckboxSource(catalog,table,relation,
                     allowProjectPhysicalColumns:projectCheckbox):
                 sourcePage is null?parent?.Source(catalog,table,relation):
-                allowFormParent||controlParents.Length>0||checkbox&&storedParent is not null?parent?.CheckboxSource(catalog,table,relation,sourcePage,
+                allowFormParent||controlParents.Length>0?parent?.CheckboxSource(catalog,table,relation,sourcePage,
                     allowFormParent:allowFormParent,allowProjectPhysicalColumns:allowFormParent):
                 parent?.Source(catalog,table,relation,sourcePage);
             var sourceParent=sourceBinding?.Column;
