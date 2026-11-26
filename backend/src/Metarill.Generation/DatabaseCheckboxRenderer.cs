@@ -54,7 +54,14 @@ internal static class DatabaseCheckboxRenderer
                 // 同一个实际父记录也要通过每条发布路径的范围核验；写入口复用原事务。
                 foreach(var path in def.LogicalSourcePaths)
                     result.AppendLine($"        await CrossReader{page.Source.Id}_{path.Read.Source.Source.Id}(actor,locking,false){NonRedundantCrossParentCompilation.PathSuffix(path.Read,path.Index,"parentKey")};");
-                if(def.RequiresGlobalParentLookup)result.AppendLine(MultiGlobalParentCompilation.Check("CheckboxGlobalParent"+suffix,"parentKey","locking"));
+                if(def.RequiresGlobalParentLookup)
+                {
+                    // 级联还原的整数可能是唯一业务键，父页按该列验证已发布范围。
+                    var plan="CheckboxGlobalParent"+suffix;
+                    result.AppendLine(def.LogicalParentBusinessKey is {} key
+                        ?MultiGlobalParentCompilation.CheckBusinessKey(plan,key,"parentKey","locking")
+                        :MultiGlobalParentCompilation.Check(plan,"parentKey","locking"));
+                }
             }
             else if(def.IndependentTextSource||def.SharedTextParent is not null)
             {
@@ -63,7 +70,7 @@ internal static class DatabaseCheckboxRenderer
             }
             else
             {
-                var parentBusinessKey = def.FunctionParentBusinessKey;
+                var parentBusinessKey = def.FunctionParentBusinessKey??def.LogicalParentBusinessKey;
                 var textParent = def.UsesFunctionTextParent;
                 if (!textParent)
                     result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var parentKey)||parentKey<=0||parentId!=parentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"来源父ID必须为规范正整数字符串。\");");

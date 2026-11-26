@@ -48,7 +48,9 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal bool LogicalSourceParent => LogicalSourcePaths.Count>0;
     internal bool IndependentTextSource { get; init; }
     internal ColumnModel? SharedTextParent { get; init; }
+    internal ColumnModel? LogicalParentBusinessKey { get; init; }
     internal bool UsesPageTextParent=>LogicalSourceParent&&(IndependentTextSource||SharedTextParent is not null);
+    internal bool UsesPageParentForExport=>UsesPageTextParent||LogicalSourceParent&&LogicalParentBusinessKey is not null;
     internal IReadOnlyList<ColumnModel> SourceScopeColumns { get; init; } = [];
     internal IReadOnlyList<ColumnModel> CompoundSourceDependencies { get; init; } = [];
     internal PageModel? GlobalParentPage { get; init; }
@@ -389,6 +391,7 @@ internal static class DatabaseCheckboxCompilation
             }
             var compoundGlobalSource=false;
             ColumnModel? functionParentBusinessKey = null;
+            ColumnModel? logicalParentBusinessKey=null;
             if(functionForm&&physicalParents.Length>0)
             {
                 var targetParent=physicalParents[0].Column;
@@ -487,8 +490,18 @@ internal static class DatabaseCheckboxCompilation
                     BindFormParent(binding,owner);
                 if(binding.Global)
                 {
-                    if(binding.Logical&&binding.LogicalAlternateKey(model.Catalog,target.Source)?.LogicalType=="string"&&sharedTextParent is null)
-                        return Gap("全局复选的来源与目标父范围必须使用同一个已发布文本业务键。");
+                    if(binding.Logical)
+                    {
+                        var key=binding.LogicalAlternateKey(model.Catalog,target.Source);
+                        if(key?.LogicalType=="string"&&sharedTextParent is null)
+                            return Gap("全局复选的来源与目标父范围必须使用同一个已发布文本业务键。");
+                        if(key?.LogicalType is null or "int64"&&
+                            !MultiGlobalParentCompilation.MatchesIntegerParentKey(model,table,page,target,owner,binding,key))
+                            return Gap("全局复选的来源与目标父范围必须使用同一个已发布业务键。");
+                        if(key is {LogicalType:"int64"})
+                            logicalParentBusinessKey=model.Tables.Single(parent=>parent.Source.Id==binding.Parent.Id)
+                                .Columns.Single(column=>column.Source.Id==key.Id);
+                    }
                     _=Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(model.Catalog,target.Source.Id,scopedPage.Source.Id);
                     globalParentPage=scopedPage;
                     if(owner.AdditionalColumns.Count>0)
@@ -562,6 +575,7 @@ internal static class DatabaseCheckboxCompilation
                 ExactTarget=exactTarget,
                 IndependentTextSource=independentTextSource,
                 SharedTextParent=sharedTextParent,
+                LogicalParentBusinessKey=logicalParentBusinessKey,
                 LogicalSourcePaths=logicalBindings.Select(binding=>binding.Path!.Value)
                     .DistinctBy(path=>(path.Read.Source.Source.Id,path.Index)).ToArray(),
                 SourceScopeColumns=sourceScopeColumns,

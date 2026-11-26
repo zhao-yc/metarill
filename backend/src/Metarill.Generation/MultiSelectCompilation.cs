@@ -232,18 +232,9 @@ internal static class MultiSelectCompilation
                 if(actual?.Source.Id!=owner.Column.Id||logicalSourceParent&&(!same||!NonRedundantCrossParentCompilation.Managed(model,table,page,actual)))
                     return Gap("目标页父字段须与来源记录的固定父键一致。");
                 // 同一张全局父表的记录 ID 与业务键可能重合，须用实际级联层位证明值域。
-                if(scopedParent is {Global:true,Logical:true}&&targetAlternateKey?.LogicalType is null or "int64")
-                {
-                    var sourceAlternateKeys=owner.AdditionalColumns.Prepend(owner.Column)
-                        .Select(column=>SourceParentBusinessKey(model,table,page,column)).ToArray();
-                    var differentKey=targetAlternateKey is null
-                        ?sourceAlternateKeys.Any(sourceKey=>sourceKey?.Source.LogicalType=="int64")||
-                            scopedParent.AdditionalTargets.Any(other=>other.LogicalAlternateKey(model.Catalog,target.Source)?.LogicalType=="int64")
-                        :!scopedParent.HasSameLogicalKey(model.Catalog,target.Source)||
-                            sourceAlternateKeys.Any(sourceKey=>sourceKey?.Source.Id!=targetAlternateKey.Id);
-                    if(differentKey)
-                        return Gap("全局多选的来源与目标父范围必须使用同一个已发布业务键。");
-                }
+                if(scopedParent is {Global:true,Logical:true}&&targetAlternateKey?.LogicalType is null or "int64"&&
+                    !MultiGlobalParentCompilation.MatchesIntegerParentKey(model,table,page,target,owner,scopedParent,targetAlternateKey))
+                    return Gap("全局多选的来源与目标父范围必须使用同一个已发布业务键。");
                 publishedPhysicalSource=same&&!scopedParent.Global&&!logicalSourceParent&&!table.IsGlobal&&!target.IsGlobal&&
                     (usesPageRead||owner.AdditionalColumns.Count>0);
                 if(owner.AdditionalColumns.Count>0)
@@ -333,15 +324,6 @@ internal static class MultiSelectCompilation
                 }, null);
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or ArgumentException or NotSupportedException) { return Gap("配置或范围无法安全编译：" + error.Message); }
-    }
-
-    /// <summary>来源逻辑祖先与冗余级联字段均以实际层位的唯一业务列证明父键。</summary>
-    private static ColumnModel? SourceParentBusinessKey(GenerationModel model,TableModel table,PageModel page,ColumnMetadata source)
-    {
-        var column=table.Columns.Single(item=>item.Source.Id==source.Id);
-        if(NonRedundantCrossParentCompilation.Find(model,table,page,column) is {} sparse)
-            return sparse.Read.Levels[sparse.Index].AlternateKey;
-        return SharedRedundantParentCompilation.ForColumn(model,table,page,column).SingleOrDefault()?.Level.AlternateKey;
     }
 
     /// <summary>页级显示只覆盖普通物理文本，保留现有数组协议及索引范围。</summary>

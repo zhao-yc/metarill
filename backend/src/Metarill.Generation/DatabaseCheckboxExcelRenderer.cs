@@ -57,13 +57,13 @@ internal static class DatabaseCheckboxExcelRenderer
     {
         var suffix=DatabaseCheckboxRenderer.Suffix(page,def);
         // 逻辑父来自本次导出的已验证范围，稀疏行自身未必存有该层业务键。
-        var textParent=def.UsesPageTextParent;
-        var parent=textParent?"parentId":DatabaseCheckboxRenderer.ParentValue(def,"entity");
+        var pageParent=def.UsesPageParentForExport;
+        var parent=pageParent?"parentId":DatabaseCheckboxRenderer.ParentValue(def,"entity");
         // 未设置表单父且没有选项时，只保留原 null 或空数组，无需候选查询。
         var emptyParent=def.FormParentField is null?"":$"            if(selected.Length==0&&string.IsNullOrWhiteSpace({DatabaseCheckboxRenderer.ParentValue(def,"entity")})){{values[entity.Id]=entity.{def.Source.Property} is null?null:\"[]\";continue;}}\n";
         return $$"""
     /// <summary>源行及候选共用读取快照，名字按数据库真实比较规则唯一性核验。</summary>
-    private async Task<IReadOnlyDictionary<long,string?>> ExportCheckbox{{suffix}}Async(IReadOnlyList<{{table.EntityType}}> entities,RuntimeActor actor,{{(textParent?"string? parentId,":"")}}CancellationToken cancellationToken)
+    private async Task<IReadOnlyDictionary<long,string?>> ExportCheckbox{{suffix}}Async(IReadOnlyList<{{table.EntityType}}> entities,RuntimeActor actor,{{(pageParent?"string? parentId,":"")}}CancellationToken cancellationToken)
     {
         if(relationAuthorization is null||relationAuthorization.RequireActor()!=actor)throw new UnauthorizedAccessException("复选导出要求真实身份。");
         relationAuthorization.RequirePagePermission("{{page.Source.Id}}","export");

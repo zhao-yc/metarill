@@ -36,6 +36,21 @@ internal static class MultiGlobalParentCompilation
         return $"        if((await new NonRedundantReader(session).BusinessKeyRowsAsync({plan}.BindAccount(actor),{filter},cancellationToken,actor.ProjectId,currentRead:{currentRead})).Count!=1)throw new InvalidOperationException(\"全局父记录不存在、已删除或不在固定父范围。\");";
     }
 
+    /// <summary>逐个核对来源及字典的已发布层位，防止同一表的 bigint 主键与业务键混用。</summary>
+    internal static bool MatchesIntegerParentKey(GenerationModel model,TableModel source,PageModel page,TableModel target,
+        MultiSourceParent owner,MultiTargetParentScope scope,ColumnMetadata? targetKey)
+    {
+        var sourceKeys=owner.AdditionalColumns.Prepend(owner.Column)
+            .Select(field=>source.Columns.Single(column=>column.Source.Id==field.Id))
+            .Select(column=>NonRedundantCrossParentCompilation.Find(model,source,page,column) is {} sparse
+                ?sparse.Read.Levels[sparse.Index].AlternateKey
+                :SharedRedundantParentCompilation.ForColumn(model,source,page,column).SingleOrDefault()?.Level.AlternateKey);
+        return targetKey is null
+            ?sourceKeys.All(key=>key?.Source.LogicalType!="int64")&&
+                scope.AdditionalTargets.All(other=>other.LogicalAlternateKey(model.Catalog,target.Source)?.LogicalType!="int64")
+            :scope.HasSameLogicalKey(model.Catalog,target.Source)&&sourceKeys.All(key=>key?.Source.Id==targetKey.Id);
+    }
+
     /// <summary>全局候选的父级按其实际发布页验证，普通项目页沿用自身的项目和父级范围。</summary>
     internal static MultiTargetParentScope? SingleTarget(GenerationModel model,TableModel table,PageModel page)
     {

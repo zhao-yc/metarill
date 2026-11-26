@@ -616,6 +616,19 @@ public sealed class CascadeMultiLabelGenerationTests
             globalRowProject:dictionaryRowProject,parent:true,logicalParent:true,sourceLogicalParent:true,
             globalParent:true,parentWithoutProject:true,parentAccount:true,exact:exact,businessParent:true,textBusinessParent:true);
 
+    /// <summary>业务复选的候选、保存和 Excel 均按唯一全局整数业务父键校验。</summary>
+    [Theory]
+    [InlineData(false,null)]
+    [InlineData(true,null)]
+    [InlineData(false,true)]
+    [InlineData(true,true)]
+    [InlineData(false,false)]
+    [InlineData(true,false)]
+    public Task Selected_page_global_integer_key_is_used_during_checkbox_save(bool exact,bool? dictionaryRowProject)=>
+        CompileCascadeLabel("MultiCheckBoxDatabase",0,selfTree:false,indirect:false,selectedPage:true,
+            globalRowProject:dictionaryRowProject,parent:true,logicalParent:true,sourceLogicalParent:true,
+            globalParent:true,parentWithoutProject:true,parentAccount:true,exact:exact,businessParent:true);
+
     [Theory]
     [InlineData("MultiSelectPage",0,null,true,false)]
     [InlineData("MultiCheckBoxDatabase",0,false,true,true,true)]
@@ -1029,7 +1042,8 @@ public sealed class CascadeMultiLabelGenerationTests
             else
                 field.ControlDetail=JsonSerializer.Serialize(new{tableId=targetTable,pageId=targetPage,nameField=display,whereSql});
         }
-        if(globalBusinessSource)
+        var integerBusinessCheckbox=businessParent&&!textBusinessParent&&kind=="MultiCheckBoxDatabase";
+        if(globalBusinessSource||integerBusinessCheckbox)
         {
             var origin=catalog.ConfigPages.Single(page=>page.Id=="901");
             var overwrite=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(origin))!;
@@ -1119,7 +1133,7 @@ public sealed class CascadeMultiLabelGenerationTests
                     {
                         var result=DatabaseCheckboxCompilation.Resolve(mismatched,owner,page,field);
                         Assert.Null(result.Definition);
-                        Assert.Contains("文本业务键",result.Reason);
+                        Assert.Contains(textBusinessParent?"文本业务键":"同一个已发布业务键",result.Reason);
                     }
                     else
                     {
@@ -1391,16 +1405,33 @@ public sealed class CascadeMultiLabelGenerationTests
                 Assert.DoesNotContain("MultiPageCondition901_95.ApplyConstants",code);
                 if(globalParent)
                 {
-                    if(textBusinessParent&&kind=="MultiCheckBoxDatabase")
+                    if(businessParent&&kind=="MultiCheckBoxDatabase")
                     {
-                        Assert.DoesNotContain("CheckboxGlobalParent901_95",code);
                         Assert.Contains("var parentKey=LogicalParentId901(parentId);",code);
-                        Assert.Contains(".PathByKeyAsync(0,parentKey,cancellationToken)",code);
+                        if(textBusinessParent)
+                        {
+                            Assert.DoesNotContain("CheckboxGlobalParent901_95",code);
+                            Assert.Contains(".PathByKeyAsync(0,parentKey,cancellationToken)",code);
+                        }
+                        else
+                        {
+                            Assert.Contains("CompileMultiGlobalParent(\"2\",\"201\")",code);
+                            Assert.DoesNotContain(".KeyRowsAsync(CheckboxGlobalParent901_95",code);
+                            Assert.Contains(".BusinessKeyRowsAsync(CheckboxGlobalParent901_95.BindAccount(actor),"+
+                                """new FixedReadFilter("business_key",FixedReadComparison.Equal,parentKey)"""+
+                                ",cancellationToken,actor.ProjectId,currentRead:locking)",code);
+                        }
                         Assert.Contains("DerivedCheckboxRows901_95Async(request.ParentId,actor,form,request.Selected",code);
                         Assert.Contains("DerivedCheckboxRows901_95Async(logicalRelationParentId",code);
                         Assert.Contains("ImportCheckbox901_95Async",code);
                         Assert.Contains("null,name,true,2,true,cancellationToken",code);
                         Assert.Contains("ExportCheckbox901_95Async(entities,actor,request.ParentId",code);
+                        if(integerBusinessCheckbox)
+                        {
+                            Assert.Contains("ImportCheckbox902_95Async",code);
+                            Assert.Contains("if (existing.Count > 1)",code);
+                            Assert.Contains("ExportCheckbox902_95Async(entities,actor,request.ParentId",code);
+                        }
                     }
                     else
                         Assert.Contains("CompileMultiGlobalParent(\"2\",\"201\")",code);
@@ -1411,14 +1442,14 @@ public sealed class CascadeMultiLabelGenerationTests
                         Assert.Contains(".PathByKeyAsync(0,targetParentId,cancellationToken)",code);
                         Assert.Contains("""filters.Add(FixedReadFilter.ForTextParent("country_id",targetParentId!,businessKey:true));""",code);
                     }
-                    else if(businessParent&&!textBusinessParent)
+                    else if(businessParent&&!textBusinessParent&&kind=="MultiSelectPage")
                     {
                         Assert.DoesNotContain(".KeyRowsAsync(MultiGlobalParent901_95",code);
                         Assert.Contains(".BusinessKeyRowsAsync(MultiGlobalParent901_95.BindAccount(actor),"+
                             """new FixedReadFilter("business_key",FixedReadComparison.Equal,targetParentKey)"""+
                             ",cancellationToken,actor.ProjectId,currentRead:true)",code);
                     }
-                    else if(!textBusinessParent)Assert.Contains(".KeyRowsAsync(",code);
+                    else if(!businessParent)Assert.Contains(".KeyRowsAsync(",code);
                     Assert.DoesNotContain("session.Select<LabelCrossCountry>().Where(row => row.Id == targetParentKey",code);
                     if(!logicalParent)
                     {
@@ -1461,23 +1492,27 @@ public sealed class CascadeMultiLabelGenerationTests
                 const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
                 const System.Reflection.BindingFlags staticPrivate=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;
                 var checkbox=kind=="MultiCheckBoxDatabase";
-                var field=checkbox?"DerivedCheckboxPlan901_95":"MultiGlobalParent901_95";
+                var textCheckbox=checkbox&&textBusinessParent;
+                var field=checkbox
+                    ?textCheckbox?"DerivedCheckboxPlan901_95":"CheckboxGlobalParent901_95"
+                    :"MultiGlobalParent901_95";
                 var plan=Assert.IsType<NonRedundantReadPlan>(consumer.GetField(field,staticPrivate)!.GetValue(null));
                 Assert.True(plan.RequiresAccount);
                 Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(new RuntimeActor(7,"合成账号",false,catalog.YzProjectId,"70")));
                 var sql=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan)!;
                 var scope=Assert.IsType<string>(sql.GetType().GetProperty("Scope",hidden)!.GetValue(sql));
-                var sqlScope=checkbox?scope+sql.GetType().GetProperty("From",hidden)!.GetValue(sql):scope;
-                Assert.Contains(checkbox?"`status`":"b.`status`",sqlScope);
-                Assert.Contains(checkbox?"`store_id`":"b.`store_id`",sqlScope);
-                Assert.Contains(checkbox?"`delete_no` IS NULL":"b.`delete_no` IS NULL",sqlScope);
+                var sqlScope=textCheckbox?scope+sql.GetType().GetProperty("From",hidden)!.GetValue(sql):scope;
+                Assert.Contains(textCheckbox?"`status`":"b.`status`",sqlScope);
+                Assert.Contains(textCheckbox?"`store_id`":"b.`store_id`",sqlScope);
+                Assert.Contains(textCheckbox?"`delete_no` IS NULL":"b.`delete_no` IS NULL",sqlScope);
                 var filter=textBusinessParent?FixedReadFilter.ForTextParent(checkbox?"country_id":"business_key","0007-Ab",businessKey:true):
                     new FixedReadFilter("business_key",FixedReadComparison.Equal,9007199254741197L);
                 var predicate=Assert.IsType<string>(typeof(MySqlNonRedundantReader).GetMethod("Filter",staticPrivate)!.Invoke(null,[sql,filter,0]));
-                Assert.Contains(checkbox?"`business_key`":"b.`business_key`",predicate);
+                Assert.Contains(textCheckbox?"`business_key`":"b.`business_key`",predicate);
                 Assert.Contains(textBusinessParent?"=BINARY @filter_0":"@filter_0",predicate);
                 Assert.DoesNotContain(textBusinessParent?"0007-Ab":"9007199254741197",predicate);
-                var dictionaryPlan=checkbox?plan:Assert.IsType<NonRedundantReadPlan>(consumer.GetField("MultiDerivedPlan901_95",staticPrivate)!.GetValue(null));
+                var dictionaryField=checkbox?"DerivedCheckboxPlan901_95":"MultiDerivedPlan901_95";
+                var dictionaryPlan=Assert.IsType<NonRedundantReadPlan>(consumer.GetField(dictionaryField,staticPrivate)!.GetValue(null));
                 var dictionarySql=dictionaryPlan.GetType().GetProperty("MySql",hidden)!.GetValue(dictionaryPlan)!;
                 Assert.Equal("country_id",dictionarySql.GetType().GetProperty("RequiredMultiParent",hidden)!.GetValue(dictionarySql));
                 var targetCode=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/LabelCrossSourceService.g.cs"));
@@ -1510,17 +1545,34 @@ public sealed class CascadeMultiLabelGenerationTests
                     var nameSql=Assert.IsType<string>(sourceSql.GetType().GetMethod("Expression",hidden)!.Invoke(sourceSql,[names]));
                     Assert.Contains("BINARY CAST(",nameSql);
                     Assert.Contains("`business_key`",nameSql);
-                    if(exact&&globalRowProject==false)
-                    {
-                        // 全局字典无行项目列时也须在完整包保留业务键和已发布权限。
-                        foreach(var published in catalog.ConfigPages)
-                            catalog.ConfigMenus.Add(new(){Id="700"+published.Id,YzProjectId=catalog.YzProjectId,
-                                YzAdminTypeId=published.YzAdminTypeId,Name="页面"+published.Id,Kind="GENERATED_PAGE",ConfigPageId=published.Id});
-                        var full=Path.Combine(directory,"full");
-                        new ApplicationPackager().Create(catalog,full,ns,NonRedundantApplicationFixture.Root());
-                        foreach(var operation in new[]{"restore","build"})
-                            await NonRedundantApplicationFixture.BuildAsync(full,operation);
-                    }
+                }
+                else if(checkbox)
+                {
+                    // 回显与名称筛选也从级联还原实际业务列，并保持整数过滤参数。
+                    var owner=model.Tables.Single(table=>table.Source.Id=="9");
+                    var page=owner.Pages.Single(item=>item.Source.Id=="901");
+                    var definition=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,owner,page));
+                    Assert.Equal("business_key",definition.LogicalParentBusinessKey?.Source.ColumnName);
+                    var sourcePlan=Assert.IsType<NonRedundantReadPlan>(consumer.GetField("ReadPlan901",staticPrivate)!.GetValue(null));
+                    var sourceSql=sourcePlan.GetType().GetProperty("MySql",hidden)!.GetValue(sourcePlan)!;
+                    var nameSql=Assert.IsType<string>(sourceSql.GetType().GetMethod("Expression",hidden)!.Invoke(sourceSql,[definition.Names!.Source.ColumnName]));
+                    Assert.Contains("`business_key`",nameSql);
+                    var dictionaryFilter=new FixedReadFilter("country_id",FixedReadComparison.Equal,9007199254741197L);
+                    var dictionaryPredicate=Assert.IsType<string>(typeof(MySqlNonRedundantReader).GetMethod("Filter",staticPrivate)!
+                        .Invoke(null,[dictionarySql,dictionaryFilter,0]));
+                    Assert.Contains("`business_key`",dictionaryPredicate);
+                    Assert.Contains("@filter_0",dictionaryPredicate);
+                }
+                if(exact&&globalRowProject==false&&(textBusinessParent||checkbox))
+                {
+                    // 全局字典无行项目列时也须在完整包保留业务键和已发布权限。
+                    foreach(var published in catalog.ConfigPages)
+                        catalog.ConfigMenus.Add(new(){Id="700"+published.Id,YzProjectId=catalog.YzProjectId,
+                            YzAdminTypeId=published.YzAdminTypeId,Name="页面"+published.Id,Kind="GENERATED_PAGE",ConfigPageId=published.Id});
+                    var full=Path.Combine(directory,"full");
+                    new ApplicationPackager().Create(catalog,full,ns,NonRedundantApplicationFixture.Root());
+                    foreach(var operation in new[]{"restore","build"})
+                        await NonRedundantApplicationFixture.BuildAsync(full,operation);
                 }
             }
             if(projectTargetGlobalParent&&compoundTargetParent is null&&!physicalProjectCheckbox)
