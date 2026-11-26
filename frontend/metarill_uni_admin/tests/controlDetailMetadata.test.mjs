@@ -104,3 +104,78 @@ test('Vue3不提供$set时仍直接更新原实体并沿用receive事件，未�
   state.emitEntity(next)
   assert.equal(events.length, 1)
 })
+
+test('跨表级联编辑标题和顺序时保留原角色、属性映射及未修改的候选顺序', () => {
+	const { state } = fixture()
+	state.entity.controlKind = 'CascadeTree'
+	state.entity.controlDetail = JSON.stringify({
+		labels: { departure: '发站', arrival: '到站' },
+		levels: [
+			{ table: 'station', key: 'departure', columnPrefix: 'start_station', idField: '', parentField: 'legacy_root_id', idPropertyName: 'startStationId', namePropertyName: 'startStationName' },
+			{ table: 'station', key: 'arrival', columnPrefix: 'end_station', idPropertyName: 'endStationId', parentField: 'previous_id', orderBy: '' }
+		]
+	})
+	state.syncFromEntity()
+	assert.equal(state.cascadeForm.levels[0].label, '发站')
+	assert.equal(state.cascadeForm.levels[1].label, '到站')
+	state.cascadeForm.levels[1].label = '目标车站'
+	state.cascadeForm.levels[1].orderBy = 'name desc'
+	state.$emit = () => {}
+	state.emitEntity(state.serializedControlDetail)
+	const saved = JSON.parse(state.entity.controlDetail)
+	assert.deepEqual(saved.labels, { departure: '发站', arrival: '目标车站' })
+	assert.equal(saved.levels[0].columnPrefix, 'start_station')
+	assert.equal(saved.levels[0].idPropertyName, 'startStationId')
+	assert.equal(saved.levels[0].namePropertyName, 'startStationName')
+	assert.equal(saved.levels[0].idField, '')
+	assert.equal(saved.levels[0].parentField, 'legacy_root_id')
+	assert.equal(Object.hasOwn(saved, 'sourceMode'), false)
+	assert.equal(Object.hasOwn(saved.levels[0], 'orderBy'), false)
+	assert.equal(saved.levels[1].key, 'arrival')
+	assert.equal(saved.levels[1].parentField, 'previous_id')
+	assert.equal(saved.levels[1].orderBy, 'name desc')
+})
+
+test('原页面继承级联定义后仍保持继承，首次编辑基于实际字段保存', () => {
+	const { state, requests } = fixture()
+	const definition = JSON.stringify({
+		sourceMode: 'crossTable',
+		labels: { region: '所属区域', office: '办事处' },
+		levels: [
+			{ table: 'area', key: 'region', columnPrefix: 'region', orderBy: null },
+			{ table: 'branch', key: 'office', columnPrefix: 'office', parentField: 'area_id', orderBy: '' }
+		]
+	})
+	const events = []
+	state.$emit = (...args) => events.push(args)
+	state.ensureConfigColumnMeta('字段甲')
+	requests[0].success({ code: 200, data: { controlKind: 'CascadeTree', controlDetail: definition } })
+	assert.equal(state.cascadeForm.levels[1].table, 'branch')
+	assert.equal(state.cascadeForm.levels[0].label, '所属区域')
+	assert.equal(state.entity.controlDetail, '')
+	assert.equal(events.length, 0)
+
+	state.cascadeForm.levels[0].label = '当前区域'
+	state.emitEntity(state.serializedControlDetail)
+	const saved = JSON.parse(state.entity.controlDetail)
+	assert.deepEqual(saved.labels, { region: '当前区域', office: '办事处' })
+	assert.equal(saved.levels[0].orderBy, null)
+	assert.equal(saved.levels[1].orderBy, '')
+	assert.equal(saved.levels[1].columnPrefix, 'office')
+	assert.equal(events.length, 1)
+	assert.equal(events[0][1], state.entity)
+})
+
+test('同样的可见配置替换到另一个级联角色后，保存使用新角色的字段映射', () => {
+	const { state } = fixture()
+	state.entity.controlKind = 'CascadeTree'
+	const definition = prefix => JSON.stringify({ sourceMode: 'crossTable', levels: [
+		{ table: 'location', key: 'root', columnPrefix: prefix },
+		{ table: 'unit', parentField: 'location_id' }
+	] })
+	state.entity.controlDetail = definition('old_location')
+	state.syncFromEntity()
+	state.entity.controlDetail = definition('new_location')
+	state.syncFromEntity()
+	assert.equal(JSON.parse(state.serializedControlDetail).levels[0].columnPrefix, 'new_location')
+})

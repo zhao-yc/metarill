@@ -424,6 +424,7 @@ const IMAGE = 'Image'
 const MULTI_IMAGE = 'MultiImage'
 const SOURCE_MODE_CROSS_TABLE = 'crossTable'
 const SOURCE_MODE_SELF_TREE = 'selfTree'
+const DEFAULT_CASCADE_ORDER = 'sort_no asc,id asc'
 
 const CONFIG_COLUMN_DETAIL_URL = '/admin/custom/config_column/control_metadata'
 const CONFIG_TABLE_DETAIL_URL = '/admin/auto/config_table/6191083005411328/detail/'
@@ -445,7 +446,7 @@ function createEmptyLevel() {
 		idField: 'id',
 		nameField: 'name',
 		parentField: '',
-		orderBy: 'sort_no asc,id asc'
+		orderBy: DEFAULT_CASCADE_ORDER
 	}
 }
 
@@ -820,6 +821,10 @@ export default {
 						name: res.data.name || '',
 						controlDetail: res.data.controlDetail || ''
 					}
+					// 同控件类型换字段时，类型监听不会触发，依然要读回当前继承定义。
+					if (that.isCascadeTree) {
+						that.syncFromEntity()
+					}
 				}
 			})
 		},
@@ -1019,7 +1024,9 @@ export default {
 				return
 			}
 
-			const nextForm = this.parseCascadeForm(controlDetail)
+			const inheritedCascade = this.resolvedConfigColumnId === this.lastFetchedConfigColumnId
+				? this.fetchedColumnMeta.controlDetail : ''
+			const nextForm = this.parseCascadeForm(controlDetail || inheritedCascade)
 			const nextSerialized = this.serializeCascadeFormForCompare(nextForm)
 			const currentSerialized = this.serializeCascadeFormForCompare(this.cascadeForm)
 			if (nextSerialized === currentSerialized) {
@@ -1112,15 +1119,20 @@ export default {
 					rootMode: parsed.selfTree && parsed.selfTree.rootMode ? parsed.selfTree.rootMode : 'blank',
 					filterMatchMode: parsed.selfTree && parsed.selfTree.filterMatchMode ? parsed.selfTree.filterMatchMode : 'selfAndDescendants'
 				}
+				if (sourceMode === SOURCE_MODE_CROSS_TABLE) {
+					nextForm.crossDefinition = parsed
+				}
 				if (levels.length) {
 					nextForm.levels = levels.map((level, index) => ({
 						uid: this.getLevelUidByIndex(index),
+						definition: level,
+						originalRoot: index === 0,
 						label: this.getCascadeLevelLabel(parsed, level),
 						table: level.table || '',
 						idField: level.idField || 'id',
 						nameField: level.nameField || 'name',
 						parentField: index === 0 ? '' : (level.parentField || ''),
-						orderBy: level.orderBy || 'sort_no asc,id asc'
+						orderBy: level.orderBy || DEFAULT_CASCADE_ORDER
 					}))
 				}
 				return nextForm
@@ -1135,6 +1147,7 @@ export default {
 			return JSON.stringify({
 				sourceMode: form.sourceMode || SOURCE_MODE_CROSS_TABLE,
 				displayJoiner: form.displayJoiner || '/',
+				crossDefinition: form.crossDefinition || null,
 				selfTree: {
 					label: form.selfTree && form.selfTree.label ? form.selfTree.label : '',
 					table: form.selfTree && form.selfTree.table ? form.selfTree.table : '',
@@ -1152,7 +1165,7 @@ export default {
 						idField: level && level.idField ? level.idField : 'id',
 						nameField: level && level.nameField ? level.nameField : 'name',
 						parentField: index === 0 ? '' : (level && level.parentField ? level.parentField : ''),
-						orderBy: level && level.orderBy ? level.orderBy : 'sort_no asc,id asc'
+						orderBy: level && level.orderBy ? level.orderBy : DEFAULT_CASCADE_ORDER
 					}))
 					: []
 			})
@@ -1165,9 +1178,13 @@ export default {
 			return nextUid()
 		},
 		buildCascadePayload() {
+			const crossDefinition = this.isCrossTableMode ? this.cascadeForm.crossDefinition : null
 			const payload = {
-				sourceMode: this.cascadeForm.sourceMode || SOURCE_MODE_CROSS_TABLE,
+				...crossDefinition,
 				displayJoiner: this.cascadeForm.displayJoiner || '/'
+			}
+			if (!crossDefinition || Object.prototype.hasOwnProperty.call(crossDefinition, 'sourceMode')) {
+				payload.sourceMode = this.cascadeForm.sourceMode || SOURCE_MODE_CROSS_TABLE
 			}
 			if (this.isSelfTreeMode) {
 				payload.selfTree = {
@@ -1183,22 +1200,35 @@ export default {
 				return payload
 			}
 
-			payload.labels = {}
-			payload.levels = []
-			this.cascadeForm.levels.forEach((level, index) => {
+			const labels = []
+			payload.levels = this.cascadeForm.levels.map((level, index) => {
+				// 原模板只编辑可见字段，层标识、前缀及显式属性映射随该层原样保存。
+				const definition = level.definition
 				const currentLevel = {
+					...definition,
 					table: level.table || '',
-					idField: level.idField || 'id',
-					nameField: level.nameField || 'name',
-					parentField: index === 0 ? null : (level.parentField || ''),
-					orderBy: level.orderBy || ''
+					parentField: index === 0 ? null : (level.parentField || '')
 				}
-				payload.levels.push(currentLevel)
-				const levelKey = this.getCascadeLevelKey(level)
+				if (index === 0 && level.originalRoot) {
+					currentLevel.parentField = definition.parentField
+				}
+				if (!definition || level.idField !== (definition.idField || 'id')) {
+					currentLevel.idField = level.idField || 'id'
+				}
+				if (!definition || level.nameField !== (definition.nameField || 'name')) {
+					currentLevel.nameField = level.nameField || 'name'
+				}
+				// 未编辑排序时保留原缺省值，避免把表单提示写成目标表不存在的排序列。
+				if (!definition || level.orderBy !== (definition.orderBy || DEFAULT_CASCADE_ORDER)) {
+					currentLevel.orderBy = level.orderBy || ''
+				}
+				const levelKey = this.getCascadeLevelKey(currentLevel)
 				if (levelKey && level.label) {
-					payload.labels[levelKey] = level.label
+					labels.push([levelKey, level.label])
 				}
+				return currentLevel
 			})
+			payload.labels = Object.fromEntries(labels)
 			return payload
 		},
 		buildListPayload() {
@@ -1359,7 +1389,7 @@ export default {
 			if (!level) {
 				return ''
 			}
-			return level.table || ''
+			return level.key || level.table || ''
 		},
 		getResolvedSelfTreeLabel() {
 			return this.cascadeForm.selfTree.label || this.resolvedFieldTitle || ''
