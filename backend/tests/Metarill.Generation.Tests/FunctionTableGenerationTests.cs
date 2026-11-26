@@ -361,10 +361,28 @@ public sealed class FunctionTableGenerationTests : IDisposable
     [InlineData("redundant")]
     [InlineData("globalStored")]
     [InlineData("globalStoredCompound")]
+    [InlineData("globalExactCompound")]
+    [InlineData("globalRowProjectExactCompound")]
+    [InlineData("globalStoredExactCompound")]
     public async Task Function_multiselect_uses_the_published_global_parent(string scenario)
     {
         var catalog=WithGlobalParent(Catalog(),scenario);
+        var exactGlobal=scenario.EndsWith("ExactCompound",StringComparison.Ordinal);
         Assert.Equal("802",Metarill.Data.Queries.NonRedundantReads.MultiGlobalParentPageId(catalog,"7","103"));
+        if(exactGlobal)
+        {
+            // 同一实体的其他父页可能使用不同账号范围，每个父字段都须明确绑定实际发布页。
+            var peer=catalog.ConfigColumns.Single(column=>column.Id=="708");
+            var original=peer.Extra["linkConfigPageId"];
+            try
+            {
+                peer.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("801");
+                var rejected=Assert.Throws<InvalidOperationException>(()=>
+                    Metarill.Data.Queries.NonRedundantReads.MultiGlobalParentPageId(catalog,"7","103"));
+                Assert.Contains("同一个实际发布父页",rejected.Message);
+            }
+            finally{peer.Extra["linkConfigPageId"]=original;}
+        }
         new ApplicationPackager().Create(catalog,output,"Example.FunctionForm",SourceRoot());
 
         var generated=Path.Combine(output,"backend/generated");
@@ -385,7 +403,7 @@ public sealed class FunctionTableGenerationTests : IDisposable
             Assert.DoesNotContain("if (!candidateRows) query = query.Where(entity => entity.YzProjectId",code);
             Assert.Contains("PageCondition103.BindAccount(actor).ApplyConstants",code);
             Assert.Contains("var query = Query103(new PageRequest { ParentId = request.ParentId",selected);
-            if(scenario=="globalStoredCompound")Assert.Contains("query = query.Where(entity => entity.OtherScopeId",code);
+            if(scenario.EndsWith("Compound",StringComparison.Ordinal))Assert.Contains("query = query.Where(entity => entity.OtherScopeId",code);
         }
         else if(scenario.StartsWith("global",StringComparison.Ordinal))
         {
@@ -397,6 +415,13 @@ public sealed class FunctionTableGenerationTests : IDisposable
             Assert.Contains("ResolveExactDataManage(\"103\", authorizationOperation, \"real_name\")",code);
         }
 
+        if(exactGlobal)
+        {
+            Assert.Contains("""ResolveExactDataManage("103", authorizationOperation, "real_name")""",code);
+            if(!scenario.StartsWith("globalStored",StringComparison.Ordinal))
+                Assert.Contains("ReadFilters103(new PageRequest{ParentId=request.ParentId},actor,globalCandidate:true)",selected);
+            Assert.Contains("Count103Async",code);
+        }
         await VerifyVueAsync(output,"GeneratedFunctionScopedMultiProbe.mjs");
         await BuildFullAsync(output);
         var context=new AssemblyLoadContext("GlobalParentFunctionMulti."+Guid.NewGuid().ToString("N"),isCollectible:true);
@@ -409,6 +434,21 @@ public sealed class FunctionTableGenerationTests : IDisposable
             var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
                 service.GetField("PageMultiGlobalParent103",binding)!.GetValue(null));
             Assert.True(plan.RequiresAccount);
+            if(exactGlobal&&!scenario.StartsWith("globalStored",StringComparison.Ordinal))
+            {
+                // 实际包内 SQL 保留两列物理父比较、字典门店及显式项目条件。
+                var candidate=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                    service.GetField("CandidateReadPlan103",binding)!.GetValue(null));
+                const System.Reflection.BindingFlags instance=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+                var mysql=candidate.GetType().GetProperty("MySql",instance)!.GetValue(candidate)!;
+                var scope=Assert.IsType<string>(mysql.GetType().GetProperty("Scope",instance)!.GetValue(mysql));
+                Assert.Contains("b.`scope_id`",scope);
+                Assert.Contains("b.`other_scope_id`",scope);
+                Assert.Contains("b.`store_id`",scope);
+                Assert.Equal(scenario=="globalRowProjectExactCompound",scope.Contains("b.`yz_project_id`=@project_scope_number",StringComparison.Ordinal));
+                Assert.Throws<UnauthorizedAccessException>(()=>candidate.BindAccount(
+                    new Metarill.Core.Security.RuntimeActor(7,"合成账号",false,"100","70")));
+            }
         }
         finally {context.Unload();}
     }

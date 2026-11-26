@@ -177,7 +177,10 @@ internal static class MultiSelectCompilation
             if((scoped||compoundLogical)&&targetPage.Scopes.Any(scope=>scope.Source=="parent"))
             {
                 var syntax=FixedConditionPlan.Compile(targetPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
-                scopedParent=target.IsGlobal?GlobalCrossTableTarget.StoredMultiParent(model.Catalog,target.Source,targetPage.Source,allowExact:exactTarget is not null)??
+                // 功能表没有业务行写校验，父字段仍须沿实际多选页的精确权限和发布范围证明。
+                var allowExactParent=exactTarget is not null||functionForm&&
+                    GlobalCrossTableTarget.DeclaresExactMulti(target.Source,targetPage.Source);
+                scopedParent=target.IsGlobal?GlobalCrossTableTarget.StoredMultiParent(model.Catalog,target.Source,targetPage.Source,allowExact:allowExactParent)??
                     MultiTargetParentScope.CompileGlobalPage(model.Catalog,target.Source,syntax):
                     MultiTargetParentScope.CompileSelectionPage(model.Catalog,target.Source,syntax,allowGlobalParent:true,
                         allowStoredPhysicalParents:target.Source.IsRongyu==1&&
