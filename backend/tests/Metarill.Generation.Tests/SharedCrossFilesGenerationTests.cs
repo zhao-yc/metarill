@@ -151,6 +151,17 @@ public sealed class SharedCrossFilesGenerationTests
         }
         Assert.Contains("InReadSnapshotAsync",Body("Detail"+pageId+"Async"));
         Assert.Contains(parent+"(parentId,actor,cancellationToken,locking:currentRead)",Body("ReadDetail"+pageId+"Async"));
+        var controller=Assert.Single(BackendRenderer.Render(model),
+            file=>file.Path.EndsWith($"Page{pageId}Controller.g.cs",StringComparison.Ordinal)).Content;
+        var actor=controller.IndexOf("var actor=Actor(\"list\")",StringComparison.Ordinal);
+        var snapshot=controller.IndexOf($"service.InPageReadSnapshot{pageId}Async(actor",StringComparison.Ordinal);
+        Assert.True(actor>=0&&snapshot>actor);
+        Assert.True(snapshot<controller.IndexOf($"service.Page{pageId}Async",StringComparison.Ordinal));
+        Assert.True(snapshot<controller.IndexOf($"service.Statistics{pageId}Async",StringComparison.Ordinal));
+        Assert.DoesNotContain("DatabaseSession readSession",controller);
+        var snapshotBody=Body("InPageReadSnapshot"+pageId+"Async<T>");
+        Assert.Contains("ValidateActor(actor)",snapshotBody);
+        Assert.Contains("return session.InReadSnapshotAsync(read,cancellationToken);",snapshotBody);
     }
 
     /// <summary>普通、物理父键及逻辑父级的完整应用均按当前发布页编译附件范围。</summary>

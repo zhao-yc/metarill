@@ -789,7 +789,8 @@ public sealed class FunctionTableGenerationTests : IDisposable
 
         if(localParent)
         {
-            Assert.Contains("readSession.InReadSnapshotAsync",controller);
+            Assert.Contains("service.InPageReadSnapshot103Async(actor",controller);
+            Assert.DoesNotContain("DatabaseSession readSession",controller);
             Assert.True(System.Text.RegularExpressions.Regex.Matches(service,"ValidateParents103Async\\(request.ParentId,").Count>=3);
             Assert.Contains("await ValidateParents103Async(parentId,",service);
             Assert.Contains("entity.YzProjectId ==",service);

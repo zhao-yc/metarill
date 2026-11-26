@@ -28,17 +28,34 @@ internal static class OriginalListStatisticsCompilation
         return result;
     }
 
+    /// <summary>原图读取页面或带已发布物理父范围的统计，在一个快照内生成整个分页响应。</summary>
+    internal static bool Snapshot(GenerationModel model,TableModel table,PageModel page)=>
+        CascadeTreeQueryCompilation.Snapshot(model,table,page)||
+        Enabled(page)&&BackendRenderer.HasPublishedPhysicalReadParent(model,table,page);
+
+    /// <summary>控制器经生成服务使用业务库会话，分页和聚合的内层读取加入同一快照。</summary>
+    internal static string SnapshotService(GenerationModel model,TableModel table,PageModel page)=>Snapshot(model,table,page)?$$"""
+    /// <summary>用当前生成项目的业务数据库会话读取分页和页脚。</summary>
+    internal Task<T> InPageReadSnapshot{{page.Source.Id}}Async<T>(RuntimeActor actor,Func<Task<T>> read,CancellationToken cancellationToken)
+    {
+        ValidateActor(actor);
+        return session.InReadSnapshotAsync(read,cancellationToken);
+    }
+
+""":"";
+
     /// <summary>统计总量使用未分页的同一固定筛选和身份范围；本页统计只折叠已返回的VO。</summary>
     internal static string Service(GenerationModel model,TableModel table,PageModel page)
     {
         if(NonRedundantReadCompilation.Requires(model,table))return BackendRenderer.NonRedundantStatistics(model,table,page);
         var definitions=ForPage(model,table,page);if(definitions is null)return "";
         var suffix=page.Source.Id;
+        var physicalParent=definitions.Count>0&&BackendRenderer.HasPublishedPhysicalReadParent(model,table,page);
+        var snapshot=physicalParent||CascadeTreeQueryCompilation.Snapshot(model,table,page);
         var source=new StringBuilder().AppendLine("    /// <summary>沿原列表统计口径复用页范围和筛选，聚合不继承分页或排序。</summary>")
-            .AppendLine($"    internal {(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"Task":"async Task")}<Dictionary<string,object?>> Statistics{suffix}Async(PageRequest request,RuntimeActor actor,PageResult<{page.Name}Vo> page,CancellationToken cancellationToken){(CascadeTreeQueryCompilation.Snapshot(model,table,page)?$" => {GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<Dictionary<string,object?>>(async () =>":"")}")
+            .AppendLine($"    internal {(snapshot?"Task":"async Task")}<Dictionary<string,object?>> Statistics{suffix}Async(PageRequest request,RuntimeActor actor,PageResult<{page.Name}Vo> page,CancellationToken cancellationToken){(snapshot?$" => {GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<Dictionary<string,object?>>(async () =>":"")}")
             .AppendLine("    {").AppendLine("        var statistics=new Dictionary<string,object?>(StringComparer.Ordinal);");
-        if(GlobalCachedParentCompilation.ForSelfTree(model,table,page) is not null)
-            source.AppendLine($"        await ValidateParents{suffix}Async(request.ParentId,actor,cancellationToken,locking:false);");
+        if(physicalParent)source.AppendLine("        "+BackendRenderer.RedundantReadParentCheck(page,true,"request.ParentId"));
         if(definitions.Count==0)source.AppendLine("        await Task.CompletedTask;");
         foreach(var definition in definitions)
         {
@@ -69,7 +86,7 @@ internal static class OriginalListStatisticsCompilation
                     .AppendLine("        }").AppendLine($"        statistics[{key}]={local};");
             }
         }
-        return source.AppendLine("        return statistics;").AppendLine(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"    }, cancellationToken);":"    }").ToString();
+        return source.AppendLine("        return statistics;").AppendLine(snapshot?"    }, cancellationToken);":"    }").ToString();
     }
 
     /// <summary>原分页路由仍返回R和PageResult，statistics只放原map，不增加请求或暴露单独统计入口。</summary>
@@ -77,11 +94,11 @@ internal static class OriginalListStatisticsCompilation
     {
         var suffix=page.Source.Id;
         if(snapshot)return $$"""
-    /// <summary>原分页与统计共享一个图读取快照，授权先于业务库读取。</summary>
+    /// <summary>原分页与统计共享生成项目业务库的读取快照，授权先于读取。</summary>
     public Task<R<PageResult<{{page.Name}}Vo>>> Page([FromBody] PageRequest request,CancellationToken cancellationToken)
     {
         var actor=Actor("list");
-        return readSession.InReadSnapshotAsync(async()=>
+        return service.InPageReadSnapshot{{suffix}}Async(actor,async()=>
         {
             var page=await service.Page{{suffix}}Async(request,actor,cancellationToken);var response=R<PageResult<{{page.Name}}Vo>>.Success(page);
 {{(Enabled(page)?$"            response.Map[\"statistics\"]=await service.Statistics{suffix}Async(request,actor,page,cancellationToken);":"")}}

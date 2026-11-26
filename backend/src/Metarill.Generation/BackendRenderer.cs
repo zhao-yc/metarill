@@ -279,7 +279,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         foreach (var page in table.Pages)
         {
             result.Append(RequiredVisibilityDeclarations(model,table,page));
-            result.Append(ForeignValidationRenderer.Render(model, table, page)); result.Append(GlobalCachedParentCompilation.Service(model,table,page)); result.Append(ParentValidation(model, table, page)); result.Append(SharedRedundantParentCompilation.Service(model,table,page)); result.Append(Query(model, table, page)); result.Append(BusinessRecordAccess(model,table,page)); result.Append(AgentRecordAccess(model,table,page)); result.Append(RuleRecordAccess(model,table,page)); result.Append(OriginalListStatisticsCompilation.Service(model, table, page)); result.Append(Relations(model, page)); result.Append(SelectionPageRenderer.Service(model, page)); result.Append(MultiSelectFieldRenderer.Service(model, table, page)); result.Append(DatabaseCheckboxRenderer.Service(model,table,page));
+            result.Append(ForeignValidationRenderer.Render(model, table, page)); result.Append(GlobalCachedParentCompilation.Service(model,table,page)); result.Append(ParentValidation(model, table, page)); result.Append(SharedRedundantParentCompilation.Service(model,table,page)); result.Append(Query(model, table, page)); result.Append(BusinessRecordAccess(model,table,page)); result.Append(AgentRecordAccess(model,table,page)); result.Append(RuleRecordAccess(model,table,page)); result.Append(OriginalListStatisticsCompilation.SnapshotService(model,table,page)); result.Append(OriginalListStatisticsCompilation.Service(model, table, page)); result.Append(Relations(model, page)); result.Append(SelectionPageRenderer.Service(model, page)); result.Append(MultiSelectFieldRenderer.Service(model, table, page)); result.Append(DatabaseCheckboxRenderer.Service(model,table,page));
             result.Append(CascadeTreeReadRenderer.Service(model,table,page));
             result.Append(CascadeTreeWriteRenderer.Service(model,table,page));
             result.Append(CascadeTreeViewRenderer.Service(model,table,page));
@@ -403,6 +403,22 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             UsesPublishedPhysicalCheckboxSource(model,table,page)||FixedPageQueryCompilation.HasStoredGlobalSelectionParent(model.Catalog,table,page)||
             ProjectScopedSingleRelationTarget.PhysicalSelectionParent(model.Catalog,table.Source,page.Source) is not null);
 
+    /// <summary>物理父页的列表、计数及汇总使用同一已发布父范围。</summary>
+    internal static bool HasPublishedPhysicalReadParent(GenerationModel model,TableModel table,PageModel page)=>
+        MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null||
+        ProjectScopedSingleRelationTarget.PhysicalSelectionParent(model.Catalog,table.Source,page.Source) is not null||
+        FixedPageQueryCompilation.HasStoredGlobalSelectionParent(model.Catalog,table,page)||
+        GlobalCachedParentCompilation.ForSelfTree(model,table,page) is not null;
+
+    /// <summary>冗余页先验证真实父记录，选择页复用自己的已选范围入口。</summary>
+    internal static string RedundantReadParentCheck(PageModel page,bool physicalParent,string key)
+    {
+        var suffix=page.Source.Id;
+        return SelectionPageRenderer.Enabled(page)
+            ?$"await ValidateSelectionParents{suffix}Async({key}, actor, cancellationToken);"
+            :physicalParent?$"await ValidateParents{suffix}Async({key}, actor, cancellationToken, locking:false);":"";
+    }
+
     private static string Query(GenerationModel model, TableModel table, PageModel page)
     {
         if(NonRedundantReadCompilation.Requires(model,table))return NonRedundantQuery(model,table,page);
@@ -411,14 +427,9 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         var selectionRows = FixedPageQueryCompilation.UsesStoredGlobalSelectionRows(model.Catalog, table, page);
         var storedGlobalParent = FixedPageQueryCompilation.HasStoredGlobalSelectionParent(model.Catalog,table,page);
         if (selectionRows&&!storedGlobalParent) GlobalCrossTableTarget.RequireAccountCandidate(model.Catalog, table.Source, page.Source);
-        var physicalParent=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null||
-            ProjectScopedSingleRelationTarget.PhysicalSelectionParent(model.Catalog,table.Source,page.Source) is not null||
-            storedGlobalParent||
-            GlobalCachedParentCompilation.ForSelfTree(model,table,page) is not null;
+        var physicalParent=HasPublishedPhysicalReadParent(model,table,page);
         var snapshot=physicalParent||CascadeTreeQueryCompilation.Snapshot(model,table,page);
-        string ParentCheck(string key)=>SelectionPageRenderer.Enabled(page)
-            ?$"await ValidateSelectionParents{suffix}Async({key}, actor, cancellationToken);"
-            :physicalParent?$"await ValidateParents{suffix}Async({key}, actor, cancellationToken, locking:false);":"";
+        string ParentCheck(string key)=>RedundantReadParentCheck(page,physicalParent,key);
         var names = SelectionNameFilterCompilation.ForPage(model, table, page);
 
         var accountParent=SharedRedundantParentCompilation.HasAccountPath(model,table,page);
@@ -935,7 +946,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine(PageFiltersAttribute(model, table, page))
             .AppendLine($"[GeneratedPagePagination({(page.Source.PageSize == 0).ToString().ToLowerInvariant()}, {SelectionPageRenderer.Enabled(page).ToString().ToLowerInvariant()})]")
             .AppendLine($"[Route({Literal("api/admin/auto/" + table.Source.TableName + "/" + suffix)})]")
-            .AppendLine($"public sealed partial class {page.Name}Controller({table.Name}Service service, IRuntimeAuthorization authorization{(CascadeTreeQueryCompilation.Snapshot(model,table,page)?", Metarill.Data.DatabaseSession readSession":"")}) : ControllerBase").AppendLine("{")
+            .AppendLine($"public sealed partial class {page.Name}Controller({table.Name}Service service, IRuntimeAuthorization authorization) : ControllerBase").AppendLine("{")
             .AppendLine("    /// <summary>HTTP 边界先检查页面操作权限，再传递真实身份。</summary>")
             .AppendLine($"    private RuntimeActor Actor(string operation) {{ authorization.RequirePagePermission({Literal(suffix)}, operation); return authorization.RequireActor(); }}")
             .Append(LegacyPageRequestRenderer.Controller(model, table, page))
@@ -944,7 +955,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"        var record = await service.Detail{suffix}Async(id, parentId, Actor(\"detail\"), cancellationToken);")
             .AppendLine($"        return record is null ? R<{page.Name}Vo>.Error(\"数据不存在或无权限。\") : R<{page.Name}Vo>.Success(record);").AppendLine("    }")
             .AppendLine("    /// <summary>兼容现有分页响应与分页路由。</summary>").AppendLine("    [HttpPost(\"page\")]")
-            .Append(OriginalListStatisticsCompilation.Controller(page,CascadeTreeQueryCompilation.Snapshot(model,table,page)))
+            .Append(OriginalListStatisticsCompilation.Controller(page,OriginalListStatisticsCompilation.Snapshot(model,table,page)))
             .AppendLine("    /// <summary>数量接口沿用相同页面范围。</summary>").AppendLine("    [HttpPost(\"count\")]")
             .AppendLine($"    public async Task<R<long>> Count([FromBody] PageRequest request, CancellationToken cancellationToken) => R<long>.Success(await service.Count{suffix}Async(request, Actor(\"count\"), cancellationToken));");
         if (page.Source.IsNew == 1)

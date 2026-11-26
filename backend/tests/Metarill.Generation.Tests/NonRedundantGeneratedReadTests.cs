@@ -840,6 +840,22 @@ public sealed class NonRedundantGeneratedReadTests
             published.WhereSql+=" AND "+store;
         }
         published.IsExport=1;
+        var storedGlobalStatistics=targetStorage==1&&globalParent;
+        if(storedGlobalStatistics)
+        {
+            published.Extra["isSum"]=JsonSerializer.SerializeToElement(1);
+            var amount=catalog.ConfigColumns.Single(column=>column.ConfigTableId==target.Id&&column.ColumnName=="amount");
+            var field=catalog.ConfigPageColumns.SingleOrDefault(column=>column.ConfigPageId==published.Id&&column.ConfigColumnId==amount.Id);
+            if(field is null)
+            {
+                field=new(){Id=published.Id+amount.Id,YzProjectId=catalog.YzProjectId,
+                    ConfigPageId=published.Id,ConfigColumnId=amount.Id};
+                catalog.ConfigPageColumns.Add(field);
+            }
+            field.IsShow=1;
+            field.Extra["isInGrid"]=JsonSerializer.SerializeToElement(1);
+            field.Extra["sumKind"]=JsonSerializer.SerializeToElement(1);
+        }
         if(textProject)catalog.ConfigColumns.Single(item=>item.Id=="22").LogicalType="string";
         var foreign=catalog.ConfigColumns.Single(item=>item.Id=="15");
         foreign.ControlKind="List";
@@ -965,6 +981,20 @@ public sealed class NonRedundantGeneratedReadTests
             var dictionary=await File.ReadAllTextAsync(Path.Combine(generated,"Services/MtListProjectParentPartyService.g.cs"));
             if(targetStorage==0)Assert.Contains("CompileGlobalSingleParentPage",dictionary);
             if(globalParent)Assert.Contains("ValidateParents201Async",dictionary);
+            if(storedGlobalStatistics)
+            {
+                var start=dictionary.IndexOf(" Statistics201Async(",StringComparison.Ordinal);
+                Assert.True(start>=0,"未生成列表汇总。");
+                var end=dictionary.IndexOf("\n    ///",start,StringComparison.Ordinal);
+                var statistics=end<0?dictionary[start..]:dictionary[start..end];
+                Assert.Contains("InReadSnapshotAsync",statistics);
+                var parentCheck=statistics.IndexOf("ValidateParents201Async(request.ParentId",StringComparison.Ordinal);
+                Assert.True(parentCheck>=0&&parentCheck<statistics.IndexOf(".SumAsync",StringComparison.Ordinal));
+                var controller=await File.ReadAllTextAsync(Path.Combine(generated,
+                    "Controllers/MtListProjectParentPartyPage201Controller.g.cs"));
+                Assert.Contains("service.InPageReadSnapshot201Async(actor",controller);
+                Assert.DoesNotContain("DatabaseSession readSession",controller);
+            }
             if(conditionOnPage)Assert.Contains("CrossConditionPlan201",dictionary);
             var detail=await File.ReadAllTextAsync(Path.Combine(generated,
                 "frontend/pages/yzp/mt_list_project_parent_order-detail-104.vue"));

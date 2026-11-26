@@ -364,11 +364,6 @@ internal static class GeneratedNonRedundantReadCatalog
         return "CandidateReadPlan"+page.Source.Id+(bindAccount?".BindAccount(actor)":"");
     }
 
-    /// <summary>列表与聚合共享物理父发布证明，避免汇总另开快照时漏验实际父页。</summary>
-    private static bool HasNonRedundantPhysicalReadParent(GenerationModel model,TableModel table,PageModel page)=>
-        MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null||
-        ProjectScopedSingleRelationTarget.PhysicalSelectionParent(model.Catalog,table.Source,page.Source) is not null;
-
     /// <summary>分页、计数、详情与汇总使用同一父校验入口，只有私有当前读可请求锁。</summary>
     private static string NonRedundantReadParentCheck(PageModel page,bool physicalParent,string key,string readLock="false")=>
         SelectionPageRenderer.Enabled(page)
@@ -379,7 +374,7 @@ internal static class GeneratedNonRedundantReadCatalog
     private static string NonRedundantQuery(GenerationModel model,TableModel table,PageModel page)
     {
         var plan=NonRedundantReadCompilation.ForPage(model,table,page);var suffix=page.Source.Id;var fixedQuery=FixedPageQueryCompilation.For(table,page);
-        var physicalParent=HasNonRedundantPhysicalReadParent(model,table,page);
+        var physicalParent=HasPublishedPhysicalReadParent(model,table,page);
         var snapshot=physicalParent||CascadeTreeQueryCompilation.Snapshot(model,table,page);
         string ParentCheck(string key,string readLock="false")=>NonRedundantReadParentCheck(page,physicalParent,key,readLock);
         var globalCandidate=NonRedundantReadCompilation.GlobalSelectionPage(table,page);
@@ -574,7 +569,7 @@ internal static class GeneratedNonRedundantReadCatalog
         var plan=NonRedundantReadCompilation.ForPage(model,table,page);
         var listPlan=NonRedundantListReadPlan(model,table,page,plan);
         var listCondition=globalCandidate?"":FixedPageConditionCompilation.ReadArgument(page);
-        var physicalParent=definitions.Count>0&&HasNonRedundantPhysicalReadParent(model,table,page);
+        var physicalParent=definitions.Count>0&&HasPublishedPhysicalReadParent(model,table,page);
         var snapshot=physicalParent||CascadeTreeQueryCompilation.Snapshot(model,table,page);
         var result=new StringBuilder().AppendLine("    /// <summary>派生值在SQL完整范围内聚合，当前页统计仍折叠原VO。</summary>").AppendLine($"    internal {(snapshot?"Task":"async Task")}<Dictionary<string,object?>> Statistics{suffix}Async(PageRequest request,RuntimeActor actor,PageResult<{page.Name}Vo> page,CancellationToken cancellationToken){(snapshot?$"=>{GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<Dictionary<string,object?>>(async()=>":"")}").AppendLine("    {").AppendLine("        var statistics=new Dictionary<string,object?>(StringComparer.Ordinal);");
         if(physicalParent)result.AppendLine("        "+NonRedundantReadParentCheck(page,true,"request.ParentId"));
