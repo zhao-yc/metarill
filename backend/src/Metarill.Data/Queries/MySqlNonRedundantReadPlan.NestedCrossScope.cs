@@ -361,14 +361,27 @@ public static partial class MySqlNonRedundantReadCompiler
         if(source.AdditionalColumns.Count==0)return;
         var (parent,published)=PublishedMultiGlobalParent(catalog,tableId,pageId);
         var owner=catalog.ConfigTables.Single(table=>table.Id==source.Column.ConfigTableId);
-        foreach(var column in source.AdditionalColumns.Prepend(source.Column))
+        var fields=source.AdditionalColumns.Prepend(source.Column).ToArray();
+        var storedControls=owner.IsRongyu==1?catalog.ConfigColumns.Where(column=>
+            column.ConfigTableId==owner.Id&&column.ControlKind=="CascadeTree"&&column.IsVirtualColumn==0).ToArray():[];
+        var storedFields=fields.Where(column=>column.ColumnName.EndsWith("_id",StringComparison.Ordinal)&&
+            storedControls.Any(control=>CrossTableStorageColumns.ContainsPathField(control,column.ColumnName))).ToHashSet();
+        var storedPaths=storedFields.Count==0?[]:source.SourcePages.Select(page=>
+            RedundantSharedParents.Compile(catalog,owner.Id,page.Id)).ToArray();
+        foreach(var column in fields)
         {
             var logical=CrossTableStorageColumns.IsLogicalPathField(owner,catalog.ConfigColumns,column.ColumnName);
             var scope=new MultiTargetParentScope(parent,column,logical);
-            var actual=logical
-                ?source.LogicalPages.Select(page=>PublishedLogicalMultiParent(catalog,owner,page,scope)).ToArray()
-                :[PublishedPhysicalMultiParent(catalog,scope)];
-            if(actual.Length==0||actual.Any(page=>page.Id!=published.Id))
+            string?[] actual;
+            if(logical)
+                actual=source.LogicalPages.Select(page=>PublishedLogicalMultiParent(catalog,owner,page,scope).Id).ToArray();
+            else if(storedFields.Contains(column))
+                // 已声明的冗余级联字段由实际来源页证明候选页，缺失路径时不能退回表级猜测。
+                actual=storedPaths.Select(paths=>paths.GetValueOrDefault(column.Id)?.Levels.LastOrDefault() is {} level&&
+                    level.TableId==parent.Id?PublishedPhysicalMultiParent(catalog,scope,level.PageId).Id:null).ToArray();
+            else
+                actual=[PublishedPhysicalMultiParent(catalog,scope).Id];
+            if(actual.Length==0||actual.Any(id=>id!=published.Id))
                 throw new InvalidOperationException("同一全局父记录的来源字段与目标字段必须绑定同一个实际发布父页。");
         }
     }
@@ -400,7 +413,8 @@ public static partial class MySqlNonRedundantReadCompiler
     }
 
     /// <summary>物理外键必须直接绑定父表，控件与附加页面声明冲突时拒绝发布。</summary>
-    private static PageMetadata PublishedPhysicalMultiParent(MetadataCatalog catalog,MultiTargetParentScope parent)
+    private static PageMetadata PublishedPhysicalMultiParent(MetadataCatalog catalog,MultiTargetParentScope parent,
+        string? cascadePageId=null)
     {
         var definition=Definition(parent.Target);
         var explicitPage=MultiPageId(definition);
@@ -410,7 +424,10 @@ public static partial class MySqlNonRedundantReadCompiler
             Value(definition,"table") is {Length:>0} tableName&&tableName!=parent.Parent.TableName||
             Text(parent.Target,"joinTable") is {Length:>0} joinTable&&joinTable!=parent.Parent.TableName)
             throw new InvalidOperationException("全局物理父键的表或页面声明冲突。");
-        var pageId=explicitPage.Length>0?explicitPage:linkedPage;
+        var declaredPageId=explicitPage.Length>0?explicitPage:linkedPage;
+        if(cascadePageId is not null&&declaredPageId.Length>0&&declaredPageId!=cascadePageId)
+            throw new InvalidOperationException("全局物理父键的声明页面与实际级联发布页冲突。");
+        var pageId=cascadePageId??declaredPageId;
         var pages=catalog.ConfigPages.Where(page=>page.ConfigTableId==parent.Parent.Id&&
             (pageId.Length==0||page.Id==pageId)).Take(2).ToArray();
         if(pages.Length!=1)throw new InvalidOperationException("全局物理父键必须绑定唯一发布页。");

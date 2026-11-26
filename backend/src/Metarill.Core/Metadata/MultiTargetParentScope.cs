@@ -5,6 +5,8 @@ public sealed record MultiSourceParent(ColumnMetadata Column,IReadOnlyList<PageM
 {
     /// <summary>同一个页面父参数约束的其它层位或物理列，名称读取也必须证明这些键一致。</summary>
     public IReadOnlyList<ColumnMetadata> AdditionalColumns { get; init; } = [];
+    /// <summary>保留本次父键证明使用的实际来源页，冗余字段也能复核已发布的级联层位。</summary>
+    public IReadOnlyList<PageMetadata> SourcePages { get; init; } = [];
 }
 
 /// <summary>多值页的父键来自固定关系，不由候选请求决定外键路径。</summary>
@@ -267,8 +269,9 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         var projectSource=!Global&&source.IsRongyu is (0 or 1)&&!GlobalCrossTableTarget.Declared(source)&&projectTarget is not null;
         var projectPhysicalSource=projectSource&&(relation.ControlKind=="MultiSelectPage"||checkbox&&allowProjectPhysicalCheckbox);
         var projectSingleSource=projectSource&&single&&relation.ControlKind is ("List" or "SelectPage");
-        var selected=catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id&&
-            (sourcePageId is null||page.Id==sourcePageId)).Select(page=>
+        var sourcePages=catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id&&
+            (sourcePageId is null||page.Id==sourcePageId)).ToArray();
+        var selected=sourcePages.Select(page=>
         {
             var fields=allFields.Select(column=>column.ColumnName);
             var scoped=FixedConditionPlan.Compile(page.WhereSql,fields).Terms.Where(term=>
@@ -350,7 +353,7 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
             selected.Any(item=>!item.AdditionalColumns.Select(column=>column.Id)
                 .SequenceEqual(selected[0].AdditionalColumns.Select(column=>column.Id),StringComparer.Ordinal)))throw Invalid();
         return new(selected[0].Column!,selected.Select(item=>item.Page).OfType<PageMetadata>().ToArray())
-            {AdditionalColumns=selected[0].AdditionalColumns};
+            {AdditionalColumns=selected[0].AdditionalColumns,SourcePages=sourcePages};
     }
 
     private static bool References(ColumnMetadata column,TableMetadata table)=>column.LinkConfigTableId.Length>0

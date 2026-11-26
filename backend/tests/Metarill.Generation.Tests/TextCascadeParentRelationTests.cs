@@ -1066,11 +1066,14 @@ public sealed class TextCascadeParentRelationTests
     [InlineData("OnlyNew","list",true,false)]
     [InlineData("OnlyNew","list",true,true)]
     [InlineData("OverWriteByFirstColumn","edit",true,true)]
-    public async Task Stored_source_sparse_target_share_text_parent(string import,string export,bool compound=false,bool globalCountry=false)
+    [InlineData("OnlyNew","list",true,true,true)]
+    [InlineData("OverWriteByFirstColumn","edit",true,true,true)]
+    public async Task Stored_source_sparse_target_share_text_parent(string import,string export,bool compound=false,bool globalCountry=false,bool extraPage=false)
     {
         var catalog=Catalog(1,import,export);
         if(globalCountry)ConfigureGlobalTextAncestor(catalog);
         if(compound)AddSecondTextAncestor(catalog);
+        if(extraPage)AddUnrelatedGlobalParentPage(catalog);
         foreach(var id in new[]{"81","82"})
         {
             ScopeTarget(catalog,id);
@@ -1123,6 +1126,11 @@ public sealed class TextCascadeParentRelationTests
         {
             new ApplicationPackager().Create(catalog,directory,model.Namespace,NonRedundantApplicationFixture.Root());
             var service=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/Services/TextrelSourceService.g.cs"));
+            if(extraPage)
+            {
+                Assert.Contains("\"3\",\"textrel_country\",\"301\"",service);
+                Assert.DoesNotContain("\"3\",\"textrel_country\",\"303\"",service);
+            }
             Assert.Contains("NonRedundantCrossTableScopeSql.ApplyCandidate(query,session,OptionsMembership201_700.BindAccount(actor)",service);
             Assert.Contains("NonRedundantCrossTableScopeSql.ApplyCandidate(query,session,OptionsMembership201_702.BindAccount(actor)",service);
             Assert.Contains("OptionsScope201_700Async(entity.CountryId, null, actor, cancellationToken, true, false",service);
@@ -1150,6 +1158,34 @@ public sealed class TextCascadeParentRelationTests
             foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
+    /// <summary>同表另一个页面的显式声明不能覆盖冗余级联已经证明的候选页。</summary>
+    [Fact]
+    public void Stored_compound_global_parent_rejects_conflicting_explicit_page()
+    {
+        var catalog=Catalog(1,"OnlyNew","list");
+        ConfigureGlobalTextAncestor(catalog);
+        AddSecondTextAncestor(catalog);
+        AddUnrelatedGlobalParentPage(catalog);
+        ScopeTarget(catalog,"81");
+        var target=catalog.ConfigTables.Single(table=>table.Id=="81");
+        target.IsRongyu=0;
+        var dictionaryPage=catalog.ConfigPages.Single(page=>page.Id=="810");
+        var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="201");
+        var owner=catalog.ConfigTables.Single(table=>table.Id=="2");
+        var foreign=catalog.ConfigColumns.Single(column=>column.Id=="700");
+        var parent=ProjectScopedSingleRelationTarget.LogicalParent(catalog,target,dictionaryPage);
+        Assert.NotNull(parent);
+        var source=parent.SingleSource(catalog,owner,foreign,sourcePage);
+        Assert.Same(sourcePage,Assert.Single(source.SourcePages));
+        Assert.Equal("290",Assert.Single(source.AdditionalColumns).Id);
+        Metarill.Data.Queries.NonRedundantReads.RequireCompoundGlobalSourceParent(catalog,target.Id,dictionaryPage.Id,source);
+
+        source.AdditionalColumns[0].Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("303");
+        var rejected=Assert.Throws<InvalidOperationException>(()=>
+            Metarill.Data.Queries.NonRedundantReads.RequireCompoundGlobalSourceParent(catalog,target.Id,dictionaryPage.Id,source));
+        Assert.Contains("声明页面与实际级联发布页冲突",rejected.Message);
     }
 
     /// <summary>缓存重算入口独立拒绝通过字符串父列借用整数主键路径。</summary>
@@ -1591,7 +1627,8 @@ public sealed class TextCascadeParentRelationTests
     [InlineData(false,"OnlyNew","list")]
     [InlineData(true,"OnlyNew","list")]
     [InlineData(true,"OverWriteByFirstColumn","edit")]
-    public async Task Stored_names_follow_published_global_text_parent(bool compound,string import,string export)
+    [InlineData(true,"OnlyNew","list",true)]
+    public async Task Stored_names_follow_published_global_text_parent(bool compound,string import,string export,bool extraPage=false)
     {
         var catalog=Catalog(1,import,export);
         foreach(var id in new[]{"83","84"})
@@ -1602,6 +1639,7 @@ public sealed class TextCascadeParentRelationTests
 
         ConfigureGlobalTextAncestor(catalog);
         if(compound)AddSecondTextAncestor(catalog);
+        if(extraPage)AddUnrelatedGlobalParentPage(catalog);
 
         foreach(var id in new[]{"704","706"})
         {
@@ -1671,6 +1709,11 @@ public sealed class TextCascadeParentRelationTests
         {
             new ApplicationPackager().Create(catalog,directory,model.Namespace,NonRedundantApplicationFixture.Root());
             var service=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/Services/TextrelSourceService.g.cs"));
+            if(extraPage)
+            {
+                Assert.Contains("\"3\",\"textrel_country\",\"301\"",service);
+                Assert.DoesNotContain("\"3\",\"textrel_country\",\"303\"",service);
+            }
             Assert.Contains("CrossReader201_25(actor,true,false).PathByKeyAsync(0,SharedR1ParentKey201(targetParentId)",service);
             Assert.Contains("CrossReader201_291(actor,true,false).PathByKeyAsync(0,SharedR1ParentKey201(targetParentId)",service);
             Assert.Contains("string.Equals(entity.CountryId,entity.OtherCountryId,StringComparison.Ordinal)",service);
@@ -2736,6 +2779,18 @@ public sealed class TextCascadeParentRelationTests
         ]);
         catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql="status=1 AND store_id=@current_store_id";
         catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql+=" AND store_id=@current_store_id";
+    }
+
+    /// <summary>同一全局父表还可发布不提供级联名称的独立列表页。</summary>
+    private static void AddUnrelatedGlobalParentPage(MetadataCatalog catalog)
+    {
+        var chosen=catalog.ConfigPages.Single(page=>page.Id=="301");
+        catalog.ConfigPages.Add(new(){Id="303",ConfigTableId=chosen.ConfigTableId,YzProjectId=catalog.YzProjectId,
+            YzAdminTypeId=chosen.YzAdminTypeId,Name="另一个父表发布页",WhereSql="status=0 AND store_id=@current_store_id",
+            OrderBy="id asc"});
+        var id=catalog.ConfigColumns.Single(column=>column.ConfigTableId==chosen.ConfigTableId&&column.ColumnName=="id");
+        catalog.ConfigPageColumns.Add(new(){Id="30301",ConfigPageId="303",ConfigColumnId=id.Id,
+            YzProjectId=catalog.YzProjectId,IsShow=1});
     }
 
     /// <summary>新增第二条独立级联，来源父仍绑定同一实际业务键。</summary>
