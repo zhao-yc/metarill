@@ -1788,12 +1788,31 @@ public sealed class TextCascadeParentRelationTests
         VerifyMultiJoinedPage(sourceStorage,"string",import,export,buildPackage:true,joinedPageCondition:true,
             separateConditionPath:true,physicalLabel:true,parentType:parentType);
 
+    /// <summary>整数级联父键使用实际业务键，联接条件继续沿发布字典求值。</summary>
+    [Theory]
+    [InlineData(0,"OnlyNew","list")]
+    [InlineData(1,"OverWriteByFirstColumn","edit")]
+    public Task Multi_integer_logical_parent_keeps_joined_dictionary_scope(int sourceStorage,string import,string export) =>
+        VerifyMultiJoinedPage(sourceStorage,"string",import,export,buildPackage:true,joinedPageCondition:true,
+            separateConditionPath:true,physicalLabel:true,parentType:"logical-int");
+
     private static async Task VerifyMultiJoinedPage(int sourceStorage,string kind,string import,string export,bool buildPackage,
         bool joinedPageCondition,bool separateConditionPath,bool physicalLabel,string parentType="logical")
     {
         var catalog=Catalog(sourceStorage,import,export);
         PublishTextParentJoinedLabels(catalog,kind,["83","84"]);
-        if(parentType!="logical")
+        var logicalParent=parentType is "logical" or "logical-int";
+        if(parentType=="logical-int")
+        {
+            // 两端使用同一个有唯一索引的 bigint 业务键，目标字段继续由稀疏级联恢复。
+            foreach(var column in catalog.ConfigColumns.Where(column=>column.ColumnName=="business_key"||column.Id=="45"||
+                column.ConfigTableId is "2" or "83" or "84"&&column.ColumnName is "country_id" or "place_id"))
+            {
+                column.LogicalType="int64";
+                column.ColumnLength="";
+            }
+        }
+        if(!logicalParent)
         {
             // 去掉文本逻辑父用例附带的级联，单独检验这组发布联接和物理父范围。
             var unrelated=catalog.ConfigColumns.Where(column=>column.ConfigTableId is "2" or "83" or "84"&&
@@ -1933,9 +1952,14 @@ public sealed class TextCascadeParentRelationTests
             Assert.Contains("`textrel_name_dictionary`",from);
             var scope=Assert.IsType<string>(mysql.GetType().GetProperty("Scope",flags)!.GetValue(mysql));
             var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(mysql.GetType().GetProperty("Constants",flags)!.GetValue(mysql));
-            if(parentType=="logical")
+            if(logicalParent)
                 Assert.Contains(parameters,parameter=>Equals(parameter.Value,"排除地区")&&scope.Contains(parameter.Key,StringComparison.Ordinal));
-            if(parentType!="logical")
+            if(parentType=="logical-int")
+            {
+                Assert.Contains("`business_key`",from);
+                Assert.Equal("country_id",mysql.GetType().GetProperty("RequiredMultiParent",flags)!.GetValue(mysql));
+            }
+            if(!logicalParent)
                 Assert.Equal(parentType=="none"?null:"owner_country_id",
                     mysql.GetType().GetProperty("RequiredMultiParent",flags)!.GetValue(mysql));
             if(joinedPageCondition)
