@@ -179,3 +179,52 @@ test('同样的可见配置替换到另一个级联角色后，保存使用新�
 	state.syncFromEntity()
 	assert.equal(JSON.parse(state.serializedControlDetail).levels[0].columnPrefix, 'new_location')
 })
+
+test('继承的自树只修改标题和筛选时保留原业务键、父字段和缺省排序', () => {
+	const { state, requests } = fixture()
+	const original = {
+		sourceMode: 'selfTree',
+		selfTree: { table: 'department', idField: 'dept_code', parentField: 'parent_code' }
+	}
+	const events = []
+	state.$emit = (...args) => events.push(args)
+	state.ensureConfigColumnMeta('字段甲')
+	requests[0].success({ code: 200, data: { controlKind: 'CascadeTree', controlDetail: JSON.stringify(original) } })
+	assert.equal(state.cascadeForm.selfTree.idField, 'dept_code')
+	assert.equal(state.entity.controlDetail, '')
+	assert.equal(events.length, 0)
+
+	state.cascadeForm.selfTree.label = '当前部门'
+	state.cascadeForm.selfTree.filterMatchMode = 'exact'
+	state.emitEntity(state.serializedControlDetail)
+	assert.deepEqual(JSON.parse(state.entity.controlDetail), {
+		...original, selfTree: { ...original.selfTree, label: '当前部门', filterMatchMode: 'exact' }
+	})
+	assert.equal(events.length, 1)
+
+	state.syncFromEntity()
+	state.cascadeForm.selfTree.orderBy = 'name desc'
+	const sorted = JSON.parse(state.serializedControlDetail)
+	assert.equal(sorted.selfTree.orderBy, 'name desc')
+	assert.equal(sorted.selfTree.idField, 'dept_code')
+	assert.equal(sorted.selfTree.filterMatchMode, 'exact')
+})
+
+test('自树重新加载使用当前保存的定义，已有空和省略设置在编辑时各自保存', () => {
+	const { state } = fixture()
+	state.entity.controlKind = 'CascadeTree'
+	const definition = orderBy => ({
+		sourceMode: 'selfTree',
+		selfTree: { table: 'department', parentField: 'parent_id', orderBy }
+	})
+	state.entity.controlDetail = JSON.stringify(definition(null))
+	state.syncFromEntity()
+	state.entity.controlDetail = JSON.stringify(definition(''))
+	state.syncFromEntity()
+	state.cascadeForm.displayJoiner = ' > '
+	const saved = JSON.parse(state.serializedControlDetail)
+	assert.equal(saved.displayJoiner, ' > ')
+	assert.equal(saved.selfTree.orderBy, '')
+	assert.equal(Object.hasOwn(saved.selfTree, 'nameField'), false)
+	assert.equal(Object.hasOwn(saved.selfTree, 'rootMode'), false)
+})

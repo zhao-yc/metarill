@@ -457,7 +457,7 @@ function createEmptySelfTree() {
 		idField: 'id',
 		nameField: 'name',
 		parentField: '',
-		orderBy: 'sort_no asc,id asc',
+		orderBy: DEFAULT_CASCADE_ORDER,
 		rootMode: 'blank',
 		filterMatchMode: 'selfAndDescendants'
 	}
@@ -1109,17 +1109,12 @@ export default {
 				const nextForm = createDefaultCascadeForm()
 				nextForm.sourceMode = sourceMode
 				nextForm.displayJoiner = parsed.displayJoiner || '/'
-				nextForm.selfTree = {
-					label: parsed.selfTree && parsed.selfTree.label ? parsed.selfTree.label : '',
-					table: parsed.selfTree && parsed.selfTree.table ? parsed.selfTree.table : '',
-					idField: parsed.selfTree && parsed.selfTree.idField ? parsed.selfTree.idField : 'id',
-					nameField: parsed.selfTree && parsed.selfTree.nameField ? parsed.selfTree.nameField : 'name',
-					parentField: parsed.selfTree && parsed.selfTree.parentField ? parsed.selfTree.parentField : '',
-					orderBy: parsed.selfTree && parsed.selfTree.orderBy ? parsed.selfTree.orderBy : 'sort_no asc,id asc',
-					rootMode: parsed.selfTree && parsed.selfTree.rootMode ? parsed.selfTree.rootMode : 'blank',
-					filterMatchMode: parsed.selfTree && parsed.selfTree.filterMatchMode ? parsed.selfTree.filterMatchMode : 'selfAndDescendants'
-				}
-				if (sourceMode === SOURCE_MODE_CROSS_TABLE) {
+				if (sourceMode === SOURCE_MODE_SELF_TREE) {
+					nextForm.selfDefinition = parsed
+					for (const [field, defaultValue] of Object.entries(nextForm.selfTree)) {
+						nextForm.selfTree[field] = parsed.selfTree?.[field] || defaultValue
+					}
+				} else {
 					nextForm.crossDefinition = parsed
 				}
 				if (levels.length) {
@@ -1148,16 +1143,8 @@ export default {
 				sourceMode: form.sourceMode || SOURCE_MODE_CROSS_TABLE,
 				displayJoiner: form.displayJoiner || '/',
 				crossDefinition: form.crossDefinition || null,
-				selfTree: {
-					label: form.selfTree && form.selfTree.label ? form.selfTree.label : '',
-					table: form.selfTree && form.selfTree.table ? form.selfTree.table : '',
-					idField: form.selfTree && form.selfTree.idField ? form.selfTree.idField : 'id',
-					nameField: form.selfTree && form.selfTree.nameField ? form.selfTree.nameField : 'name',
-					parentField: form.selfTree && form.selfTree.parentField ? form.selfTree.parentField : '',
-					orderBy: form.selfTree && form.selfTree.orderBy ? form.selfTree.orderBy : 'sort_no asc,id asc',
-					rootMode: form.selfTree && form.selfTree.rootMode ? form.selfTree.rootMode : 'blank',
-					filterMatchMode: form.selfTree && form.selfTree.filterMatchMode ? form.selfTree.filterMatchMode : 'selfAndDescendants'
-				},
+				selfDefinition: form.selfDefinition || null,
+				selfTree: form.selfTree,
 				levels: Array.isArray(form.levels)
 					? form.levels.map((level, index) => ({
 						label: level && level.label ? level.label : '',
@@ -1179,23 +1166,24 @@ export default {
 		},
 		buildCascadePayload() {
 			const crossDefinition = this.isCrossTableMode ? this.cascadeForm.crossDefinition : null
-			const payload = {
-				...crossDefinition,
-				displayJoiner: this.cascadeForm.displayJoiner || '/'
+			const selfDefinition = this.isSelfTreeMode ? this.cascadeForm.selfDefinition : null
+			const payload = { ...(selfDefinition || crossDefinition) }
+			const displayJoiner = this.cascadeForm.displayJoiner || '/'
+			if (!selfDefinition || displayJoiner !== (selfDefinition.displayJoiner || '/')) {
+				payload.displayJoiner = displayJoiner
 			}
 			if (!crossDefinition || Object.prototype.hasOwnProperty.call(crossDefinition, 'sourceMode')) {
 				payload.sourceMode = this.cascadeForm.sourceMode || SOURCE_MODE_CROSS_TABLE
 			}
 			if (this.isSelfTreeMode) {
-				payload.selfTree = {
-					label: this.getResolvedSelfTreeLabel(),
-					table: this.cascadeForm.selfTree.table || '',
-					idField: this.cascadeForm.selfTree.idField || 'id',
-					nameField: this.cascadeForm.selfTree.nameField || 'name',
-					parentField: this.cascadeForm.selfTree.parentField || '',
-					orderBy: this.cascadeForm.selfTree.orderBy || '',
-					rootMode: this.cascadeForm.selfTree.rootMode || 'blank',
-					filterMatchMode: this.cascadeForm.selfTree.filterMatchMode || 'selfAndDescendants'
+				const originalTree = selfDefinition?.selfTree
+				const form = this.cascadeForm.selfTree
+				payload.selfTree = { ...originalTree }
+				// 默认值供表单显示，未改字段沿用原定义，以免引入候选表不存在的排序列。
+				for (const [field, defaultValue] of Object.entries(createEmptySelfTree())) {
+					if (originalTree && form[field] === (originalTree[field] || defaultValue)) continue
+					payload.selfTree[field] = field === 'label' ? this.getResolvedSelfTreeLabel()
+						: form[field] || (field === 'orderBy' ? '' : defaultValue)
 				}
 				return payload
 			}
