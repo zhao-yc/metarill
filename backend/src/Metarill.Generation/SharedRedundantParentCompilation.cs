@@ -56,17 +56,22 @@ internal static class SharedRedundantParentCompilation
 
     /// <summary>两页以相同已发布祖先路径使用文本业务键，才能共享原 parentId。</summary>
     internal static ColumnModel? CommonTextParent(GenerationModel model,TableModel source,PageModel sourcePage,
-        TableModel target,PageModel targetPage,bool allowSparseTarget=false)
+        TableModel target,PageModel targetPage,bool allowSparseTarget=false,bool allowCompoundSource=false)
     {
         if(source.Source.IsRongyu!=1||target.Source.IsRongyu!=1&&(!allowSparseTarget||target.Source.IsRongyu!=0)||source.IsGlobal||target.IsGlobal||
             source.Source.YzProjectId!=model.Catalog.YzProjectId||target.Source.YzProjectId!=model.Catalog.YzProjectId||
             sourcePage.Source.YzProjectId!=model.Catalog.YzProjectId||targetPage.Source.YzProjectId!=model.Catalog.YzProjectId)
             return null;
-        var sourceFields=sourcePage.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).Take(2).ToArray();
-        if(sourceFields is not [var sourceKey]||sourceKey.Type!="string?"||
-            ForColumn(model,source,sourcePage,sourceKey) is not [var left]||!left.Level.TextKey)
+        var sourceFields=sourcePage.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column)
+            .DistinctBy(column=>column.Source.Id).ToArray();
+        if(sourceFields.Length==0||sourceFields.Length>1&&(!allowCompoundSource||target.Source.IsRongyu!=0))
             return null;
-        return NonRedundantCrossParentCompilation.SharedTextTarget(model,target,targetPage,left);
+        // 共用参数的每个物理字段都须证明同一发布范围和业务键。
+        var paths=sourceFields.Select(column=>column.Type=="string?"&&ForColumn(model,source,sourcePage,column) is [var path]?path:null).ToArray();
+        if(paths.Any(path=>path is not {Level.TextKey:true})||
+            paths.Select(path=>Identity(path!)).Distinct(StringComparer.Ordinal).Count()!=1)
+            return null;
+        return NonRedundantCrossParentCompilation.SharedTextTarget(model,target,targetPage,paths[0]!);
     }
 
     /// <summary>完整包逐个证明物理父字段，来源项目与后台必须明确发布。</summary>
@@ -147,9 +152,10 @@ internal static class SharedRedundantParentCompilation
     /// <summary>原多值保存和导入沿来源已发布物理父路径锁定祖先，文本保留原值。</summary>
     internal static string ValidateTextParent(GenerationModel model,TableModel table,PageModel page,string argument)
     {
-        var column=page.Scopes.Single(scope=>scope.Source=="parent").Column;
+        var paths=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column)
+            .DistinctBy(column=>column.Source.Id).SelectMany(column=>ForColumn(model,table,page,column));
         return $"        var targetParentId=SharedR1ParentKey{page.Source.Id}({argument});\n"+
-            string.Join("\n",ForColumn(model,table,page,column).Select(path=>$"        await {ReadPath(path,page,"true","targetParentId")};"));
+            string.Join("\n",paths.Select(path=>$"        await {ReadPath(path,page,"true","targetParentId")};"));
     }
     /// <summary>实际存储复核不把R1缓存父键改为R0推导值，钩子或DML逃逸必须回滚。</summary>
     internal static string VerifyCall(GenerationModel model,TableModel table,PageModel page)=>Enabled(model,table,page)?$"        await VerifySharedR1Parent{page.Source.Id}Async(entity,actor,parentId,cancellationToken);\n":"";

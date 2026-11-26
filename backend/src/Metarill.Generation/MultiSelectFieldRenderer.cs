@@ -59,7 +59,13 @@ internal static class MultiSelectFieldRenderer
             if(def.SharedTextParent is not null&&def.LogicalSourceParent)
                 result.AppendLine(NonRedundantCrossParentCompilation.ValidateTextParent(model,table,page,"logicalRelationParentId"));
             else if(def.SharedTextParent is not null)
-                result.AppendLine(SharedRedundantParentCompilation.ValidateTextParent(model,table,page,$"entity.{parentExpression!.Property}"));
+            {
+                var storedParent=parentExpression!;
+                result.AppendLine(SharedRedundantParentCompilation.ValidateTextParent(model,table,page,$"entity.{storedParent.Property}"));
+                // 多条冗余来源范围必须与本次读取字典所用的真实文本父值一致。
+                foreach(var peer in def.CompoundSourceDependencies.Where(column=>column.Source.Id!=storedParent.Source.Id))
+                    result.AppendLine($"        if(!string.Equals(targetParentId,entity.{peer.Property},StringComparison.Ordinal))throw new InvalidOperationException(\"多选来源父字段必须指向同一条记录。\");");
+            }
             else if (def.TargetParents.Count > 0)
             {
                 result.AppendLine(def.LogicalSourceParent?"        var targetParentId = logicalRelationParentId;":$"        var targetParentId = Convert.ToString(entity.{parentExpression!.Property}, CultureInfo.InvariantCulture);")

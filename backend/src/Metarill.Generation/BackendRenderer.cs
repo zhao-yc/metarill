@@ -1031,7 +1031,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                     result.AppendLine($"        await CrossReader{page.Source.Id}_{path.Read.Source.Source.Id}(actor,{(current?"locking":"false")},false){NonRedundantCrossParentCompilation.PathSuffix(path.Read,path.Index,$"LogicalParentId{page.Source.Id}(parentId)")};");
                 if(paths.Length>0)return;
             }
-            if(sourceContext&&parent.IsGlobal&&MultiGlobalParentCompilation.PhysicalScopeTarget(model,owner,page) is not null)
+            // 文本级联使用实际发布的业务列，通用全局物理父检查只接受整数主键。
+            if(sourceContext&&!textSourceParent&&parent.IsGlobal&&MultiGlobalParentCompilation.PhysicalScopeTarget(model,owner,page) is not null)
             {
                 result.AppendLine(MultiGlobalParentCompilation.Check("PageMultiGlobalParent"+page.Source.Id,key,current?"locking":"false"));
                 return;

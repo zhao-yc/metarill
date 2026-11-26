@@ -1452,6 +1452,136 @@ public sealed class TextCascadeParentRelationTests
         }
     }
 
+    /// <summary>冗余业务页沿全局文本父键读取项目字典，改名与回填保留真实祖先和来源门店。</summary>
+    [Theory]
+    [InlineData(false,"OnlyNew","list")]
+    [InlineData(true,"OnlyNew","list")]
+    [InlineData(true,"OverWriteByFirstColumn","edit")]
+    public async Task Stored_names_follow_published_global_text_parent(bool compound,string import,string export)
+    {
+        var catalog=Catalog(1,import,export);
+        foreach(var id in new[]{"83","84"})
+        {
+            ScopeTarget(catalog,id);
+            catalog.ConfigTables.Single(table=>table.Id==id).IsRongyu=0;
+        }
+
+        catalog.ConfigTables.Single(table=>table.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId=="3"&&column.ColumnName=="yz_project_id");
+        catalog.ConfigIndexColumns.RemoveAll(column=>column.GetProperty("configIndexId").GetString()=="business_index_3"&&
+            column.GetProperty("configColumnId").GetString()!="business_3");
+        catalog.ConfigColumns.AddRange([
+            new(){Id="country_store",ConfigTableId="3",ColumnName="store_id",LogicalType="int64",YzProjectId=catalog.YzProjectId},
+            new(){Id="source_store",ConfigTableId="2",ColumnName="store_id",LogicalType="int64",YzProjectId=catalog.YzProjectId}
+        ]);
+        catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql="status=1 AND store_id=@current_store_id";
+        catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql+=" AND store_id=@current_store_id";
+
+        // 同一个父参数还可限定来源页的第二条独立级联，原多值字典仍使用同一发布父记录。
+        if(compound)
+        {
+            var definition=System.Text.Json.Nodes.JsonNode.Parse(catalog.ConfigColumns.Single(column=>column.Id=="25").ControlDetail)!;
+            var levels=definition["levels"]!.AsArray();
+            levels.RemoveAt(2);
+            levels[0]!["columnPrefix"]="other_country";
+            levels[1]!["columnPrefix"]="other_area";
+            catalog.ConfigColumns.AddRange([
+                new(){Id="290",ConfigTableId="2",ColumnName="other_country_id",LogicalType="string",ColumnLength="50",
+                    LinkConfigTableId="3",YzProjectId=catalog.YzProjectId},
+                new(){Id="291",ConfigTableId="2",ColumnName="other_area_id",LogicalType="int64",ControlKind="CascadeTree",
+                    LinkConfigTableId="4",ControlDetail=definition.ToJsonString(),YzProjectId=catalog.YzProjectId}
+            ]);
+            catalog.ConfigPageColumns.Add(new(){Id="201291",ConfigPageId="201",ConfigColumnId="291",IsShow=1,IsEdit=1,YzProjectId=catalog.YzProjectId});
+            catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql+=" AND other_country_id=@parent_id";
+        }
+        foreach(var id in new[]{"704","706"})
+        {
+            catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId==id)
+                .Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+            catalog.ConfigColumns.Single(column=>column.Id==id).Extra["filterControlKind"]=JsonSerializer.SerializeToElement("CheckBox");
+        }
+
+        var model=GenerationModel.Create(catalog,"Example.StoredGlobalMultiTextParent");
+        var table=model.Tables.Single(item=>item.Source.Id=="2");
+        var page=Assert.Single(table.Pages);
+        var multi=MultiSelectCompilation.Resolve(model,table,page,table.Columns.Single(column=>column.Source.Id=="704"));
+        var checkbox=DatabaseCheckboxCompilation.Resolve(model,table,page,table.Columns.Single(column=>column.Source.Id=="706"));
+        Assert.True(multi.Definition is {SameParent:true,SharedTextParent:not null},multi.Reason);
+        Assert.True(checkbox.Definition is {SharedTextParent:not null},checkbox.Reason);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var maintenance=MixedRelationPropagationCompilation.ForModel(model);
+        Assert.Contains("textrel_country",maintenance.MixedTargets);
+        Assert.Contains("business_key",maintenance.MixedTargetKeys("textrel_country"));
+        Assert.Contains("multiitem_names",maintenance.MixedSourceColumns["textrel_source"]);
+        Assert.Contains("checkitem_names",maintenance.MixedSourceColumns["textrel_source"]);
+        if(!compound)return;
+
+        // 复用实际维护 SQL，两个缓存都按本行业务父值和门店重算。
+        const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+        var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(maintenance.GetType().GetProperty("Plans",flags)!.GetValue(maintenance));
+        var relationPlan=plans["2"]!;
+        Assert.Null(relationPlan.GetType().GetProperty("Error")!.GetValue(relationPlan));
+        var read=relationPlan.GetType().GetProperty("Read")!.GetValue(relationPlan)!;
+        var reverse=Assert.IsAssignableFrom<System.Collections.IEnumerable>(read.GetType().GetProperty("Reverse",flags)!.GetValue(read));
+        foreach(var column in new[]{"multiitem_names","checkitem_names"})
+        {
+            var expression=Assert.IsType<string>(read.GetType().GetMethod("Expression",flags)!.Invoke(read,[column]));
+            Assert.Contains("b.`country_id`",expression);
+            Assert.Contains("b.`other_country_id`",expression);
+            Assert.Contains("b.`store_id`",expression);
+            Assert.Contains(reverse.Cast<object>(),entry=>
+            {
+                var type=entry.GetType();
+                var outputs=Assert.IsAssignableFrom<IReadOnlyDictionary<string,IReadOnlySet<string>>>(type.GetProperty("Outputs")!.GetValue(entry));
+                var key=type.GetProperty("NodeKey",flags)!.GetValue(entry);
+                return type.GetProperty("TargetTable")!.GetValue(entry) as string=="textrel_country"&&
+                    outputs.TryGetValue(column,out var dependencies)&&dependencies.Contains("store_id")&&
+                    key is not null&&key.GetType().GetProperty("Column")!.GetValue(key) as string=="business_key"&&
+                    key.GetType().GetProperty("ProjectType")!.GetValue(key) as string=="";
+            });
+        }
+
+        var branch=catalog.ConfigColumns.Single(column=>column.Id=="291");
+        var checkedDefinition=branch.ControlDetail;
+        try
+        {
+            var wrongDefinition=System.Text.Json.Nodes.JsonNode.Parse(checkedDefinition)!;
+            wrongDefinition["levels"]![0]!["idField"]="id";
+            branch.ControlDetail=wrongDefinition.ToJsonString();
+            var wrong=GenerationModel.Create(catalog,model.Namespace);
+            var owner=wrong.Tables.Single(item=>item.Source.Id=="2");
+            var wrongPage=Assert.Single(owner.Pages);
+            Assert.Null(MultiSelectCompilation.Resolve(wrong,owner,wrongPage,owner.Columns.Single(column=>column.Source.Id=="704")).Definition);
+            Assert.Null(DatabaseCheckboxCompilation.Resolve(wrong,owner,wrongPage,owner.Columns.Single(column=>column.Source.Id=="706")).Definition);
+        }
+        finally { branch.ControlDetail=checkedDefinition; }
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-stored-global-multi-text");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new ApplicationPackager().Create(catalog,directory,model.Namespace,NonRedundantApplicationFixture.Root());
+            var service=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/Services/TextrelSourceService.g.cs"));
+            Assert.Contains("CrossReader201_25(actor,true,false).PathByKeyAsync(0,SharedR1ParentKey201(targetParentId)",service);
+            Assert.Contains("CrossReader201_291(actor,true,false).PathByKeyAsync(0,SharedR1ParentKey201(targetParentId)",service);
+            Assert.Contains("string.Equals(entity.CountryId,entity.OtherCountryId,StringComparison.Ordinal)",service);
+            Assert.Contains("string.Equals(targetParentId,entity.OtherCountryId,StringComparison.Ordinal)",service);
+            Assert.Contains("ApplyTextParent(query,session,\"country_id\",parentId!,businessKey:true)",service);
+            Assert.Contains("ApplyTextParent(query,session,\"other_country_id\",parentId!,businessKey:true)",service);
+            Assert.DoesNotContain("sourceParentKey",service);
+            Assert.Contains("ImportMulti201_704Async",service);
+            Assert.Contains("ImportCheckbox201_706Async",service);
+            Assert.Contains("Export201Async",service);
+            var probe=NonRedundantApplicationFixture.Start("node",directory);
+            probe.ArgumentList.Add(Path.Combine(NonRedundantApplicationFixture.TestDirectory(),"GeneratedMultiTextParentProbe.mjs"));
+            probe.ArgumentList.Add(Path.Combine(directory,"frontend"));
+            probe.ArgumentList.Add("sparse");
+            await NonRedundantApplicationFixture.RunAsync(probe);
+            foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
     /// <summary>两种原多值控件都拒绝以同表的整数主键替代发布的文本祖先。</summary>
     [Theory]
     [InlineData("83","704","705")]

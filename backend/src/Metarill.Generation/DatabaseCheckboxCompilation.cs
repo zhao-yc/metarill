@@ -209,7 +209,8 @@ internal static class DatabaseCheckboxCompilation
             var sharedNamesPage=pageNames.Any(field=>field!=baseline.NameField);
             // 普通物理父范围由实际两端页面证明，逻辑来源继续使用已有的级联路径。
             var sourceScopeColumns=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
-            var sharedTextParent=namePage is null?null:SharedRedundantParentCompilation.CommonTextParent(model,table,page,target,namePage,allowSparseTarget:true)??
+            var sharedTextParent=namePage is null?null:SharedRedundantParentCompilation.CommonTextParent(model,table,page,target,namePage,
+                    allowSparseTarget:true,allowCompoundSource:true)??
                 NonRedundantCrossParentCompilation.CommonTextParent(model,table,page,target,namePage,
                     allowStoredTarget:true,allowGlobalSparseTarget:true);
             // 文本父键沿已证明祖先比较，非冗余字典的名称联接沿同一发布页独立验证。
@@ -586,7 +587,8 @@ internal static class DatabaseCheckboxCompilation
                 HasStoredStaticScope=storedStaticPage,
                 HasProjectStoredAccountScope=projectStoredAccount,
                 CompoundPhysicalSource=ordinaryCompoundSource||
-                    (projectStoredAccount||storedPaths.Count>0)&&sourceScopeColumns.Length>1,
+                    (projectStoredAccount||storedPaths.Count>0||sharedTextParent is not null&&table.Source.IsRongyu==1)&&
+                    sourceScopeColumns.Length>1,
                 ProjectFormScope=projectForm is not null,
                 GlobalRealtimeNameOverride=globalRealtimeNameOverride,
                 GlobalPageOverride=globalPageOverride,

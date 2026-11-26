@@ -114,7 +114,8 @@ internal static class MultiSelectCompilation
             var scalarLabel=name is not null&&SupportsTypedLabel(model,table,source,target,name);
             if (name is null || GenerationModel.Enabled(name.Source.Extra,"isJoinColumn")&&!DerivedMultiNamesCompilation.Declared(model,target,name)&&!globalCachedName || name.IsJsonArray || name.Type != "string?" && !name.IsId&&!scalarLabel || !targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) return Gap("名称字段不在目标页可读投影或类型未支持。");
             if (ManagerCredentialCompilation.IsCredential(target,name)) return Gap("账号凭据不能作为多选名称读取列。");
-            var sharedTextParent=SharedRedundantParentCompilation.CommonTextParent(model,table,page,target,targetPage,allowSparseTarget:true)??
+            var sharedTextParent=SharedRedundantParentCompilation.CommonTextParent(model,table,page,target,targetPage,
+                allowSparseTarget:true,allowCompoundSource:true)??
                 NonRedundantCrossParentCompilation.CommonTextParent(model,table,page,target,targetPage,
                     allowStoredTarget:true,allowGlobalSparseTarget:true);
             var baselineName=Scalar(root,"nameField");
