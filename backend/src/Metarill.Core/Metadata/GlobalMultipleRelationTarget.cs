@@ -46,13 +46,13 @@ public static class GlobalMultipleRelationTarget
         table.IsRongyu is 0 or 1&&IsPublishedMultiPage(table,page,checkbox)&&(condition?.Variables.Count??0)==0;
 
     /// <summary>当前项目等值可叠加物理常量，非冗余字典也可叠加已声明账号等值。</summary>
-    public static bool IsProjectPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox=false)=>
-        table.IsRongyu is 0 or 1&&IsPublishedMultiPage(table,page,checkbox)&&condition.Terms.Any(IsProjectScope)&&condition.Terms.All(term=>
+    public static bool IsProjectPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox=false,bool allowExact=false)=>
+        table.IsRongyu is 0 or 1&&IsPublishedMultiPage(table,page,checkbox,allowExact)&&condition.Terms.Any(IsProjectScope)&&condition.Terms.All(term=>
             IsFixedOrProject(term)||table.IsRongyu==0&&IsAccountScope(term));
 
     /// <summary>已发布的非冗余多值页可同时声明真实项目和父键，物理字段和父归属由调用方证明。</summary>
-    public static bool IsProjectParentPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox=false)=>
-        table.IsRongyu==0&&IsPublishedMultiPage(table,page,checkbox)&&UsesProjectAndParent(condition);
+    public static bool IsProjectParentPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox=false,bool allowExact=false)=>
+        table.IsRongyu==0&&IsPublishedMultiPage(table,page,checkbox,allowExact)&&UsesProjectAndParent(condition);
 
     /// <summary>冗余全局字典必须在实际多值发布页明示项目和物理父字段。</summary>
     public static bool IsStoredProjectParentPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox=false)=>
@@ -92,11 +92,12 @@ public static class GlobalMultipleRelationTarget
                 AccountConditionVariables.IsPageField(value.Text,term.Field));
 
     /// <summary>两类多值用途共用字典的页面资格，精确数据管理由独立合同验证。</summary>
-    private static bool IsPublishedMultiPage(TableMetadata table,PageMetadata page,bool checkbox)=>
+    private static bool IsPublishedMultiPage(TableMetadata table,PageMetadata page,bool checkbox,bool allowExact=false)=>
         GlobalCrossTableTarget.Declared(table)&&page.ConfigTableId==table.Id&&
         (checkbox?page.Extra.GetValueOrDefault("type").ToString() is "" or "0" or "1" or "2":
             page.Extra.GetValueOrDefault("type").ToString()=="2")&&
-        string.IsNullOrWhiteSpace(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString());
+        (string.IsNullOrWhiteSpace(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString())||
+            allowExact&&!checkbox&&table.IsRongyu==0&&GlobalCrossTableTarget.DeclaresExactMulti(table,page));
 
     /// <summary>全局字典的显式项目范围仅接受真实项目列与当前认证项目的等值。</summary>
     public static bool IsProjectScope(FixedConditionTerm term)=>

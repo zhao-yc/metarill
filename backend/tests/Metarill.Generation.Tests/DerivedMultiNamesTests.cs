@@ -433,8 +433,13 @@ public sealed class DerivedMultiNamesTests
     [InlineData(false,false,false,false,1,1)]
     [InlineData(false,true,false,true,1,0)]
     [InlineData(true,true,false,true,1,0,true)]
+    [InlineData(false,false,false,false,1,1,false,1)]
+    [InlineData(false,true,false,true,1,0,false,1)]
+    [InlineData(true,true,false,true,1,0,true,1)]
+    [InlineData(false,false,false,true,1,0,true,2)]
+    [InlineData(false,true,false,true,1,0,true,3)]
     public async Task Multi_excel_applies_control_conditions_in_addition_to_the_target_page(bool derived,bool overlay,
-        bool targetAccount=false,bool joinedCondition=false,int sourceMode=0,int targetMode=0,bool exactTarget=false)
+        bool targetAccount=false,bool joinedCondition=false,int sourceMode=0,int targetMode=0,bool exactTarget=false,int globalTarget=0)
     {
         const string ns="Example.MultiImportScope";
         var catalog=Catalog("multi_import_scope",false);
@@ -465,7 +470,21 @@ public sealed class DerivedMultiNamesTests
         foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="2"))
             catalog.ConfigPageColumns.Add(new(){Id=page.Id+"28",ConfigPageId=page.Id,ConfigColumnId="28",IsEdit=1,IsShow=1});
         var target=catalog.ConfigPages.Single(page=>page.Id=="301");
-        target.WhereSql+=" AND sheet_status<>99";
+        if(globalTarget!=0)
+        {
+            catalog.ConfigTables.Single(table=>table.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            if(targetMode==0)
+            {
+                catalog.ConfigTables.Single(table=>table.Id=="4").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+                catalog.ConfigPages.Single(page=>page.Id=="401").WhereSql="";
+            }
+        }
+        target.WhereSql=globalTarget switch
+        {
+            2=>"sheet_status<>99",
+            3=>"yz_project_id=@current_yz_project_id AND sheet_status<>99",
+            _=>target.WhereSql+" AND sheet_status<>99"
+        };
         if(targetAccount)target.WhereSql+=" AND store_id=@current_store_id";
         if(sourceMode==1)
         {
@@ -535,7 +554,8 @@ public sealed class DerivedMultiNamesTests
             var clause=bound.GetType().GetMethod("RenderConstants",HiddenInstance)!
                 .Invoke(bound,[new Metarill.Data.MySqlDatabaseProvider(),"excel",new Func<string,string>(name=>name)])!;
             var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(clause.GetType().GetProperty("Parameters")!.GetValue(clause));
-            Assert.Equal(new object?[]{overlay?32:31,9007199254741197L,23L,"A"},parameters.Values);
+            Assert.Equal(globalTarget>=2?new object?[]{overlay?32:31,23L,"A"}:
+                new object?[]{overlay?32:31,9007199254741197L,23L,"A"},parameters.Values);
             if(derived||targetAccount||joinedCondition||scopedRead)
             {
                 var readField=joinedCondition?"MultiImportReadPlan201_25":"MultiDerivedPlan201_25";
@@ -543,6 +563,13 @@ public sealed class DerivedMultiNamesTests
                     .GetField(readField,staticPrivate)!.GetValue(null));
                 Assert.Equal(targetAccount,read.RequiresAccount);
                 var mysql=read.GetType().GetProperty("MySql",HiddenInstance)!.GetValue(read)!;
+                if(globalTarget!=0&&exactTarget)
+                {
+                    var sql=Assert.IsType<string>(mysql.GetType().GetProperty("Scope",HiddenInstance)!.GetValue(mysql));
+                    Assert.Equal(globalTarget is 1 or 3,sql.Contains("b.`yz_project_id`",StringComparison.Ordinal));
+                    Assert.Equal(globalTarget==1?"parent_id":null,
+                        mysql.GetType().GetProperty("RequiredMultiParent",HiddenInstance)!.GetValue(mysql));
+                }
                 foreach(var name in new[]{"sheet_status","segment","store_id"})
                     Assert.EndsWith(".`"+name+"`",Assert.IsType<string>(mysql.GetType()
                         .GetMethod("Expression",HiddenInstance)!.Invoke(mysql,[name])));
@@ -584,7 +611,8 @@ public sealed class DerivedMultiNamesTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
 
-        static string Where(int status)=>$"sheet_status>={status} AND parent_id=@parentId AND store_id=@current_store_id AND segment=@formParameters.segment";
+        string Where(int status)=>$"sheet_status>={status}"+
+            (globalTarget>=2?"":" AND parent_id=@parentId")+" AND store_id=@current_store_id AND segment=@formParameters.segment";
     }
 
     /// <summary>同一 R0 名称数组在不同业务页按各自的候选页匹配、显示和导出。</summary>

@@ -62,11 +62,13 @@ public static class GlobalCrossTableTarget
         if(parent is null)
         {
             var columns=ConditionColumns(catalog,table,allowLogical:true);
-            var fields=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName)).Fields;
+            var condition=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
+            var fields=condition.Fields;
             var tree=fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(table,columns,field));
             var logical=tree||fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field));
+            var projectMulti=DeclaresExactMulti(table,page)&&GlobalMultipleRelationTarget.IsProjectPage(table,page,condition,allowExact:true);
             RequireTarget(catalog,table,page,true,allowAccount:table.IsRongyu==0,allowLogical:logical,
-                allowSelfTree:tree,allowExactSingle:true,joinedFields:joinedFields);
+                allowSelfTree:tree,allowExactSingle:true,allowStoredProject:projectMulti,joinedFields:joinedFields);
         }
         var value=page.Extra["exactDataManageMatchField"];
         var field=value.ValueKind==JsonValueKind.String?ExactDataManageValues.Field(value.GetString()):"";
@@ -316,8 +318,10 @@ public static class GlobalCrossTableTarget
         // 原单选使用自己的发布证明。普通多值页仍由多值入口限定项目和物理父键。
         var fixedParentPage=allowSelectionParentOnly&&!cross&&!tree&&
             (IsSingleProjectParentPage(page,condition)||listParent);
-        if(!fixedParentPage&&GlobalMultipleRelationTarget.IsProjectParentPage(table,page,condition,
-            checkbox:page.Extra.GetValueOrDefault("type").ToString()!="2"))return null;
+        var exactMulti=allowExactSingle&&DeclaresExactMulti(table,page);
+        var projectMultiParent=GlobalMultipleRelationTarget.IsProjectParentPage(table,page,condition,
+            checkbox:page.Extra.GetValueOrDefault("type").ToString()!="2",allowExact:exactMulti);
+        if(!fixedParentPage&&projectMultiParent&&!exactMulti)return null;
         // 单值控件可只按实际父级限定；其余角色保留原账号或逻辑证明。
         var selectionParentOnly=allowSelectionParentOnly&&!cross&&!tree&&(SelectionParentOnly(page,condition)||fixedParentPage);
         if(cross||tree)
@@ -331,7 +335,7 @@ public static class GlobalCrossTableTarget
         if(listParent)RequirePublishedSinglePage(catalog,table,page);
         RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:cross||tree,allowMultiParent:true,
             allowSelfTree:tree,allowExactSingle:allowExactSingle,allowStoredSingleParent:storedSelection,
-            allowPhysicalMultiParent:fixedParentPage,
+            allowPhysicalMultiParent:fixedParentPage||exactMulti&&projectMultiParent,
             joinedFields:joinedFields??(allowLogical?PageJoinedConditionFields(catalog,table,page):null));
         return parent;
     }
@@ -357,7 +361,7 @@ public static class GlobalCrossTableTarget
         var condition=FixedConditionPlan.Compile(page.WhereSql,allowed);
         // 只有显式通过父范围证明的用途才解析父参数，同时保留原账号和逻辑字段校验。
         var projectParentScope=allowPhysicalMultiParent&&(GlobalMultipleRelationTarget.IsProjectParentPage(table,page,condition,
-            checkbox:page.Extra.GetValueOrDefault("type").ToString()!="2")||
+            checkbox:page.Extra.GetValueOrDefault("type").ToString()!="2",allowExact:allowExactSingle)||
             (!checkboxParent||allowStoredSingleParent)&&(IsSingleProjectParentPage(page,condition)||
                 IsProjectListParentPage(table,page,condition))||
             allowStoredSingleParent&&GlobalMultipleRelationTarget.IsStoredProjectParentPage(table,page,condition,checkboxParent));

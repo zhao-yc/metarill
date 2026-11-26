@@ -126,6 +126,10 @@ public static partial class MySqlNonRedundantReadCompiler
                 :physicalParent is null)))
             throw new NotSupportedException("全局候选必须使用实际发布的条件和物理父键。");
         var additional=parent?.AdditionalTargets.Select(scope=>scope.Target.ColumnName).ToHashSet(StringComparer.Ordinal);
+        // 精确多选的项目值来自认证请求，父范围采用已经核对的同一发布页。
+        var exactMultiProject=globalExactSingle&&GlobalCrossTableTarget.DeclaresExactMulti(table,page)&&
+            (parent is null?GlobalMultipleRelationTarget.IsProjectPage(table,page,syntax,allowExact:true):
+                parent is {Logical:false}&&GlobalMultipleRelationTarget.IsProjectParentPage(table,page,syntax,allowExact:true));
         var condition=CascadeScopeCondition(table,storage,columns,syntax,parent?.Target,treeNames,additional,pageJoins);
         // 私有匹配和 Excel 条件只扩充投影；不把路径有效性强加给有无限定范围的账号。
         var projectExactMatch=exactParent||globalExactSingle&&!projectSingle;
@@ -156,7 +160,7 @@ public static partial class MySqlNonRedundantReadCompiler
             ActiveSinglePages=activePages,
             MultiCandidateParent=projectSingle&&parent?.AdditionalTargets.Count is not >0?null:parent,
             MultiCandidatePage=page,
-            MultiCandidateProjectScoped=projectListScope||parent is {Logical:false}&&
+            MultiCandidateProjectScoped=projectListScope||exactMultiProject||parent is {Logical:false}&&
                 (accountParentPageType=="2"&&GlobalMultipleRelationTarget.IsProjectParentPage(table,page,syntax)||
                  physicalParent is not null&&(GlobalCrossTableTarget.IsSingleProjectParentPage(page,syntax)||
                     GlobalCrossTableTarget.IsProjectListParentPage(table,page,syntax))),
@@ -484,14 +488,16 @@ public static partial class MySqlNonRedundantReadCompiler
             (AllowsExactMultiSelection||AllowsStoredExactCheckbox)&&alias==rootAlias&&page.Id==SelectedMultiPage?.Id&&
             page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0;
 
-        /// <summary>仅实际发布的物理多值父页可令全局候选继续使用项目 ID 谓词。</summary>
-        private bool HasScopedMultiParentProject()
+        /// <summary>全局多值读取和回填保留发布页明确声明的项目范围。</summary>
+        private bool HasScopedMultiProject()
         {
-            if(!GlobalCrossCandidate||SelectedMultiPage is not {} page||MultiCandidateParent is not {Logical:false})
-                return false;
+            if(!GlobalCrossCandidate||SelectedMultiPage is not {} page)return false;
             var syntax=FixedConditionPlan.Compile(page.WhereSql,columns[root.Id].Keys);
-            return GlobalMultipleRelationTarget.IsProjectParentPage(root,page,syntax,AllowsStoredExactCheckbox)||
-                GlobalMultipleRelationTarget.IsStoredProjectParentPage(root,page,syntax,AllowsStoredExactCheckbox);
+            var exact=AllowsExactMultiSelection&&GlobalCrossTableTarget.DeclaresExactMulti(root,page);
+            if(MultiCandidateParent is null)return exact&&GlobalMultipleRelationTarget.IsProjectPage(root,page,syntax,allowExact:true);
+            return MultiCandidateParent is {Logical:false}&&
+                (GlobalMultipleRelationTarget.IsProjectParentPage(root,page,syntax,AllowsStoredExactCheckbox,allowExact:exact)||
+                    GlobalMultipleRelationTarget.IsStoredProjectParentPage(root,page,syntax,AllowsStoredExactCheckbox));
         }
 
         /// <summary>目标页的条件与名称共用当前记录和联接，维护用途按来源行归属绑定。</summary>
@@ -532,15 +538,16 @@ public static partial class MySqlNonRedundantReadCompiler
                 throw new NotSupportedException("多值目标页包含未接通的范围。");
             if(!condition.HasLogical)
             {
-                if(!AllowLiteralMultiScope&&MultiCandidateParent is not {Logical:false}&&additional?.Count is not >0&&
-                    condition.Plan is not {Variables.Count:>0})
+                if(!AllowLiteralMultiScope&&!MultiCandidateProjectScoped&&MultiCandidateParent is not {Logical:false}&&
+                    additional?.Count is not >0&&condition.Plan is not {Variables.Count:>0})
                     throw new NotSupportedException("多值目标页缺少固定的级联或账号范围。");
                 if(condition.Plan is not {} account)return scope;
                 cascadeLabelPages.Add(page.Id);
                 if(cascadeCacheOwner is {} owner)
                 {
                     var predicate=PhysicalAccountCacheCondition(root,rootAlias,page,owner,MultiCandidateParent?.Target,
-                        allowFixedOnly:AllowLiteralMultiScope||MultiCandidateParent is {Logical:false},separateExactScope:separateExactScope,
+                        allowFixedOnly:AllowLiteralMultiScope||MultiCandidateProjectScoped||MultiCandidateParent is {Logical:false},
+                        separateExactScope:separateExactScope,
                         additionalParents:additional,globalMultiProject:MultiCandidateProjectScoped);
                     return scope.Length==0?predicate:scope+" AND "+predicate;
                 }

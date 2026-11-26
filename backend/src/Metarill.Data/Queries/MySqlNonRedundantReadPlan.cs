@@ -467,7 +467,7 @@ public static partial class MySqlNonRedundantReadCompiler
             if(SelectedMultiPage is not null)
             {
                 MultiCandidateParent??=MultiParent(catalog,SelectedMultiPage,AllowsStoredExactCheckbox);
-                MultiCandidateProjectScoped=HasScopedMultiParentProject();
+                MultiCandidateProjectScoped=HasScopedMultiProject();
             }
             var globalSource=refreshFields is not null&&GlobalCrossTableTarget.Declared(root);
             var globalDerivedSource = refreshFields is null && root.IsRongyu == 0 && GlobalCrossTableTarget.Declared(root);

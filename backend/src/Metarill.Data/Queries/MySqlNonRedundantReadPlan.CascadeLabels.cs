@@ -295,8 +295,8 @@ public static partial class MySqlNonRedundantReadCompiler
         var syntax=FixedConditionPlan.Compile(page.WhereSql,declared.Select(column=>column.ColumnName));
         return (!checkbox||CrossTableStorageColumns.DeclaresStoredTextParent(catalog,table,page))&&
             IsProjectFixedMultiPage(catalog,table,page,checkboxAccount:checkbox,allowStoredTextParent:true)||
-            GlobalMultipleRelationTarget.IsProjectPage(table,page,syntax,checkbox)||
-            GlobalMultipleRelationTarget.IsProjectParentPage(table,page,syntax,checkbox)||
+            GlobalMultipleRelationTarget.IsProjectPage(table,page,syntax,checkbox,allowExact:true)||
+            GlobalMultipleRelationTarget.IsProjectParentPage(table,page,syntax,checkbox,allowExact:true)||
             GlobalMultipleRelationTarget.IsStoredProjectParentPage(table,page,syntax,checkbox)||
             checkbox&&table.IsRongyu==0&&syntax.Terms.Any(term=>term.Values.Any(value=>
                 value.Kind==FixedConditionValueKind.Variable&&MultiTargetParentScope.IsParameter(value.Text))&&
