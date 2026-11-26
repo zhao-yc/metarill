@@ -143,15 +143,20 @@ public sealed class FunctionTableGenerationTests : IDisposable
 
     /// <summary>原数据库复选按发布的业务键取数，父记录校验和候选谓词共用该键。</summary>
     [Theory]
-    [InlineData(false, true)]
-    [InlineData(true, true)]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    public async Task Function_checkbox_uses_the_published_business_parent(bool exact, bool textParent)
+    [InlineData(false, true, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, true)]
+    [InlineData(true, true, true)]
+    [InlineData(false, false, true)]
+    [InlineData(true, false, true)]
+    public async Task Function_checkbox_uses_the_published_business_parent(bool exact, bool textParent, bool globalParent)
     {
         var catalog = WithScopedCheckbox(WithCascades(Catalog()), 0);
         ConfigureDerivedCheckboxScope(catalog, "multi");
         ConfigureBusinessSelectionParent(catalog, textParent);
+        if (globalParent) PublishGlobalBusinessSelectionParent(catalog);
         if (!exact)
             catalog.ConfigPages.Single(page => page.Id == "103").Extra.Remove("exactDataManageMatchField");
 
@@ -163,25 +168,36 @@ public sealed class FunctionTableGenerationTests : IDisposable
         var end = code.IndexOf(" CheckboxOptions102_38Async(", start, StringComparison.Ordinal);
         Assert.True(end > start);
         var scope = code[start..end];
-        Assert.Contains("parentQuery.Where(row=>row.DeleteNo==null)", scope);
         Assert.Contains("actor.ProjectId", scope);
         Assert.DoesNotContain("row.Id==parentKey", scope);
+        if (globalParent)
+        {
+            Assert.Contains("""CompileMultiGlobalParent("1","103")""",code);
+            Assert.DoesNotContain(".KeyRowsAsync(CheckboxGlobalParent102_38",scope);
+            Assert.Contains(".BusinessKeyRowsAsync(CheckboxGlobalParent102_38.BindAccount(actor)",scope);
+        }
+        else
+            Assert.Contains("parentQuery.Where(row=>row.DeleteNo==null)", scope);
         if (textParent)
         {
-            Assert.Contains("""ApplyTextParent(parentQuery,session,"business_key",parentId!,businessKey:true)""", scope);
+            Assert.Contains(globalParent
+                ?"""FixedReadFilter.ForTextParent("business_key",parentId!,businessKey:true)"""
+                :"""ApplyTextParent(parentQuery,session,"business_key",parentId!,businessKey:true)""", scope);
             Assert.DoesNotContain("long.TryParse(parentId", scope);
             Assert.Contains("""FixedReadFilter.ForTextParent("country_id",parentId!,businessKey:true)""", code);
         }
         else
         {
-            Assert.Contains("row.BusinessKey==parentKey", scope);
+            Assert.Contains(globalParent?"""new FixedReadFilter("business_key",FixedReadComparison.Equal,parentKey)""":
+                "row.BusinessKey==parentKey", scope);
             Assert.Contains("long.TryParse(parentId", scope);
             Assert.Contains("""new("country_id",FixedReadComparison.Equal,long.Parse(parentId!,CultureInfo.InvariantCulture))""", code);
         }
         Assert.Equal(exact, code.Contains("""ResolveExactDataManage("103", "list", "real_name")""", StringComparison.Ordinal));
 
         await BuildFullAsync(output);
-        CheckCheckboxPlan(output, scopedTargetStorage: 0, logical: true, exact: exact, businessParentType: textParent ? "string" : "int64");
+        CheckCheckboxPlan(output, scopedTargetStorage: 0, logical: true, exact: exact,
+            businessParentType: textParent ? "string" : "int64", globalBusinessParent: globalParent);
     }
 
     /// <summary>功能表的业务键沿用原控件和远端只读权限，整个包不生成来源持久化。</summary>
@@ -829,6 +845,19 @@ public sealed class FunctionTableGenerationTests : IDisposable
             }
     }
 
+    /// <summary>用原级联第一层发布全局字典，业务键使用实际单列唯一约束。</summary>
+    private static void PublishGlobalBusinessSelectionParent(MetadataCatalog catalog)
+    {
+        catalog.ConfigTables.Single(table=>table.Id=="4").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql="status=1 AND dealer_id=@current_dealer_id";
+        catalog.ConfigColumns.RemoveAll(column=>column.Id=="403");
+        catalog.ConfigColumns.Single(column=>column.Id=="506").LinkConfigTableId="";
+        catalog.ConfigColumns.Add(new(){Id="409",ConfigTableId="4",ColumnName="status",LogicalType="int32"});
+        catalog.ConfigColumns.Add(new(){Id="407",ConfigTableId="4",ColumnName="dealer_id",LogicalType="string"});
+        catalog.ConfigIndexColumns.RemoveAll(column=>column.GetProperty("configIndexId").GetString()=="business_index_4"&&
+            column.GetProperty("configColumnId").GetString()=="403");
+    }
+
     /// <summary>控件独有的条件不能在直达目标页时丢失，无法覆盖时拒绝打包。</summary>
     [Fact]
     public void Function_single_selection_rejects_an_unbound_control_condition()
@@ -956,18 +985,7 @@ public sealed class FunctionTableGenerationTests : IDisposable
         var businessText=variant is "logicalText" or "logicalGlobalText";
         var catalog = WithFunctionList(Catalog(), businessParent||variant=="treeExact"?"logical":variant);
         if(businessParent)ConfigureBusinessSelectionParent(catalog,businessText);
-        if(globalBusinessParent)
-        {
-            // 使用原三级级联的第一层发布页，实际全局父键使用单列唯一约束。
-            catalog.ConfigTables.Single(table=>table.Id=="4").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
-            catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql="status=1 AND dealer_id=@current_dealer_id";
-            catalog.ConfigColumns.RemoveAll(column=>column.Id=="403");
-            catalog.ConfigColumns.Single(column=>column.Id=="506").LinkConfigTableId="";
-            catalog.ConfigColumns.Add(new(){Id="409",ConfigTableId="4",ColumnName="status",LogicalType="int32"});
-            catalog.ConfigColumns.Add(new(){Id="407",ConfigTableId="4",ColumnName="dealer_id",LogicalType="string"});
-            catalog.ConfigIndexColumns.RemoveAll(column=>column.GetProperty("configIndexId").GetString()=="business_index_4"&&
-                column.GetProperty("configColumnId").GetString()=="403");
-        }
+        if(globalBusinessParent)PublishGlobalBusinessSelectionParent(catalog);
         if(localParent)
         {
             // 与全局父版本共用字段配置，仅将父表切换为带行项目列的本项目实体。
@@ -1155,24 +1173,7 @@ public sealed class FunctionTableGenerationTests : IDisposable
                 Assert.Contains(businessText ? "=BINARY @filter_0" : "@filter_0", sql);
                 Assert.DoesNotContain(businessText ? "0007-Ab" : "9007199254742000", sql);
                 if(globalBusinessParent)
-                {
-                    // 候选独立复核父页，父记录即使存在，也必须满足实际发布的页面条件。
-                    var globalPlan = Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(runtime.GetField("OptionsGlobalParent102_39",
-                        System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.GetValue(null));
-                    Assert.True(globalPlan.RequiresAccount);
-                    Assert.Equal("id",Assert.Single(globalPlan.OutputTypes.Keys));
-                    Assert.Throws<UnauthorizedAccessException>(()=>globalPlan.BindAccount(
-                        new Metarill.Core.Security.RuntimeActor(7,"合成账号",false,"100","70")));
-                    var globalSql = globalPlan.GetType().GetProperty("MySql", hidden)!.GetValue(globalPlan)!;
-                    var globalScope = Assert.IsType<string>(globalSql.GetType().GetProperty("Scope", hidden)!.GetValue(globalSql));
-                    Assert.Contains("b.`status`",globalScope);
-                    Assert.Contains("b.`dealer_id`",globalScope);
-                    Assert.Contains("b.`delete_no` IS NULL",globalScope);
-                    var keyFilter = parentFilter with { Field = "business_key" };
-                    var predicate = Assert.IsType<string>(render.Invoke(null,[globalSql,keyFilter,0]));
-                    Assert.Contains(businessText?"=BINARY @filter_0":"@filter_0",predicate);
-                    Assert.Contains("b.`business_key`",predicate);
-                }
+                    CheckGlobalBusinessParentPlan(runtime,"OptionsGlobalParent102_39",parentFilter);
             }
             if(localParent||plain&&!businessParent||globalControl||split&&variant.StartsWith("global",StringComparison.Ordinal))
             {
@@ -1288,7 +1289,8 @@ public sealed class FunctionTableGenerationTests : IDisposable
     }
 
     /// <summary>装载包内复选计划，避免生成核验通过而宿主静态初始化失败。</summary>
-    private static void CheckCheckboxPlan(string output,int scopedTargetStorage,bool logical,bool exact = true,string? businessParentType = null)
+    private static void CheckCheckboxPlan(string output,int scopedTargetStorage,bool logical,bool exact = true,
+        string? businessParentType = null,bool globalBusinessParent = false)
     {
         if(scopedTargetStorage==0)
         {
@@ -1320,6 +1322,7 @@ public sealed class FunctionTableGenerationTests : IDisposable
                         var parentSql = Assert.IsType<string>(parentFilter.Invoke(null, [sql, parent, 0]));
                         Assert.Contains(businessParentType == "string" ? "=BINARY @filter_0" : "@filter_0", parentSql);
                         Assert.DoesNotContain(Convert.ToString(parent.Value, System.Globalization.CultureInfo.InvariantCulture)!, parentSql);
+                        if(globalBusinessParent)CheckGlobalBusinessParentPlan(generatedService,"CheckboxGlobalParent102_38",parent);
                     }
                     if (!exact) return;
                     var exactExpression=sql.GetType().GetMethod("Expression",hidden)!.Invoke(sql,["assigned_area_name"]);
@@ -1339,6 +1342,27 @@ public sealed class FunctionTableGenerationTests : IDisposable
             }
             finally { context.Unload(); }
         }
+    }
+
+    /// <summary>独立父记录查询也必须按实际发布页验证账号、业务键及状态。</summary>
+    private static void CheckGlobalBusinessParentPlan(Type service,string field,Metarill.Data.Queries.FixedReadFilter targetFilter)
+    {
+        const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+        const System.Reflection.BindingFlags staticBinding=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;
+        var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service.GetField(field,staticBinding)!.GetValue(null));
+        Assert.True(plan.RequiresAccount);
+        Assert.Equal("id",Assert.Single(plan.OutputTypes.Keys));
+        Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(
+            new Metarill.Core.Security.RuntimeActor(7,"合成账号",false,"100","70")));
+        var sql=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan)!;
+        var scope=Assert.IsType<string>(sql.GetType().GetProperty("Scope",hidden)!.GetValue(sql));
+        Assert.Contains("b.`status`",scope);
+        Assert.Contains("b.`dealer_id`",scope);
+        Assert.Contains("b.`delete_no` IS NULL",scope);
+        var render=typeof(Metarill.Data.Queries.MySqlNonRedundantReader).GetMethod("Filter",staticBinding)!;
+        var predicate=Assert.IsType<string>(render.Invoke(null,[sql,targetFilter with {Field="business_key"},0]));
+        Assert.Contains(targetFilter.Value is string?"=BINARY @filter_0":"@filter_0",predicate);
+        Assert.Contains("b.`business_key`",predicate);
     }
 
     /// <summary>装载完整包内的原表单，验证原确认事件到业务按钮的实际请求参数。</summary>

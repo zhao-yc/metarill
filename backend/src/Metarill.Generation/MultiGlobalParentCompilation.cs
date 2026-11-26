@@ -27,12 +27,12 @@ internal static class MultiGlobalParentCompilation
         $"        if((await new Metarill.Data.Queries.NonRedundantReader(session).KeyRowsAsync({plan}.BindAccount(actor),[],[{key}],cancellationToken,actor.ProjectId,currentRead:{currentRead})).Count!=1)throw new InvalidOperationException(\"全局父记录不存在、已删除或不在固定父范围。\");";
 
     /// <summary>发布层位已证明唯一业务列时，按同一父页和实际业务键读取。</summary>
-    internal static string CheckBusinessKey(string plan,ColumnModel key,string currentRead)
+    internal static string CheckBusinessKey(string plan,ColumnModel key,string value,string currentRead)
     {
         var field=Literal(key.Source.ColumnName);
         var filter=key.Type=="string?"
-            ?$"FixedReadFilter.ForTextParent({field},targetParentId!,businessKey:true)"
-            :$"new FixedReadFilter({field},FixedReadComparison.Equal,targetParentKey)";
+            ?$"FixedReadFilter.ForTextParent({field},{value},businessKey:true)"
+            :$"new FixedReadFilter({field},FixedReadComparison.Equal,{value})";
         return $"        if((await new NonRedundantReader(session).BusinessKeyRowsAsync({plan}.BindAccount(actor),{filter},cancellationToken,actor.ProjectId,currentRead:{currentRead})).Count!=1)throw new InvalidOperationException(\"全局父记录不存在、已删除或不在固定父范围。\");";
     }
 

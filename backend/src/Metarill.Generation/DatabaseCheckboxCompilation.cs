@@ -418,7 +418,7 @@ internal static class DatabaseCheckboxCompilation
                 sourceParent=fields[0];
                 parents=[parent];
                 // 逻辑父层以发布的唯一业务键为准，物理父字段和未指定业务键的层位沿用主键。
-                if (!parent.IsGlobal && logicalPage is { } parentScope &&
+                if (logicalPage is { } parentScope &&
                     NonRedundantCrossParentCompilation.Managed(model, target, parentScope, targetParent))
                 {
                     var path = NonRedundantCrossParentCompilation.Find(model, target, parentScope, targetParent)!.Value;

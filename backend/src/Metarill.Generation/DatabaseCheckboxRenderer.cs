@@ -67,7 +67,14 @@ internal static class DatabaseCheckboxRenderer
                 var textParent = def.UsesFunctionTextParent;
                 if (!textParent)
                     result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var parentKey)||parentKey<=0||parentId!=parentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"来源父ID必须为规范正整数字符串。\");");
-                if(def.GlobalParent)result.AppendLine(MultiGlobalParentCompilation.Check("CheckboxGlobalParent"+suffix,"parentKey","locking"));
+                if(def.GlobalParent)
+                {
+                    // 功能表可选已发布的全局业务键，父页账号范围和当前读边界由同一查询处理。
+                    var plan="CheckboxGlobalParent"+suffix;
+                    result.AppendLine(parentBusinessKey is null
+                        ?MultiGlobalParentCompilation.Check(plan,"parentKey","locking")
+                        :MultiGlobalParentCompilation.CheckBusinessKey(plan,parentBusinessKey,textParent?"parentId!":"parentKey","locking"));
+                }
                 // 冗余来源持久保存的是级联业务键时，继续沿实际发布父路径验证及锁定。
                 var businessPaths=def.GlobalParent?[]:SharedRedundantParentCompilation.ForColumn(model,table,page,def.SourceParent)
                     .Where(path=>path.Level.AlternateKey?.Source.LogicalType=="int64").ToArray();
