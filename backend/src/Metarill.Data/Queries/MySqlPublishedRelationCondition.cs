@@ -47,10 +47,12 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
         var projectAccount=global is null&&MySqlNonRedundantReadCompiler.IsProjectFixedMultiPage(catalog,target,page,checkboxAccount:true);
         var baselineExtra=projectAccount?baseline.AdditionalProjectConditions(page.WhereSql,fields):"";
         var ordinaryForm=global is null?baseline.AdditionalPhysicalFormConditions(catalog,target,page):null;
+        // 仅允许已重证物理父键的全局字典复用精确页。维护读取只绑定来源行，不引入操作人角色。
+        var exactPhysicalParent=global is {UsesStoredPhysicalParentPage:true}&&storage.IsPhysical(original)&&storage.IsPhysical(value);
         if(relation.ControlKind!="MultiCheckBoxDatabase"||page.Id!=pageId||
             !storedAccount&&!projectAccount&&ordinaryForm is null&&
                 (staticCondition is null?!string.IsNullOrWhiteSpace(baseline.WhereSql):!baseline.IsCoveredByStaticPage(staticCondition,fields))||
-            page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0||
+            page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0&&!exactPhysicalParent||
             !PublishedText(original)||!PublishedText(value))
             throw new InvalidOperationException("复选多名称必须使用固定目标页的已证明文本。");
         if(sourceParentId is null&&(!storage.IsPhysical(original)||!storage.IsPhysical(value)))

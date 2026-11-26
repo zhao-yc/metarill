@@ -232,7 +232,8 @@ internal static class DatabaseCheckboxCompilation
                 // 非冗余页仍通过原数组实时投影；冗余名称副本沿发布范围独立证明。
                 var realtimeFixedName=table.Source.IsRongyu==0&&
                     (target.Source.IsRongyu==0||storedIdentityPage||storedStaticPage||scopedGlobalParentPage)&&
-                    exactTarget is null&&namePage is not null&&(namePage.Source.Id==fixedPage||globalPageOverride);
+                    (exactTarget is null||scopedGlobalParentPage&&target.Source.IsRongyu==1&&!globalPageOverride)&&
+                    namePage is not null&&(namePage.Source.Id==fixedPage||globalPageOverride);
                 var storage=MetadataStoragePolicy.ForTable(model.Catalog,target.Source);
                 bool TextLabel(ColumnModel label)=>target.IsGlobal&&realtimeFixedName&&target.Source.IsRongyu==0
                     ?GlobalMultipleRelationTarget.IsPublishedCheckboxText(model.Catalog,target.Source,label.Source,namePage!.Source)
@@ -551,7 +552,8 @@ internal static class DatabaseCheckboxCompilation
     /// <summary>多份物理名称必须共用同一个保存及维护范围；全局范围直接由实际发布页提供。</summary>
     private static bool CanSharePhysicalNames(DatabaseCheckboxModel definition)
     {
-        if(definition.Name.Type!="string?"||definition.ExactTarget is not null||
+        // 精确权限由每次请求绑定。物理父字典的名称副本只记录完整固定范围内的名称。
+        if(definition.Name.Type!="string?"||definition.ExactTarget is not null&&!definition.HasStoredGlobalParentScope||
             definition.Conditions is not null&&!definition.HasStoredIdentityScope&&!definition.HasProjectStoredAccountScope&&!definition.ProjectFormScope)
             return false;
         if(definition.HasStoredGlobalParentScope)

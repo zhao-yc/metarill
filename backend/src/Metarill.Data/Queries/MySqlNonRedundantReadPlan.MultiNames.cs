@@ -143,16 +143,20 @@ public static partial class MySqlNonRedundantReadCompiler
             if(!GlobalCrossTableTarget.Declared(target)&&PhysicalTextMultiLabel(target,original)&&PhysicalTextMultiLabel(target,label))
                 return label.ColumnName;
             var fixedPage=globalPageId??(baseline.PageId.Length>0?baseline.PageId:Text(relation,"linkConfigPageId"));
+            // 同一精确字典页可以投影其它已开放物理文本；来源父键继续由行投影独立重证。
+            var storedParent=globalPageId is not null&&selected is not null&&
+                GlobalCrossTableTarget.StoredMultiParent(catalog,target,selected,checkbox:true,allowExact:true) is not null;
+            var exactPage=selected?.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0;
             var storedGlobal=target.IsRongyu==1&&(storedGlobalStatic||globalPageId is not null&&selected is not null&&
-                (StoredIdentityMultiPage(catalog,target,selected,checkbox:true)||
-                 GlobalCrossTableTarget.StoredMultiParent(catalog,target,selected,checkbox:true,allowExact:true) is not null));
+                (StoredIdentityMultiPage(catalog,target,selected,checkbox:true)||storedParent));
             bool TextLabel(ColumnMetadata column)=>storedGlobal
                 ?PhysicalTextMultiLabel(target,column)
                 :globalPageId is not null
                     ?GlobalMultipleRelationTarget.IsPublishedCheckboxText(catalog,target,column,selected)
                     :PhysicalTextMultiLabel(target,column)||MultiNameStorageColumns.IsDerivedCheckboxText(target,storage[target.Id],column);
             if(table.IsRongyu!=0||target.IsRongyu!=0&&!storedGlobal||selected is null||
-                selected.Id!=fixedPage||selected.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0||
+                selected.Id!=fixedPage||exactPage&&(!storedParent||
+                    selected.Id!=GlobalMultipleRelationTarget.Require(catalog,table,relation,target).Page.Id)||
                 definition.TableId.Length>0&&definition.TableId!=target.Id||
                 definition.Table.Length>0&&definition.Table!=target.TableName||
                 !TextLabel(original)||!TextLabel(label)||!MySqlPublishedRelationCondition.CheckboxLabelPublished(catalog,selected.Id,label.Id))
