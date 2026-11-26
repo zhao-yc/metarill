@@ -836,13 +836,11 @@ public static partial class MySqlNonRedundantReadCompiler
                 else
                 {
                     var proof=table.IsRongyu==1?GlobalMultipleRelationTarget.RequireCached(catalog,table,relation,target):
-                        sourcePage is not null&&overridden is not null&&relation.ControlKind=="MultiSelectPage"
+                        sourcePage is not null&&overridden is not null
                             ?GlobalMultipleRelationTarget.RequirePage(catalog,table,relation,target,sourcePage)
                             :GlobalMultipleRelationTarget.Require(catalog,table,relation,target);
-                    if(sourcePage is not null&&overridden is not null&&overridden.Id!=proof.Page.Id)
-                        proof=GlobalMultipleRelationTarget.RequirePage(catalog,table,relation,target,sourcePage);
-                    // 只有当前来源页已按同一发布目标重新证明的复选名称，才可覆盖表级名称。
-                    if(proof.Name.ColumnName!=display&&nameOverride is null)
+                    // 只读取表级关系或实际来源页证明的显示字段。
+                    if(proof.Name.ColumnName!=display)
                         throw new NotSupportedException("全局多值显示必须与固定名称声明一致。");
                     // 名称副本的读取、筛选及回填使用同一发布候选范围。
                     if(HasGlobalRowProject(target)||typedCache||!string.IsNullOrWhiteSpace(proof.Page.WhereSql))

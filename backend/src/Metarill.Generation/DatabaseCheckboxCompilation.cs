@@ -118,6 +118,7 @@ internal static class DatabaseCheckboxCompilation
             if(Protected(target)||target.Source.IsFunctionTable==1)return Gap("目标必须是有记录的业务表。");
             PageModel? globalPage=null;
             PageModel? publishedGlobalPage=null;
+            PageModel? defaultGlobalPage=null;
             var storedAccountPage=false;
             var storedProjectPage=false;
             var storedStaticPage=false;
@@ -127,13 +128,15 @@ internal static class DatabaseCheckboxCompilation
             if(target.IsGlobal&&!functionForm)
             {
                 var proof=table.Source.IsRongyu==1?GlobalMultipleRelationTarget.RequireCached(model.Catalog,table.Source,source.Source,target.Source):GlobalMultipleRelationTarget.Require(model.Catalog,table.Source,source.Source,target.Source);
-                if(definition.PageId.Length>0&&definition.PageId!=proof.Page.Id)
+                defaultGlobalPage=target.Pages.Single(page=>page.Source.Id==proof.Page.Id);
+                globalPageOverride=definition.PageId.Length>0&&definition.PageId!=proof.Page.Id;
+                if(globalPageOverride||table.Source.IsRongyu==0&&definition.NameField!=baseline.NameField)
                 {
                     if(table.Source.IsRongyu!=0)
                         return Gap("全局复选的物理名称副本必须沿用固定关系。");
                     proof=GlobalMultipleRelationTarget.RequirePage(model.Catalog,table.Source,source.Source,target.Source,page.Source);
-                    if(definition.PageId!=proof.Page.Id)return Gap("全局复选的目标页与实际来源配置不一致。");
-                    globalPageOverride=true;
+                    if((definition.PageId.Length>0&&definition.PageId!=proof.Page.Id)||definition.NameField!=proof.Name.ColumnName)
+                        return Gap("全局复选的目标页或名称与实际来源配置不一致。");
                 }
                 // 复选的搜索、回读与 Excel 必须沿已发布缓存目标页的同一固定范围。
                 publishedGlobalPage=target.Pages.Single(page=>page.Source.Id==proof.Page.Id);
@@ -236,14 +239,15 @@ internal static class DatabaseCheckboxCompilation
                     (exactTarget is null||globalExactName||scopedGlobalParentPage&&target.Source.IsRongyu==1)&&
                     namePage is not null&&(namePage.Source.Id==fixedPage||globalPageOverride);
                 var storage=MetadataStoragePolicy.ForTable(model.Catalog,target.Source);
-                bool TextLabel(ColumnModel label)=>target.IsGlobal&&realtimeFixedName&&target.Source.IsRongyu==0
-                    ?GlobalMultipleRelationTarget.IsPublishedCheckboxText(model.Catalog,target.Source,label.Source,namePage!.Source)
+                bool TextLabel(ColumnModel label,PageModel? labelPage)=>target.IsGlobal&&realtimeFixedName&&target.Source.IsRongyu==0
+                    ?GlobalMultipleRelationTarget.IsPublishedCheckboxText(model.Catalog,target.Source,label.Source,labelPage?.Source)
                     :MultiSelectCompilation.PhysicalTextLabel(model,target,label)||
                         (sharedLogicalParentScope||sharedDerivedPageScope||realtimeFixedName)&&
                         MultiNameStorageColumns.IsDerivedCheckboxText(target.Source,storage,label.Source);
                 var baseName=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==baseline.NameField);
-                if(functionForm||target.IsGlobal&&table.Source.IsRongyu!=1&&!realtimeFixedName||baseName is null||!TextLabel(baseName)||
-                    !TextLabel(name)||namePage is not null&&!namePage.Readable.Any(column=>column.Source.Id==name.Source.Id))
+                // 表级全称和页级简称允许各自使用已发布的不同固定联接。
+                if(functionForm||target.IsGlobal&&table.Source.IsRongyu!=1&&!realtimeFixedName||baseName is null||!TextLabel(baseName,defaultGlobalPage??namePage)||
+                    !TextLabel(name,namePage)||namePage is not null&&!namePage.Readable.Any(column=>column.Source.Id==name.Source.Id))
                     return Gap("页级名称须沿用同一固定文本关系，显式目标页必须已开放该字段。");
             }
             // 功能表没有持久化来源值。纯物理条件直接使用已绑定的账号和当前表单父键。

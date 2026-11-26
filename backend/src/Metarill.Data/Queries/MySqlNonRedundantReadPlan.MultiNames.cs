@@ -67,6 +67,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 var definition=baseline.WithPageOverride(overlay);
                 pageId=definition.PageId;
                 string? globalPageId=null;
+                PageMetadata? defaultGlobalPage=null;
                 if(binding.ApplyControlScope)
                 {
                     control=FixedConditionPlan.Compile(definition.WhereSql,columns[target.Id].Keys);
@@ -78,15 +79,17 @@ public static partial class MySqlNonRedundantReadCompiler
                 {
                     // 非冗余备用页从实际来源字段重证，旧配置仍沿唯一默认页。
                     var published=GlobalMultipleRelationTarget.Require(catalog,table,relation,target);
-                    if(pageId.Length>0&&pageId!=published.Page.Id)
+                    defaultGlobalPage=published.Page;
+                    if(pageId.Length>0&&pageId!=published.Page.Id||definition.NameField!=baseline.NameField)
                         published=GlobalMultipleRelationTarget.RequirePage(catalog,table,relation,target,source);
-                    if(pageId.Length>0&&pageId!=published.Page.Id||selected?.Id!=published.Page.Id||!binding.ApplyPageScope)
+                    if(pageId.Length>0&&pageId!=published.Page.Id||selected?.Id!=published.Page.Id||
+                        published.Name.ColumnName!=definition.NameField||!binding.ApplyPageScope)
                         throw new InvalidOperationException("全局复选名称与已发布目标页不一致。");
                     pageId=globalPageId=published.Page.Id;
                     storedGlobalStatic=GlobalCrossTableTarget.Declared(table)&&published.UsesStoredStaticPage;
                     globalAccountPage=published.UsesNonRedundantAccountPage||published.UsesPhysicalParentPage;
                 }
-                name=CheckboxPageNameOverride(table,relation,target,selected,baseline,definition,globalPageId,storedGlobalStatic);
+                name=CheckboxPageNameOverride(table,relation,target,selected,baseline,definition,globalPageId,defaultGlobalPage,storedGlobalStatic);
             }
             else
             {
@@ -135,7 +138,7 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>原非冗余复选从当前来源指定的实际发布页读取已开放的显示文本。</summary>
         private string? CheckboxPageNameOverride(TableMetadata table,ColumnMetadata relation,TableMetadata target,
             PageMetadata? selected,DatabaseCheckboxDefinition baseline,DatabaseCheckboxDefinition definition,string? globalPageId,
-            bool storedGlobalStatic)
+            PageMetadata? defaultGlobalPage,bool storedGlobalStatic)
         {
             if(definition.NameField==baseline.NameField)return null;
             var original=Column(target,baseline.NameField);
@@ -151,16 +154,17 @@ public static partial class MySqlNonRedundantReadCompiler
                 GlobalCrossTableTarget.DeclaresExactPage(target,selected);
             var storedGlobal=target.IsRongyu==1&&(storedGlobalStatic||globalPageId is not null&&selected is not null&&
                 (StoredIdentityMultiPage(catalog,target,selected,checkbox:true)||storedParent));
-            bool TextLabel(ColumnMetadata column)=>storedGlobal
+            bool TextLabel(ColumnMetadata column,PageMetadata? labelPage)=>storedGlobal
                 ?PhysicalTextMultiLabel(target,column)
                 :globalPageId is not null
-                    ?GlobalMultipleRelationTarget.IsPublishedCheckboxText(catalog,target,column,selected)
+                    ?GlobalMultipleRelationTarget.IsPublishedCheckboxText(catalog,target,column,labelPage)
                     :PhysicalTextMultiLabel(target,column)||MultiNameStorageColumns.IsDerivedCheckboxText(target,storage[target.Id],column);
             if(table.IsRongyu!=0||target.IsRongyu!=0&&!storedGlobal||selected is null||
                 selected.Id!=fixedPage||exactPage&&!storedParent&&!globalExact||
                 definition.TableId.Length>0&&definition.TableId!=target.Id||
                 definition.Table.Length>0&&definition.Table!=target.TableName||
-                !TextLabel(original)||!TextLabel(label)||!MySqlPublishedRelationCondition.CheckboxLabelPublished(catalog,selected.Id,label.Id))
+                !TextLabel(original,defaultGlobalPage??selected)||!TextLabel(label,selected)||
+                !MySqlPublishedRelationCondition.CheckboxLabelPublished(catalog,selected.Id,label.Id))
                 throw new InvalidOperationException("复选页级文本必须沿用实际固定目标页和已发布的单值名称。");
             return label.ColumnName;
         }

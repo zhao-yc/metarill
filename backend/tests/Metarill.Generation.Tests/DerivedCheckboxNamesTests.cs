@@ -746,9 +746,11 @@ public sealed class DerivedCheckboxNamesTests
     [InlineData(0, true, "project", true, false, "physical", false, 0)]
     [InlineData(0, false, "none", true, false, "joined", false, 2, true)]
     [InlineData(0, true, "none", true, false, "joined", true, 2, true)]
+    [InlineData(0, false, "none", true, true, "physical", false, 2, true, true)]
+    [InlineData(0, false, "none", true, true, "joined", false, 2, true, true)]
     public async Task Checkbox_global_business_names_follow_the_released_dictionary(
         int storageMode,bool rowProject,string condition,bool explicitPage,bool derived,string alternateName="",bool alternateInnerPage=false,
-        int exactPageType=-1,bool alternateDictionary=false)
+        int exactPageType=-1,bool alternateDictionary=false,bool independentDefault=false)
     {
         const string ns="Example.GlobalCheckboxRead";
         var catalog=Catalog("checkbox_global_read",false);
@@ -801,6 +803,31 @@ public sealed class DerivedCheckboxNamesTests
             }
         }
         var targetPage=catalog.ConfigPages.Single(page=>page.Id=="301");
+        if(independentDefault)
+        {
+            // 默认全称的下拉路径只在默认字典页固定，备用字典页不读取这条联接。
+            var companyLink=catalog.ConfigColumns.Single(column=>column.Id=="37");
+            companyLink.ControlKind="List";
+            companyLink.ControlDetail="""{"tableId":"4","nameField":"name"}""";
+            companyLink.Extra.Remove("linkConfigPageId");
+            catalog.ConfigPageColumns.Single(item=>item.ConfigPageId=="301"&&item.ConfigColumnId=="37")
+                .Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"pageId":"401"}""");
+            var alternateCompany=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(
+                catalog.ConfigPages.Single(page=>page.Id=="401")))!;
+            alternateCompany.Id="402";
+            if(alternateName=="joined")alternateCompany.WhereSql="label_enabled=17";
+            catalog.ConfigPages.Add(alternateCompany);
+            catalog.ConfigPageColumns.Add(new(){Id="40242",YzProjectId=catalog.YzProjectId,ConfigPageId="402",
+                ConfigColumnId="42",IsShow=1});
+            if(alternateName=="joined")
+            {
+                catalog.ConfigPageColumns.Add(new(){Id="4024051",YzProjectId=catalog.YzProjectId,ConfigPageId="402",
+                    ConfigColumnId="4051",IsShow=1});
+                catalog.ConfigColumns.Add(new(){Id="3055",ConfigTableId=target.Id,YzProjectId=catalog.YzProjectId,
+                    ColumnName="partner_id",LogicalType="int64",LinkConfigTableId="4",ControlKind="List",
+                    ControlDetail="""{"tableId":"4","pageId":"402","nameField":"caption"}"""});
+            }
+        }
         var account=condition=="account-form";
         const long manager=9007199254740997L;
         targetPage.WhereSql="status=48";
@@ -829,7 +856,15 @@ public sealed class DerivedCheckboxNamesTests
                 targetPage.WhereSql="status=47";
                 targetPage.Extra["type"]=JsonSerializer.SerializeToElement(0);
                 catalog.ConfigPages.Add(actual);
-                foreach(var column in catalog.ConfigPageColumns.Where(item=>item.ConfigPageId=="301").ToArray())
+                if(independentDefault)
+                {
+                    // 隐藏下拉仍需绑定写入校验范围，但本页名称计划不会投影默认联接。
+                    catalog.ConfigPageColumns.Add(new(){Id="30237",YzProjectId=catalog.YzProjectId,ConfigPageId="302",
+                        ConfigColumnId="37",IsShow=0,IsEdit=0,Extra=new(){
+                            ["controlDetail"]=JsonSerializer.SerializeToElement("""{"pageId":"402"}""")}});
+                }
+                foreach(var column in catalog.ConfigPageColumns.Where(item=>item.ConfigPageId=="301"&&
+                    (!independentDefault||item.ConfigColumnId is not ("32" or "37"))).ToArray())
                 {
                     var copy=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(column))!;
                     copy.Id="302"+copy.ConfigColumnId;
@@ -855,7 +890,7 @@ public sealed class DerivedCheckboxNamesTests
             if(alternateName=="joined")
             {
                 label.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
-                label.Extra["columnFullName"]=JsonSerializer.SerializeToElement("company.caption");
+                label.Extra["columnFullName"]=JsonSerializer.SerializeToElement(independentDefault?"partner.caption":"company.caption");
             }
             catalog.ConfigColumns.Add(label);
             labelSetting=new(){Id=targetPage.Id+"3053",ConfigPageId=targetPage.Id,ConfigColumnId=label.Id,YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=0};
@@ -871,6 +906,11 @@ public sealed class DerivedCheckboxNamesTests
         Assert.True(resolved.Definition is not null,resolved.Reason);
         var definition=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,source,page));
         Assert.Equal(targetPage.Id,definition.NameTargetPage?.Source.Id);
+        if(independentDefault)
+        {
+            Assert.Equal("short_label",GlobalMultipleRelationTarget.RequirePage(catalog,source.Source,field,target,page.Source).Name.ColumnName);
+            Assert.Equal("name",GlobalMultipleRelationTarget.Require(catalog,source.Source,field,target).Name.ColumnName);
+        }
         if(exactPageType>=0)
             Assert.Equal("scope_code",Assert.IsType<ExactDataManageModel>(definition.ExactTarget).Column.Source.ColumnName);
         Assert.Equal(alternateName.Length>0?"short_label":"name",definition.Name.Source.ColumnName);
@@ -894,6 +934,13 @@ public sealed class DerivedCheckboxNamesTests
         var constants=Read<IReadOnlyDictionary<string,object?>>("Constants");
         var status=Assert.Single(constants,pair=>Equals(pair.Value,48));
         if(alternateDictionary)Assert.DoesNotContain(47,constants.Values);
+        if(independentDefault&&alternateName=="joined")
+        {
+            Assert.Contains(17,constants.Values);
+            Assert.DoesNotContain(7,constants.Values);
+            Assert.Contains("partner_id",output);
+            Assert.DoesNotContain("multi_value.`company_id`",output);
+        }
         Assert.Equal(account,constants.Values.Contains(manager));
         foreach(var command in new[]{scope,output,predicate})
         {

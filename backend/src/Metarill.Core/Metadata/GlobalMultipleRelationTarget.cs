@@ -144,6 +144,7 @@ public static class GlobalMultipleRelationTarget
         var tableId=Value("tableId");var tableName=Value("table");var pageId=Value("pageId");var linkedPage=Extra("linkConfigPageId");
         if(tableId.Length>0&&tableId!=target.Id||tableName.Length>0&&tableName!=target.TableName||foreign.LinkConfigTableId.Length>0&&foreign.LinkConfigTableId!=target.Id||Extra("joinTable") is {Length:>0} joined&&joined!=target.TableName||pageId.Length>0&&linkedPage.Length>0&&pageId!=linkedPage)throw new InvalidOperationException("全局多值的表、页面或显示来源声明冲突。");
         if(pageId.Length==0)pageId=linkedPage;
+        string? pageName=null;
         if(sourcePage is not null)
         {
             var field=catalog.ConfigPageColumns.SingleOrDefault(item=>item.ConfigPageId==sourcePage.Id&&item.ConfigColumnId==foreign.Id);
@@ -151,6 +152,7 @@ public static class GlobalMultipleRelationTarget
             if(checkboxDefinition is not null)
             {
                 var actual=checkboxDefinition.WithPageOverride(overlay);
+                pageName=actual.NameField;
                 if(actual.TableId.Length>0&&actual.TableId!=target.Id||actual.Table.Length>0&&actual.Table!=target.TableName||
                     field?.Extra.GetValueOrDefault("controlKind").ToString() is {Length:>0} kind&&kind!=foreign.ControlKind)
                     throw new InvalidOperationException("全局复选页面覆盖必须沿用表级目标实体和控件。");
@@ -262,7 +264,8 @@ public static class GlobalMultipleRelationTarget
             throw new NotSupportedException("全局R0多选要求原type=2页面；复选继续使用独立候选入口。");
         var physical=MetadataStoragePolicy.ForTable(catalog,target);
         bool Scalar(ColumnMetadata column)=>GlobalPhysicalRelationValue.IsScalar(physical,target,column);
-        var nameField=Value("nameField");if(nameField.Length==0)nameField="name";
+        // 实时复选沿来源页同时选定发布页和显示字段，持久副本仍使用表级字段。
+        var nameField=pageName??Value("nameField");if(nameField.Length==0)nameField="name";
         var name=columns.SingleOrDefault(column=>column.ColumnName==nameField);
         var idLabel=name is not null&&name.ColumnName=="id"&&name.LogicalType=="int64"&&name.IsDbNotNull==1&&Scalar(name);
         // 物理列或固定联接名称由发布证明验证实际终点。

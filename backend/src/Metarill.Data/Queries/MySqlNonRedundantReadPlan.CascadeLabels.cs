@@ -542,10 +542,12 @@ public static partial class MySqlNonRedundantReadCompiler
             foreach(var sourcePage in catalog.ConfigPages.Where(page=>page.ConfigTableId==owner.Id&&
                 (page.YzProjectId.Length==0||page.YzProjectId==catalog.YzProjectId)))
             {
-                var selected=DeclaredMultiPageOverride(catalog,table,name,column,sourcePage)??defaultPage;
-                if(selected is not null&&(selected.Id!=defaultPage?.Id||
+                var actual=DeclaredMultiPageOverride(catalog,table,name,column,sourcePage);
+                var selected=actual?.Page??defaultPage;
+                var display=actual?.Name??name;
+                if(selected is not null&&(selected.Id!=defaultPage?.Id||display!=name||
                     HasCompoundMultiSelectSource(catalog,owner,sourcePage,column,selected)))
-                    yield return (owner,table,name,column,sourcePage,selected);
+                    yield return (owner,table,display,column,sourcePage,selected);
             }
         }
     }
@@ -565,8 +567,8 @@ public static partial class MySqlNonRedundantReadCompiler
         }
     }
 
-    /// <summary>保留实际候选页。原多选可在同一目标表用另一物理文本名称。</summary>
-    private static PageMetadata? DeclaredMultiPageOverride(MetadataCatalog catalog,TableMetadata target,string name,
+    /// <summary>冻结实际候选页和该页选择的全局复选名称。</summary>
+    private static (PageMetadata Page,string Name)? DeclaredMultiPageOverride(MetadataCatalog catalog,TableMetadata target,string name,
         ColumnMetadata relation,PageMetadata sourcePage)
     {
         try
@@ -580,7 +582,8 @@ public static partial class MySqlNonRedundantReadCompiler
             if(GlobalCrossTableTarget.Declared(target))
             {
                 var source=catalog.ConfigTables.Single(table=>table.Id==sourcePage.ConfigTableId);
-                return GlobalMultipleRelationTarget.RequirePage(catalog,source,relation,target,sourcePage).Page;
+                var actual=GlobalMultipleRelationTarget.RequirePage(catalog,source,relation,target,sourcePage);
+                return (actual.Page,actual.Name.ColumnName);
             }
             var checkbox=relation.ControlKind=="MultiCheckBoxDatabase";
             JsonElement definition;
@@ -611,9 +614,10 @@ public static partial class MySqlNonRedundantReadCompiler
             }
             var pageId=MultiPageId(definition);
             if(checkbox&&pageId.Length==0)pageId=Text(relation,"linkConfigPageId");
-            return catalog.ConfigPages.SingleOrDefault(page=>page.ConfigTableId==target.Id&&page.Id==pageId&&
+            var selected=catalog.ConfigPages.SingleOrDefault(page=>page.ConfigTableId==target.Id&&page.Id==pageId&&
                 (page.YzProjectId.Length==0||page.YzProjectId==catalog.YzProjectId)&&
                 (checkbox||page.Extra.GetValueOrDefault("type").ToString()=="2"));
+            return selected is null?null:(selected,name);
         }
         catch(Exception error)when(error is ArgumentException or InvalidOperationException or NotSupportedException or JsonException)
         {
