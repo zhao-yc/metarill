@@ -53,7 +53,7 @@ internal static class FileReferenceScope
             var crossFields=new HashSet<string>(StringComparer.Ordinal);
             var selfTreeFields=new HashSet<string>(StringComparer.Ordinal);
             var syntax=FixedConditionPlan.Compile(page.WhereSql,declared.Select(column=>column.ColumnName));
-            var joinedFields=ProjectScopedSingleRelationTarget.JoinedTextPageFields(catalog,table,page);
+            var joinedFields=ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,table,page);
             var redundant=RedundantSharedParents.Compile(catalog,table.Id,page.Id);
             foreach(var term in syntax.Terms)
             {

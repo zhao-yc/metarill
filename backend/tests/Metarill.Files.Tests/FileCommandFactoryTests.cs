@@ -509,20 +509,27 @@ public sealed class FileCommandFactoryTests
 
     /// <summary>附件范围用实际字典页和来源页联接常量，快照及当前读均保留同一组查询条件。</summary>
     [Theory]
-    [InlineData(false,false,true)]
-    [InlineData(false,true,false)]
-    [InlineData(true,false,false)]
-    [InlineData(true,true,true)]
-    public async Task File_page_uses_joined_dictionary_conditions(bool stored,bool locking,bool visible)
+    [InlineData(false,false,true,true)]
+    [InlineData(false,true,false,true)]
+    [InlineData(true,false,false,true)]
+    [InlineData(true,true,true,true)]
+    [InlineData(false,false,true,false)]
+    [InlineData(false,true,false,false)]
+    [InlineData(true,false,false,false)]
+    [InlineData(true,true,true,false)]
+    public async Task File_page_uses_joined_dictionary_conditions(bool stored,bool locking,bool visible,bool parented)
     {
         const long recordId=9007199254740993L;
         var catalog=JoinedConditionFileCatalog(stored);
+        if(!parented)
+            catalog.ConfigPages.Single(item=>item.Id=="101").WhereSql=
+                "yz_project_id=@current_yz_project_id AND display_region='可下载'";
         var registry=new FileMetadataContext([catalog]);
         var frozen=Assert.Single(registry.Catalogs);
         var page=frozen.ConfigPages.Single(item=>item.Id=="101");
         var scope=registry.PageScope(frozen,page);
         Assert.True(registry.NeedsFileReadSnapshot);
-        Assert.Single(scope.Crosses);
+        Assert.Equal(parented?1:0,scope.Crosses.Count);
         var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(scope.LogicalConditionPlan);
         var actor=new RuntimeActor(12,"测试",false,"1","3");
         Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor));
@@ -605,13 +612,18 @@ public sealed class FileCommandFactoryTests
 
     /// <summary>业务关联的目标页条件由该页实际绑定求值，字典中间层和末级范围进入同一当前读。</summary>
     [Theory]
-    [InlineData(false,false)]
-    [InlineData(true,false)]
-    [InlineData(false,true)]
-    [InlineData(true,true)]
-    public async Task Business_lookup_locks_the_pages_used_by_dictionary_conditions(bool stored,bool explicitTarget)
+    [InlineData(false,false,true)]
+    [InlineData(true,false,true)]
+    [InlineData(false,true,true)]
+    [InlineData(true,true,true)]
+    [InlineData(false,false,false)]
+    [InlineData(true,true,false)]
+    public async Task Business_lookup_locks_the_pages_used_by_dictionary_conditions(bool stored,bool explicitTarget,bool parented)
     {
         var catalog=JoinedConditionFileCatalog(stored);
+        if(!parented)
+            catalog.ConfigPages.Single(item=>item.Id=="101").WhereSql=
+                "yz_project_id=@current_yz_project_id AND display_region='可下载'";
         catalog.ConfigTables.Add(new(){Id="7",TableName="file_joined_scope_order",IsRongyu=0,YzProjectId="1"});
         catalog.ConfigColumns.AddRange([
             new(){Id="71",ConfigTableId="7",ColumnName="id",LogicalType="int64",IsDbNotNull=1,YzProjectId="1"},
@@ -626,7 +638,7 @@ public sealed class FileCommandFactoryTests
         ]);
         catalog.ConfigPages.Add(new(){Id="701",ConfigTableId="7",YzAdminTypeId="3",YzProjectId="1",
             WhereSql="yz_project_id=@current_yz_project_id AND country_id=@parent_id"});
-        var binding=new Metarill.Data.Queries.NonRedundantSingleTargetScope("74","101","73")
+        var binding=new Metarill.Data.Queries.NonRedundantSingleTargetScope("74","101",parented?"73":null)
         {
             SourcePageId="701",
             NestedTargets=explicitTarget?[new("18","501"){SourcePageId="101"}]:[]
@@ -729,14 +741,34 @@ public sealed class FileCommandFactoryTests
     }
 
     /// <summary>附件联接条件的别名必须落到非凭据终点。</summary>
-    [Fact]
-    public void File_joined_dictionary_condition_rejects_credential_terminal()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void File_joined_dictionary_condition_rejects_credential_terminal(bool parented)
     {
         var catalog=JoinedConditionFileCatalog(stored:true);
+        if(!parented)
+            catalog.ConfigPages.Single(item=>item.Id=="101").WhereSql=
+                "yz_project_id=@current_yz_project_id AND display_region='可下载'";
         catalog.ConfigColumns.Add(new(){Id="505",ConfigTableId="5",ColumnName="password",LogicalType="string",YzProjectId="1"});
         catalog.ConfigColumns.Single(column=>column.Id=="19").Extra["columnFullName"]=
             System.Text.Json.JsonSerializer.SerializeToElement("label_item.password");
         Assert.Throws<NotSupportedException>(()=>FileReferenceScope.CompilePage(catalog,catalog.ConfigTables[0],catalog.ConfigPages[0]));
+    }
+
+    /// <summary>普通页列可以联接本表，只有目标页条件重新引用同一发布范围时才拒绝。</summary>
+    [Fact]
+    public void File_joined_dictionary_condition_rejects_recursive_page()
+    {
+        var catalog=JoinedConditionFileCatalog(stored:false);
+        var page=catalog.ConfigPages.Single(item=>item.Id=="101");
+        page.WhereSql="yz_project_id=@current_yz_project_id AND display_region='可下载'";
+        var foreign=catalog.ConfigColumns.Single(item=>item.Id=="18");
+        foreign.LinkConfigTableId="1";
+        foreign.ControlDetail="""{"tableId":"1","pageId":"101","nameField":"name"}""";
+        foreign.Extra["linkConfigPageId"]=System.Text.Json.JsonSerializer.SerializeToElement("101");
+        var error=Assert.Throws<NotSupportedException>(()=>FileReferenceScope.CompilePage(catalog,catalog.ConfigTables[0],page));
+        Assert.Contains("循环依赖",error.Message);
     }
 
     /// <summary>使用已有跨表祖先模型，联接目标通过实际页面限制门店和名称。</summary>

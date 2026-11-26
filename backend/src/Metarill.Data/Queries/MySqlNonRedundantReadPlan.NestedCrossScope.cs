@@ -31,7 +31,8 @@ public static partial class MySqlNonRedundantReadCompiler
         HashSet<(string TableId,string ControlId)>? activeSelfTreeScopes=null,IReadOnlyList<string>? listFields=null,
         bool projectSingle=false,string? accountParentPageType=null,
         IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,bool exactSingleParent=false,
-        bool exactCheckboxParent=false,string? projectSingleControlKind=null,bool globalExactSingle=false, bool lockPublishedJoinScopes=false)
+        bool exactCheckboxParent=false,string? projectSingleControlKind=null,bool globalExactSingle=false,
+        bool lockPublishedJoinScopes=false,HashSet<string>? activeSinglePages=null)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(outputs);
@@ -70,7 +71,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var projectParent=exactCheckboxParent?MultiTargetParentScope.Compile(catalog,table,syntax):
             !global?ProjectScopedSingleRelationTarget.PageParent(catalog,table,page):null;
         var storage=MetadataStoragePolicy.ForTable(catalog,table);
-        var pageJoins=ProjectScopedSingleRelationTarget.JoinedTextPageFields(catalog,table,page);
+        var pageJoins=ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,table,page);
         var listJoins=!global&&projectParent is {Logical:true,Global:false,Target.LogicalType:"string"}&&
             !exactCheckboxParent&&listFields is not null
             ?columns.Where(column=>listFields.Contains(column.ColumnName)&&
@@ -129,6 +130,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var scopes=logical.Count==0?[]:CrossMembershipBindings(catalog,table,page,logical);
         // 范围的绑定按发布页生成，其它绑定仅用于该独立选择页展示额外的路径。
         var bindings=scopes.Concat(displayBindings??[]).DistinctBy(path=>path.SourceColumnId,StringComparer.Ordinal).ToArray();
+        var activePages=activeSinglePages??new HashSet<string>(StringComparer.Ordinal);
         var builder=new Builder(catalog,tableId,deferCascadeNames:projectionTrees.Count>0||accountParentPage||physicalParent is not null,crossTables:bindings,rootAlias:rootAlias,aliasPrefix:aliasPrefix)
         {
             CrossCandidateCondition=condition,
@@ -136,6 +138,7 @@ public static partial class MySqlNonRedundantReadCompiler
             ControlConditionJoins=listJoins.Select(column=>column.ColumnName).Concat(pageJoins).ToFrozenSet(StringComparer.OrdinalIgnoreCase),
             SelfTreeCandidateFields=projectionTrees,
             ActiveSelfTreeScopes=activeSelfTreeScopes??new(),
+            ActiveSinglePages=activePages,
             MultiCandidateParent=projectSingle&&parent?.AdditionalTargets.Count is not >0?null:parent,
             MultiCandidatePage=page,
             MultiCandidateProjectScoped=parent is {Logical:false}&&
@@ -150,9 +153,20 @@ public static partial class MySqlNonRedundantReadCompiler
             CrossAliasPrefix=rootAlias=="b"?"cross":aliasPrefix+"c"
         };
         // 精确范围与父级条件都留在计划中。授权集合由真实读取入口单独绑定。
-        var plan=builder.Compile(outputs,dependencies.Concat(syntax.Fields).Concat(listFields??[])
-            .Concat(exactParent||globalExactSingle ? new[] { match } : [])
-            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
+        // 对自身或彼此引用的字典页，重复进入同一发布范围会无限展开条件。
+        if(!activePages.Add(page.Id))
+            throw new NotSupportedException("固定字典页联接条件存在循环依赖。");
+        MySqlNonRedundantReadPlan plan;
+        try
+        {
+            plan=builder.Compile(outputs,dependencies.Concat(syntax.Fields).Concat(listFields??[])
+                .Concat(exactParent||globalExactSingle ? new[] { match } : [])
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
+        }
+        finally
+        {
+            activePages.Remove(page.Id);
+        }
         // 联接别名必须解析到同类型的实际非凭据标量，运行时只能应用已证明的联接条件。
         foreach(var column in columns.Where(column=>builder.ControlConditionJoins.Contains(column.ColumnName)))
         {
@@ -651,6 +665,7 @@ public static partial class MySqlNonRedundantReadCompiler
             return catalog.ConfigPages.Single(page=>page.Id==pageId&&page.ConfigTableId==source.Id);
         }
 
+        internal HashSet<string> ActiveSinglePages { get; init; } = new(StringComparer.Ordinal);
         internal bool LockPublishedJoinScopes{get;init;}
         private string PublishedJoinLock=>LockPublishedJoinScopes?NestedReadLockMarker:"";
 
@@ -740,7 +755,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var plan=CompileCrossPageCandidate(catalog,target.Id,page.Id,["id"],[],rootAlias:prefix,aliasPrefix:prefix+"_",
                 activeSelfTreeScopes:ActiveSelfTreeScopes,listFields:control?.Fields.ToArray(),projectSingle:true,
                 projectSingleControlKind:relation.ControlKind,singleTargets:binding.NestedTargets,
-                lockPublishedJoinScopes:LockPublishedJoinScopes);
+                lockPublishedJoinScopes:LockPublishedJoinScopes,activeSinglePages:ActiveSinglePages);
             plan.CopyParametersTo(crossConstants);
             foreach(var reference in plan.PhysicalReferences)
                 references.TryAdd((reference.Table,reference.Column.Name),reference);
@@ -790,7 +805,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var prefix=ConditionParameterPrefix("mt_"+aliasPrefix+alias+"_single");
             var plan=CompileCrossPageCandidate(catalog,table.Id,page.Id,["id"],[],rootAlias:prefix,aliasPrefix:prefix+"_",
                 activeSelfTreeScopes:ActiveSelfTreeScopes,globalExactSingle:GlobalCrossTableTarget.DeclaresExactSingle(table,page),
-                lockPublishedJoinScopes:LockPublishedJoinScopes);
+                lockPublishedJoinScopes:LockPublishedJoinScopes,activeSinglePages:ActiveSinglePages);
             plan.CopyParametersTo(crossConstants);
             foreach(var reference in plan.PhysicalReferences)
                 references.TryAdd((reference.Table,reference.Column.Name),reference);

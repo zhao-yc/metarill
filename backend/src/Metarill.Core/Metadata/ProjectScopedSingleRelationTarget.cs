@@ -48,8 +48,16 @@ public static class ProjectScopedSingleRelationTarget
     public static MultiTargetParentScope? LogicalParent(MetadataCatalog catalog,TableMetadata target,PageMetadata page)=>
         PageParent(catalog,target,page) is {Logical:true} parent?parent:null;
 
-    /// <summary>仅项目内单值字典的已发布文本祖先可叠加联接常量；账号和父变量沿物理或级联证明。</summary>
-    public static IReadOnlySet<string> JoinedTextPageFields(MetadataCatalog catalog,TableMetadata target,PageMetadata page)
+    /// <summary>原文本逻辑父级字典的联接条件，保持选择与缓存用途的既有发布范围。</summary>
+    public static IReadOnlySet<string> JoinedTextPageFields(MetadataCatalog catalog,TableMetadata target,PageMetadata page)=>
+        PublishedJoinedFields(catalog,target,page,allowOrdinaryPage:false);
+
+    /// <summary>普通业务页和已证明的文本逻辑父页可按单值联接设置固定条件。</summary>
+    public static IReadOnlySet<string> JoinedPageFields(MetadataCatalog catalog,TableMetadata target,PageMetadata page)=>
+        PublishedJoinedFields(catalog,target,page,allowOrdinaryPage:true);
+
+    /// <summary>仅接受发布身份、实际项目列和固定常量，变量沿真实账号或父键验证。</summary>
+    private static IReadOnlySet<string> PublishedJoinedFields(MetadataCatalog catalog,TableMetadata target,PageMetadata page,bool allowOrdinaryPage)
     {
         var fields=new HashSet<string>(StringComparer.Ordinal);
         if(target is not {IsRongyu:0,IsView:0,IsFunctionTable:0}||
@@ -65,7 +73,12 @@ public static class ProjectScopedSingleRelationTarget
             if(syntax.Fields.Contains(column.ColumnName)&&syntax.Terms.Where(term=>term.Field==column.ColumnName)
                 .All(term=>term.Values.All(value=>value.Kind!=FixedConditionValueKind.Variable)))
                 fields.Add(column.ColumnName);
-        if(fields.Count>0&&PageParent(catalog,target,page) is not {Logical:true,Global:false,Target.LogicalType:"string",AdditionalTargets.Count:0})
+        if(fields.Count==0)return fields;
+        var ordinaryPage=allowOrdinaryPage&&page.Extra.GetValueOrDefault("type").ToString() is ("" or "0")&&
+            !syntax.Variables.Any(MultiTargetParentScope.IsParameter)&&
+            columns.Any(column=>column.ColumnName=="yz_project_id"&&column.LogicalType is ("int64" or "string")&&
+                GlobalPhysicalRelationValue.IsScalar(storage,target,column));
+        if(!ordinaryPage&&PageParent(catalog,target,page) is not {Logical:true,Global:false,Target.LogicalType:"string",AdditionalTargets.Count:0})
             fields.Clear();
         return fields;
     }

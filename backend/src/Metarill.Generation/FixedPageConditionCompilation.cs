@@ -48,7 +48,7 @@ internal static class FixedPageConditionCompilation
             var selfTreeFields=fields.Where(field=>CascadeTreeStorageColumns.IsLogicalNameField(table,columns.Select(column=>column.Source),field)).ToHashSet(StringComparer.Ordinal);
             var joinedFields=page is not null&&table.IsRongyu==0&&columns.Any(column=>
                 fields.Contains(column.Source.ColumnName)&&physical.Kind(column.Source)==MetadataFieldStorage.Join)
-                ?ProjectScopedSingleRelationTarget.JoinedTextPageFields(catalog,table,page):new HashSet<string>(StringComparer.Ordinal);
+                ?ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,table,page):new HashSet<string>(StringComparer.Ordinal);
             foreach(var field in fields)
             {
                 var column=columns.Single(column=>column.Source.ColumnName==field);

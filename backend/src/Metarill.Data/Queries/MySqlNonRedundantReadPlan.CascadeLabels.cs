@@ -80,7 +80,7 @@ public static partial class MySqlNonRedundantReadCompiler
         IReadOnlyList<string> conditionFields,IReadOnlySet<string> crossFields,IReadOnlySet<string> selfTreeFields,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)
     {
-        var joinedFields=ProjectScopedSingleRelationTarget.JoinedTextPageFields(catalog,table,page)
+        var joinedFields=ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,table,page)
             .Where(conditionFields.Contains).ToFrozenSet(StringComparer.OrdinalIgnoreCase);
         if(!catalog.ConfigPages.Contains(page)||page.ConfigTableId!=table.Id||
             table.IsRongyu!=0||(crossFields.Count==0&&selfTreeFields.Count==0&&joinedFields.Count==0)||
@@ -95,7 +95,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var plan=CompileRelationScope(catalog,table.Id,outputs,bindings,
             conditionFields.Concat(dependencies).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
             deferCascadeNames:selfTreeFields.Count>0,singleTargets:singleTargets,conditionJoins:joinedFields,
-            conditionSourcePage:joinedFields.Count>0&&singleTargets is null?page:null);
+            conditionSourcePage:joinedFields.Count>0?page:null);
         foreach(var field in joinedFields)
         {
             plan.RequireScalarLabelOrigin(field);

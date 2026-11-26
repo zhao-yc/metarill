@@ -12,12 +12,13 @@ internal static partial class NonRedundantReadCompilation
         if(table.Source.IsRongyu!=0)return [];
         var active=new HashSet<(string Table,string Field)>();
         return MergeProjectTargets(fields.Distinct(StringComparer.OrdinalIgnoreCase)
-            .Select(field=>ProjectPathTarget(model,table,page,[field],active,multiValuePath)).OfType<NonRedundantSingleTargetScope>());
+            .Select(field=>ProjectPathTarget(model,table,page,[field],active,multiValuePath,
+                page.Condition?.JoinedFields.Contains(field)==true)).OfType<NonRedundantSingleTargetScope>());
     }
 
     /// <summary>显式联接和原自动名称使用与 SQL 相同的物理关系字段及表级显示名。</summary>
     private static NonRedundantSingleTargetScope? ProjectPathTarget(GenerationModel model,TableModel table,PageModel page,
-        string[] path,HashSet<(string Table,string Field)> active,bool multiValuePath)
+        string[] path,HashSet<(string Table,string Field)> active,bool multiValuePath,bool conditionPath)
     {
         if(path[0].Length==0)return null;
         var field=path[0];
@@ -33,7 +34,7 @@ internal static partial class NonRedundantReadCompilation
             try
             {
                 var declared=column.Source.Extra.GetValueOrDefault("columnFullName").ToString().Split('.');
-                return declared.Length<2?null:ProjectPathTarget(model,table,page,declared,active,multiValuePath);
+                return declared.Length<2?null:ProjectPathTarget(model,table,page,declared,active,multiValuePath,conditionPath);
             }
             finally{active.Remove((table.Source.Id,column.Source.Id));}
         }
@@ -69,6 +70,12 @@ internal static partial class NonRedundantReadCompilation
                 // 多值名称按实际物理字典页限定可见性，来源页也须保留供运行时复核。
                 if(UsesPageBoundGlobalList(relation))
                     return ProjectTarget(model,table,page,relation) with{ApplyPageCondition=false};
+                // 普通页查询和写入条件须用同一已发布的冗余字典页，条件字段即使隐藏也不能丢掉账号范围。
+                if(conditionPath&&!relation.Target.IsGlobal&&
+                    Metarill.Core.Metadata.ProjectScopedSingleRelationTarget.NestedPage(model.Catalog,table.Source,page.Source,
+                        foreign.Source,relation.Target.Source,allowStoredTarget:true) is {Scoped:true} conditionPage&&
+                    conditionPage.Page.Id==relation.TargetPage.Source.Id)
+                    return ProjectTarget(model,table,page,relation) with{SourcePageId=page.Source.Id};
                 if(!multiValuePath||relation.Target.Source.IsRongyu!=1)return null;
                 var storedPage=relation.Target.IsGlobal
                     ?Metarill.Core.Metadata.GlobalSingleRelationTarget.StoredMultiName(model.Catalog,table.Source,page.Source,
@@ -77,7 +84,7 @@ internal static partial class NonRedundantReadCompilation
                         foreign.Source,relation.Target.Source,allowStoredTarget:true) is {Scoped:true} local?local.Page:null;
                 return storedPage is null?null:new(foreign.Source.Id,storedPage.Id){SourcePageId=page.Source.Id};
             }
-            var downstream=ProjectPathTarget(model,relation.Target,relation.TargetPage,tail,active,multiValuePath);
+            var downstream=ProjectPathTarget(model,relation.Target,relation.TargetPage,tail,active,multiValuePath,conditionPath);
             IReadOnlyList<NonRedundantSingleTargetScope> nested=downstream is null?[]:[downstream];
             // 即使原 List 未声明附加条件，名称依旧受实际全局页的物理常量限制。
             var globalLiteralScope=multiValuePath&&relation.Target.IsGlobal&&relation.TargetPage.Scopes.Count==0&&

@@ -64,6 +64,8 @@ public sealed class SharedCrossFilesGenerationTests
     [InlineData("shared",false)]
     [InlineData("compound",false)]
     [InlineData("unparented",false)]
+    [InlineData("unparented-condition",false)]
+    [InlineData("unparented-condition-stored",false)]
     [InlineData("physical",false)]
     [InlineData("shared",true)]
     [InlineData("physical",true)]
@@ -72,7 +74,7 @@ public sealed class SharedCrossFilesGenerationTests
         var catalog=Catalog("shared_parent","int64","int64");
         var project=catalog.YzProjectId;
         var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="202");
-        catalog.ConfigTables.Add(new(){Id="950",YzProjectId=project,TableName="shared_parent_branch",IsRongyu=0});
+        catalog.ConfigTables.Add(new(){Id="950",YzProjectId=project,TableName="shared_parent_branch",IsRongyu=parentMode=="unparented-condition-stored"?1:0});
         catalog.ConfigColumns.AddRange([
             new(){Id="951",YzProjectId=project,ConfigTableId="950",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
             new(){Id="952",YzProjectId=project,ConfigTableId="950",ColumnName="name",LogicalType="string"},
@@ -103,10 +105,12 @@ public sealed class SharedCrossFilesGenerationTests
                 ConfigColumnId="957",IsShow=1,IsEdit=1});
             sourcePage.WhereSql+=" AND parent_country_id=@parent_id";
         }
-        if(parentMode is "unparented" or "physical")
+        if(parentMode is "unparented" or "unparented-condition" or "unparented-condition-stored" or "physical")
         {
             sourcePage.WhereSql="yz_project_id=@current_yz_project_id";
             if(parentMode=="physical")sourcePage.WhereSql+=" AND owner_country_id=@parent_id";
+            if(parentMode.StartsWith("unparented-condition",StringComparison.Ordinal))
+                sourcePage.WhereSql+=" AND branch_name <> '隐藏分组'";
         }
         var requiredStorage=parentMode switch
         {
@@ -128,6 +132,29 @@ public sealed class SharedCrossFilesGenerationTests
             new ApplicationPackager().Create(catalog,directory,"Example.SharedFileExact",NonRedundantApplicationFixture.Root());
             foreach(var operation in new[]{"restore","build"})
                 await NonRedundantApplicationFixture.BuildAsync(directory,operation);
+            var modelPage=catalog.ConfigPages.Single(item=>item.Id==sourcePageId);
+            if(modelPage.WhereSql.Contains("branch_name",StringComparison.Ordinal))
+            {
+                var service=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/Services/SharedParentSourceService.g.cs"));
+                Assert.Contains("CrossConditionPlan"+sourcePageId,service);
+                Assert.Contains("NonRedundantCrossTableScopeSql.ApplyCondition",service);
+                var model=GenerationModel.Create(catalog,"Example.SharedFileExact");
+                var source=model.Tables.Single(item=>item.Source.Id==modelPage.ConfigTableId);
+                var pageModel=source.Pages.Single(item=>item.Source.Id==sourcePageId);
+                var generatedRead=NonRedundantReadCompilation.ForPage(model,source,pageModel);
+                Assert.True(generatedRead.RequiresAccount);
+                var readCatalog=await TextCascadeParentRelationTests.PublishedReadCatalog(directory);
+                var readPage=readCatalog.ConfigPages.Single(item=>item.Id==sourcePageId);
+                Assert.Equal(modelPage.WhereSql,readPage.WhereSql);
+                Assert.Contains("store_id=@current_store_id",readCatalog.ConfigPages.Single(item=>item.Id=="959").WhereSql);
+                var list=NonRedundantReads.CompileProjectPage(readCatalog,source.Source.Id,["id"],["branch_name"],[],generatedRead.SingleTargets);
+                Assert.True(list.RequiresAccount);
+                var condition=pageModel.Condition!;
+                var readTable=readCatalog.ConfigTables.Single(item=>item.Id==source.Source.Id);
+                var scope=NonRedundantReads.CompilePageMembership(readCatalog,readTable,readPage,condition.Syntax.Fields,
+                    condition.CrossFields,condition.SelfTreeFields,["id"],[],generatedRead.SingleTargets);
+                Assert.True(scope.RequiresAccount);
+            }
             var metadata=await File.ReadAllTextAsync(Path.Combine(directory,"backend/metadata/project.json"));
             var published=JsonSerializer.Deserialize<MetadataCatalog>(metadata,new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
             var context=new FileMetadataContext([published]);

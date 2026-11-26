@@ -2008,7 +2008,7 @@ public sealed class TextCascadeParentRelationTests
     }
 
     /// <summary>使用生成应用实际装载的精简目录重放查询，包含页级范围与原控件绑定。</summary>
-    private static async Task<MetadataCatalog> PublishedReadCatalog(string directory,bool maintenanceOnly=false)
+    internal static async Task<MetadataCatalog> PublishedReadCatalog(string directory,bool maintenanceOnly=false)
     {
         var registration=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/GeneratedRegistration.g.cs"));
         var snapshot=maintenanceOnly

@@ -116,8 +116,14 @@ internal static partial class BackendRenderer
         var checkboxOrders=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForPage(model,table,page)))
             .Select(checkbox=>checkbox.CandidateOrderTargets).OfType<IReadOnlyList<Metarill.Data.Queries.NonRedundantSingleTargetScope>>().ToArray();
         var selfTrees=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>CascadeTreeReadCompilation.ForService(model,table,page))).ToArray();
-        var candidateRelationPages=selfTrees.Where(tree=>tree.DerivedOrder)
-            .SelectMany(tree=>NamePages(DerivedCascadeNamesCompilation.OrderTargets(model,tree)))
+        // 普通业务页的联接条件须随精简运行目录发布，静态初始化才能重建相同的实际字典范围。
+        var joinedConditionPages=model.Tables.SelectMany(table=>table.Pages.Where(FixedPageConditionCompilation.HasJoinedFields)
+            .Select(page=>(Table:table,Page:page))).ToArray();
+        scopedPages=scopedPages.Concat(joinedConditionPages);
+        var candidateRelationPages=joinedConditionPages.SelectMany(root=>NamePages(
+                NonRedundantReadCompilation.ProjectPathTargets(model,root.Table,root.Page,root.Page.Condition!.JoinedFields)))
+            .Concat(selfTrees.Where(tree=>tree.DerivedOrder)
+                .SelectMany(tree=>NamePages(DerivedCascadeNamesCompilation.OrderTargets(model,tree))))
             .Concat(selfTrees.Where(tree=>tree.DerivedName).SelectMany(tree=>NamePages(
                 CascadeTargetOrderCompilation.NameTargets(model,tree.Target,tree.TargetPage,tree.Name,tree.DerivedName))))
             .Concat(model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>CrossTableReadCompilation.ForService(model,table,page)))
@@ -191,6 +197,7 @@ internal static partial class BackendRenderer
         if(model.Tables.Any(table=>table.Source.IsRongyu==0&&table.Pages.Any(page=>SharedCrossTableCompilation.ForPage(model,table,page).Groups.Count>0)))helpers+="    /// <summary>共享R0由整组编译，成员不能分别打包覆盖。</summary>\n    internal static Metarill.Core.Metadata.SharedCrossTableSparseSelection CompileSharedSelection(string tableId,string sourceId)=>Metarill.Core.Metadata.SharedCrossTableSparseSelection.Compile(Snapshot.ConfigTables.Single(table=>table.Id==tableId),sourceId,Snapshot.ConfigColumns.Where(column=>column.ConfigTableId==tableId));\n";
         if(scopedRelations.Any(relation=>NonRedundantReadCompilation.UsesProjectSingleRead(relation)||
             NonRedundantReadCompilation.UsesPageBoundGlobalList(relation))||multiPageIds.Count>0||
+            model.Tables.Any(table=>table.Pages.Any(FixedPageConditionCompilation.HasJoinedFields))||
             relations.Any(relation=>NonRedundantReadCompilation.PageSingleDisplayOverride(model,
                 model.Tables.Single(table=>table.Source.Id==relation.SourceColumn.Source.ConfigTableId),
                 relation.SourceColumn,relation.Target,relation.NameColumn) is not null)||
