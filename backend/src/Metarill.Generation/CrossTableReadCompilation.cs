@@ -134,8 +134,8 @@ internal static class CrossTableReadCompilation
                 var syntax=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
                 var scope=MultiTargetParentScope.CompileSelectionPage(model.Catalog,table.Source,syntax,allowGlobalParent:true);
                 if(scope?.HasCompoundLogicalTextKey(model.Catalog,table.Source,allowGlobalParent:true)==true)continue;
-                // 独立文本链不消费页面父参数。多个已验证的物理或逻辑父字段可匹配同一项目父表主键。
-                if(!table.IsGlobal&&scope is {Global:false,AdditionalTargets.Count:>0}&&
+                // 独立文本链不消费页面父参数。全局复合父范围须包含已发布逻辑层，完整写入编译继续核对物理同父证明。
+                if(!table.IsGlobal&&scope is {AdditionalTargets.Count:>0}&&(!scope.Global||scope.Logical)&&
                     parents.All(parent=>!levels.Any(level=>level.Prefix+"_id"==parent.Source.ColumnName))&&
                     scope.LogicalAlternateKey(model.Catalog,table.Source) is null&&
                     scope.AdditionalTargets.All(target=>!target.Logical||target.LogicalAlternateKey(model.Catalog,table.Source) is null))continue;

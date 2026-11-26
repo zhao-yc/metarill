@@ -23,10 +23,13 @@ public sealed class SharedCrossFilesGenerationTests
     [InlineData(false,true)]
     [InlineData(false,true,1)]
     [InlineData(false,true,2)]
-    public async Task Full_shared_file_independent_exact_path_builds(bool selfTree,bool textKey=false,int physicalParents=0)
+    [InlineData(false,true,0,true)]
+    public async Task Full_shared_file_independent_exact_path_builds(bool selfTree,bool textKey=false,int physicalParents=0,bool globalRoot=false)
     {
         var catalog=Catalog("shared_parent",textKey?"string":"int64",textKey?"string":"int64");
-        var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="202");
+        var sourcePage=catalog.ConfigPages.Single(page=>page.Id==(globalRoot?"206":"202"));
+        if(globalRoot)
+            GlobalSharedCrossGenerationTests.ApplyGlobals(catalog,mask:1,noProject:true);
         if(physicalParents>0)
         {
             sourcePage.WhereSql="yz_project_id=@current_yz_project_id AND owner_country_id=@parent_id";
@@ -72,7 +75,7 @@ public sealed class SharedCrossFilesGenerationTests
         }
         catalog.ConfigColumns.Add(new(){Id="9501",YzProjectId=catalog.YzProjectId,ConfigTableId="2",ColumnName=pathColumn,
             LogicalType=textKey?"string":"int64",LinkConfigTableId=targetId,ControlKind="CascadeTree",ControlDetail=definition.ToJsonString()});
-        catalog.ConfigPageColumns.Add(new(){Id="2029501",YzProjectId=catalog.YzProjectId,
+        catalog.ConfigPageColumns.Add(new(){Id=sourcePage.Id+"9501",YzProjectId=catalog.YzProjectId,
             ConfigPageId=sourcePage.Id,ConfigColumnId="9501",IsShow=1,IsEdit=1});
         sourcePage.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement(match);
         catalog.YzAdminTypes.Single(item=>item.Id=="5").Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("realName");
@@ -93,7 +96,7 @@ public sealed class SharedCrossFilesGenerationTests
         {
             1=>["owner_country_id"],
             2=>["owner_country_id","billing_country_id"],
-            _=>["country_id"]
+            _=>globalRoot?["country_id","owner_country_id"]:["country_id"]
         };
         await AssertFullSharedFileExactPlan(catalog,sourcePage.Id,
             selfTree?"tree_name":textKey?"isolated_country_id":"isolated_country_name",false,storage);
@@ -229,14 +232,23 @@ public sealed class SharedCrossFilesGenerationTests
             if(matchColumn=="isolated_country_id"&&additionalStorage.Contains("owner_country_id"))
             {
                 var service=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/Services/SharedParentSourceService.g.cs"));
-                foreach(var parent in additionalStorage)
+                if(additionalStorage.Contains("country_id"))
                 {
-                    Assert.Contains("result.Add(new(\""+parent+"\",FixedReadComparison.Equal,long.Parse(request.ParentId!",service);
-                    Assert.Contains("query=query.Where(entity=>entity."+GenerationModel.Pascal(parent)+"==long.Parse(parentId!",service);
+                    Assert.Contains("LogicalParentScope"+sourcePageId,service);
+                    Assert.Contains("SharedGlobalParentKey"+sourcePageId,service);
+                    Assert.Contains("owner_country_id",plan.OutputTypes.Keys);
+                }
+                else
+                {
+                    foreach(var parent in additionalStorage)
+                    {
+                        Assert.Contains("result.Add(new(\""+parent+"\",FixedReadComparison.Equal,long.Parse(request.ParentId!",service);
+                        Assert.Contains("query=query.Where(entity=>entity."+GenerationModel.Pascal(parent)+"==long.Parse(parentId!",service);
+                    }
+                    Assert.DoesNotContain("country_id",plan.OutputTypes.Keys);
                 }
                 Assert.Contains("FixedReadFilter.ForCrossExact(\"isolated_country_id\"",service);
                 Assert.Contains("ValidateParents"+sourcePageId+"Async",service);
-                Assert.DoesNotContain("country_id",plan.OutputTypes.Keys);
             }
             Assert.All(additionalStorage,column=>Assert.Contains(column,plan.OutputTypes.Keys));
             Assert.Contains("attachments",plan.OutputTypes.Keys);
