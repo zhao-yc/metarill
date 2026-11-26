@@ -31,7 +31,9 @@ public static partial class MySqlNonRedundantReadCompiler
                 var compoundPhysical=selected is null&&namePage is not null&&source is not null&&sourcePage is not null&&
                     HasCompoundMultiSelectSource(catalog,source,sourcePage,relation,namePage);
                 var globalOverride=sourcePage is not null&&namePage is not null&&GlobalCrossTableTarget.Declared(target);
-                var storedStatic=source is {IsRongyu:0}&&namePage is not null&&IsStoredStaticMultiPage(catalog,target,namePage,checkbox);
+                // 普通项目的冗余复选也要随名称副本保留实际静态精确页，便于宿主重证固定条件。
+                var storedStatic=namePage is not null&&IsStoredStaticMultiPage(catalog,target,namePage,checkbox)&&
+                    (source is {IsRongyu:0}||checkbox&&source is {IsRongyu:1}&&GlobalCrossTableTarget.DeclaresExactPage(target,namePage));
                 if(compoundPhysical||globalOverride||storedStatic)selected=namePage;
                 // 普通备用页没有附加 SQL 条件，但宿主仍需用实际覆盖核对候选页。
                 if(selected is null&&sourcePage is not null&&namePage is not null&&!checkbox&&
@@ -185,6 +187,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var page=candidates[0];
         return table.IsRongyu==0||
             stored&&(checkbox||pageId.Length>0)&&(StoredIdentityMultiPage(catalog,table,page,checkbox)||
+                checkbox&&GlobalCrossTableTarget.DeclaresExactPage(table,page)&&IsStoredStaticMultiPage(catalog,table,page,checkbox:true)||
                 GlobalCrossTableTarget.StoredMultiParent(catalog,table,page,checkbox,allowExact:true) is not null)||
             checkbox&&IsProjectFixedMultiPage(catalog,table,page,checkboxAccount:true,allowStoredTextParent:true)||
             relation.ControlKind=="MultiSelectPage"&&IsProjectFixedMultiPage(catalog,table,page)?page:null;

@@ -41,7 +41,7 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
         var fields=storage.PhysicalColumns.Select(column=>column.ColumnName).ToArray();
         var storedAccount=global is {UsesStoredAccountPage:true,UsesStoredExactCheckboxPage:false}&&sourceParentId is null;
         var storedStatic=global is {UsesProjectPage:true} or {UsesStoredPhysicalParentPage:true}||
-            global is {UsesStoredExactCheckboxPage:true,UsesStoredAccountPage:true}||
+            global is {UsesStoredExactCheckboxPage:true}&&(global.UsesStoredAccountPage||global.UsesStoredStaticPage)||
             GlobalCrossTableTarget.Declared(source)&&global is {UsesStoredStaticPage:true} or {UsesNonRedundantAccountPage:true};
         var staticCondition=storedStatic?FixedConditionPlan.Compile(page.WhereSql,fields):null;
         var projectAccount=global is null&&MySqlNonRedundantReadCompiler.IsProjectFixedMultiPage(catalog,target,page,checkboxAccount:true);

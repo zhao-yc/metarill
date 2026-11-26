@@ -87,7 +87,7 @@ public static partial class MySqlNonRedundantReadCompiler
                         published.Name.ColumnName!=definition.NameField||!binding.ApplyPageScope)
                         throw new InvalidOperationException("全局复选名称与已发布目标页不一致。");
                     pageId=globalPageId=published.Page.Id;
-                    storedGlobalStatic=GlobalCrossTableTarget.Declared(table)&&published.UsesStoredStaticPage;
+                    storedGlobalStatic=(GlobalCrossTableTarget.Declared(table)||published.UsesStoredExactCheckboxPage)&&published.UsesStoredStaticPage;
                     globalAccountPage=published.UsesNonRedundantAccountPage||published.UsesPhysicalParentPage;
                     globalExactCheckboxPage=published.UsesNonRedundantExactCheckboxPage||published.UsesStoredExactCheckboxPage;
                 }

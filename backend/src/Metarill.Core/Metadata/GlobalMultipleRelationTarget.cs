@@ -284,7 +284,7 @@ public static class GlobalMultipleRelationTarget
                 throw new NotSupportedException("全局多值来源必须绑定受支持的已发布字典页。");
             GlobalDerivedRelationSource.RequireTable(catalog,owner);
         }
-        if(cached&&checkbox&&(projectPage||storedParent is not null||storedExact&&storedAccount||
+        if(cached&&checkbox&&(projectPage||storedParent is not null||storedExact&&(storedStatic||storedAccount)||
             GlobalCrossTableTarget.Declared(owner)&&(storedStatic||nonRedundantAccountPage))&&
             !checkboxDefinition!.IsCoveredByStaticPage(condition,expanded.Select(column=>column.ColumnName)))
             throw new NotSupportedException("全局复选的冗余名称要求控件条件由实际发布字典页覆盖。");

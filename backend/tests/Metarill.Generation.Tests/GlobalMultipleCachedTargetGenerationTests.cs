@@ -1154,13 +1154,27 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         bool projectScoped,string? accountField)=>
         VerifyGlobalBusinessCheckboxDictionary(mode,projectType,false,projectScoped,accountField:accountField,exactType:exactType);
 
+    /// <summary>普通项目业务的来源行范围不能借用全局字典的候选范围。</summary>
+    [Theory]
+    [InlineData(0,"int64",0,false,null)]
+    [InlineData(0,"string",2,true,null)]
+    [InlineData(0,"int64",0,false,"store_id")]
+    [InlineData(1,"int64",2,false,null)]
+    [InlineData(1,"string",0,true,null)]
+    [InlineData(1,"string",2,true,"merchant_id")]
+    public Task Project_business_checkbox_uses_exact_stored_dictionary(int mode,string projectType,int exactType,
+        bool projectScoped,string? accountField)=>
+        VerifyGlobalBusinessCheckboxDictionary(mode,projectType,false,projectScoped,accountField:accountField,exactType:exactType,globalSource:false);
+
     /// <summary>从同一实际生成代码验证字典候选、原筛选及非冗余和冗余名称。</summary>
     private static async Task VerifyGlobalBusinessCheckboxDictionary(int mode,string projectType,bool unfiltered,
-        bool projectScoped=false,int targetStorage=1,string? accountField=null,bool derivedName=false,int exactType=-1,bool idLabel=false)
+        bool projectScoped=false,int targetStorage=1,string? accountField=null,bool derivedName=false,int exactType=-1,bool idLabel=false,
+        bool globalSource=true)
     {
         const string app="Example.StaticGlobalCheckbox";
         var catalog=derivedName?GlobalMultipleDerivedTargetGenerationTests.Catalog(mode,false,"string"):PhysicalLabelCatalog(mode,false);
-        catalog.ConfigTables.Single(table=>table.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        if(globalSource)
+            catalog.ConfigTables.Single(table=>table.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
         catalog.ConfigColumns.RemoveAll(column=>column.Id is "34" or "35");
         catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId is "34" or "35");
         catalog.ConfigColumns.Single(column=>column.Id=="32").LogicalType=projectType;
@@ -1287,9 +1301,12 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 read=BindDictionaryAccount(read,catalog,accountField);
                 return read.GetType().GetProperty("MySql",BindingFlags.Instance|hidden)!.GetValue(read)!;
             }
-            var wrong=new RuntimeActor(7,"合成账号",false,"999","9");
-            var validate=service.GetMethod("ValidateActor",BindingFlags.Static|hidden)!;
-            Assert.IsType<UnauthorizedAccessException>(Assert.Throws<TargetInvocationException>(()=>validate.Invoke(null,[wrong])).InnerException);
+            if(globalSource)
+            {
+                var wrong=new RuntimeActor(7,"合成账号",false,"999","9");
+                var validate=service.GetMethod("ValidateActor",BindingFlags.Static|hidden)!;
+                Assert.IsType<UnauthorizedAccessException>(Assert.Throws<TargetInvocationException>(()=>validate.Invoke(null,[wrong])).InnerException);
+            }
             // 直接执行已生成的候选查询构造；离线测试只生成 SQL，禁止数据库连接。
             var actor=DictionaryActor(catalog,accountField);
             using var orm=new FreeSql.FreeSqlBuilder().UseConnectionFactory(FreeSql.DataType.MySql,
@@ -1358,7 +1375,13 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             }
             else
             {
-                Assert.Contains("不能修改来源记录项目归属",code);
+                if(globalSource)
+                    Assert.Contains("不能修改来源记录项目归属",code);
+                else
+                {
+                    var businessScope=NonRedundantGeneratedReadTests.CreateDictionarySql(assembly,app,"CachedConsumer",session);
+                    Assert.Contains("`yz_project_id`",businessScope("Scope30",[actor,null]));
+                }
                 var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
                     assembly.GetType(app+".Generated.GeneratedRelationMaintenance",true)!.GetProperty("Catalog")!.GetValue(null));
                 if(derivedName||projectScoped||accountField is not null)
