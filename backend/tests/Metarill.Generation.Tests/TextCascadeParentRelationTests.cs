@@ -55,6 +55,9 @@ public sealed class TextCascadeParentRelationTests
     [InlineData(false,"OnlyNew","list",1,false,false,true)]
     [InlineData(true,"OverWriteByFirstColumn","edit",1,true,true,true)]
     [InlineData(true,"OverWriteByFirstColumn","edit",1,false,false,true,true)]
+    [InlineData(false,"OnlyNew","list",0,false,false,true)]
+    [InlineData(true,"OverWriteByFirstColumn","edit",0,true,false,true)]
+    [InlineData(true,"OverWriteByFirstColumn","edit",0,false,false,true,true)]
     public async Task Integer_parent_with_independent_checkbox_compiles_original_pages(bool businessKey,string import,string export,
         int redundant=0,bool globalCountry=false,bool storedAsText=false,bool compound=false,bool numericCascade=false)
     {
@@ -159,7 +162,14 @@ public sealed class TextCascadeParentRelationTests
             if(compound)
             {
                 Assert.Contains("CrossReader201_291(actor,locking,false)",scope);
-                Assert.Contains("复选的来源父字段必须属于同一父记录",service);
+                if(redundant==0)
+                {
+                    var plan=globalCountry?"LogicalParentPlan201.BindAccount(actor)":"LogicalParentPlan201";
+                    Assert.Contains($"{plan},\"country_id\",\"mt_parent_",service);
+                    Assert.Contains($"{plan},\"other_country_id\",\"mt_parent_",service);
+                    Assert.Contains("await VerifyLogicalParent201Async(",service);
+                }
+                else Assert.Contains("复选的来源父字段必须属于同一父记录",service);
             }
             var key=redundant==0?"parentKey":parentReader;
             Assert.Contains(numericCascade?$"PathAsync(0,{key},cancellationToken)":

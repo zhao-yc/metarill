@@ -365,11 +365,12 @@ internal static class DatabaseCheckboxCompilation
                 foreach(var column in sourceScopeColumns)
                     if(SharedRedundantParentCompilation.ForColumn(model,table,page,column).SingleOrDefault() is {} path)
                         storedPaths.Add(column.Source.Id,path);
-            // 同一个父参数不能同时指向同一表的主键和业务键，普通物理外键使用主键。
-            if(storedPaths.Count>0&&sourceScopeColumns.Select(column=>storedPaths.GetValueOrDefault(column.Source.Id)?.Level.AlternateKey?.Source.Id)
-                .Distinct(StringComparer.Ordinal).Skip(1).Any())
-                return Gap("独立复选字典的多个来源父范围须使用同一个已发布父键。");
             var sourceBindings=sourceScopeColumns.Select(column=>(Column:column,Path:NonRedundantCrossParentCompilation.Find(model,table,page,column))).ToArray();
+            // 物理和稀疏来源均不可把同一父参数同时解释为主键和业务键。
+            if(independentDictionary&&sourceBindings.Select(binding=>(
+                    binding.Path is {} path?path.Read.Levels[path.Index]:storedPaths.GetValueOrDefault(binding.Column.Source.Id)?.Level)
+                ?.AlternateKey?.Source.Id).Distinct(StringComparer.Ordinal).Skip(1).Any())
+                return Gap("独立复选字典的多个来源父范围须使用同一个已发布父键。");
             var parents=sourceBindings.Select(binding=>binding.Path is {} path?path.Read.Levels[path.Index].Target:
                     storedPaths.GetValueOrDefault(binding.Column.Source.Id)?.Level.Target??
                     (binding.Column==textSource?SharedRedundantParentCompilation.ForColumn(model,table,page,binding.Column).Single().Level.Target:Parent(binding.Column)))
