@@ -69,7 +69,7 @@ internal static class FileReferenceReadAuthorization
                     var valid=true;
                     foreach(var parent in parents)
                     {
-                        if(!await ParentExistsAsync(store, parent.Scope, parent.Id, project, currentRead, token)){valid=false;break;}
+                        if(!await parent.Scope.ExistsAsync(store.Session, parent.Id, actor, currentRead, token)){valid=false;break;}
                     }
                     if(valid)return true;
                 }
@@ -163,22 +163,6 @@ internal static class FileReferenceReadAuthorization
         if(exact is not null)query+=" AND "+provider.QuoteIdentifier(exact.Column.ColumnName)+" IN ("+string.Join(",",exact.Values.Select((value,index)=>Parameter(command,store,"exact_"+index,value!)))+")";
         if(condition is not null)query+=" AND "+condition.BindConstants(command,store.Session,"file_page");
         command.CommandText = currentRead ? provider.BuildSelectForUpdate(query) : query;await using var reader=await command.ExecuteReaderAsync(token);if(!await reader.ReadAsync(token))return null;var row=new Dictionary<string,object?>(StringComparer.Ordinal);for(var index=0;index<reader.FieldCount;index++)row.Add(reader.GetName(index),await reader.IsDBNullAsync(index,token)?null:reader.GetValue(index));return row;
-    }
-    /// <summary>父身份从实际记录读取，复用当前事务可看见本批刚建父；父仍须有效且同项目。</summary>
-    private static async Task<bool> ParentExistsAsync(SqlRowStore store,FileParentScope scope,long id,long project,bool currentRead,CancellationToken token)
-    {
-        var provider=store.Session.Provider;var transaction=store.Session.CurrentTransaction;
-        await using var ownedConnection=transaction is null?provider.CreateConnection(store.Session.Options):null;
-        var connection=transaction?.Connection??ownedConnection??throw new InvalidOperationException("文件读取事务连接不可用。");
-        if(ownedConnection is not null)await connection.OpenAsync(token);
-        await using var command=provider.CreateCommand(connection);command.Transaction=transaction;
-        var query = "SELECT " + provider.QuoteIdentifier("id") + " FROM " + provider.QuoteIdentifier(scope.Parent.TableName)
-            + " WHERE " + provider.QuoteIdentifier("id") + "=" + Parameter(command, store, "parent_id", id);
-        if (scope.Project is { } owner)
-            query += " AND " + provider.QuoteIdentifier("yz_project_id") + "=" + Parameter(command, store, "parent_project", FileReferenceScope.IdentityValue(owner, project));
-        if (scope.HasSoftDelete) query += " AND " + provider.QuoteIdentifier("delete_no") + " IS NULL";
-        command.CommandText = currentRead ? provider.BuildSelectForUpdate(query) : query;
-        return await command.ExecuteScalarAsync(token) is not null;
     }
     /// <summary>固定参数名和值分开传递，不拼接用户值。</summary>
     private static string Parameter(DbCommand command,SqlRowStore store,string name,object value){var parameter=command.CreateParameter();parameter.ParameterName=name;parameter.Value=value;command.Parameters.Add(parameter);return store.Session.Provider.ParameterPlaceholder(name);}

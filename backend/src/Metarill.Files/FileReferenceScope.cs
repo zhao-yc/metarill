@@ -1,12 +1,14 @@
 using System.Globalization;
 using System.Text.Json;
+using Metarill.Data;
 using Metarill.Data.Queries;
 using Metarill.Core.Metadata;
 using Metarill.Core.Security;
 
 namespace Metarill.Runtime.Files;
 
-internal sealed record FileParentScope(ColumnMetadata Source, TableMetadata Parent, ColumnMetadata? Project, bool HasSoftDelete)
+internal sealed record FileParentScope(ColumnMetadata Source, TableMetadata Parent, ColumnMetadata? Project, bool HasSoftDelete,
+    string? PublishedPageId = null, FixedConditionSqlPlan? PublishedCondition = null)
 {
     /// <summary>文本外键必须保留父主键的唯一拼写，下载和写事务都核对实际存储值。</summary>
     internal long ReadStoredId(IReadOnlyDictionary<string, object?> record)
@@ -15,6 +17,39 @@ internal sealed record FileParentScope(ColumnMetadata Source, TableMetadata Pare
         return Project is null || Source.LogicalType.ToLowerInvariant() is "string" or "text" or "varchar"
             ? FileReferenceScope.CanonicalId(value)
             : FileReferenceScope.PositiveId(value);
+    }
+
+    /// <summary>附件读取和写入共用已发布父范围。当前读沿原事务持锁，普通读取复用来源快照。</summary>
+    internal async Task<bool> ExistsAsync(DatabaseSession session, long id, RuntimeActor actor, bool locking, CancellationToken token)
+    {
+        var condition = PublishedCondition?.BindAccount(actor);
+        var provider = session.Provider;
+        var transaction = session.CurrentTransaction;
+        await using var owned = transaction is null ? provider.CreateConnection(session.Options) : null;
+        var connection = transaction?.Connection ?? owned ?? throw new InvalidOperationException("文件读取事务连接不可用。");
+        if (owned is not null) await connection.OpenAsync(token);
+        await using var command = provider.CreateCommand(connection);
+        command.Transaction = transaction;
+
+        string Parameter(string name, object value)
+        {
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = name;
+            parameter.Value = value;
+            command.Parameters.Add(parameter);
+            return provider.ParameterPlaceholder(name);
+        }
+
+        var key = provider.QuoteIdentifier("id");
+        var query = "SELECT " + key + " FROM " + provider.QuoteIdentifier(Parent.TableName) +
+            " WHERE " + key + "=" + Parameter("parent_id", id);
+        if (Project is { } owner)
+            query += " AND " + provider.QuoteIdentifier("yz_project_id") + "=" +
+                Parameter("parent_project", FileReferenceScope.IdentityValue(owner, FileReferenceScope.PositiveId(actor.ProjectId)));
+        if (HasSoftDelete) query += " AND " + provider.QuoteIdentifier("delete_no") + " IS NULL";
+        if (condition is not null) query += " AND " + condition.BindConstants(command, session, "file_parent");
+        command.CommandText = locking ? provider.BuildSelectForUpdate(query) : query;
+        return await command.ExecuteScalarAsync(token) is not null;
     }
 }
 
@@ -105,6 +140,12 @@ internal static class FileReferenceScope
             // SQL条件次序不影响证明：收齐所有共享逻辑父后再验证全局物理父的独立声明及同页等值。
             foreach(var candidate in pending)
             {
+                // 独立物理父键按实际发布 List 页验证，逻辑父级已有的范围仍按原路径复核。
+                if(crosses.Count==0&&candidate.Project is null&&candidate.Source.ControlKind=="List"&&!GlobalCrossTableTarget.Declared(table))
+                {
+                    result.Add(CompilePublishedPhysicalParent(catalog,table,page,candidate.Source,candidate.Parent,candidate.Deleted));
+                    continue;
+                }
                 if(!crosses.Any(cross=>cross.IsShared)){if(candidate.Project is null)throw Unsupported();result.Add(new(candidate.Source,candidate.Parent,candidate.Project,candidate.Deleted));continue;}
                 var overlay=catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Id&&field.ConfigColumnId==candidate.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!System.Text.Json.Nodes.JsonNode.DeepEquals(System.Text.Json.Nodes.JsonNode.Parse(overlay),System.Text.Json.Nodes.JsonNode.Parse(candidate.Source.ControlDetail)))throw Unsupported();
                 // 按实际文件来源页证明名称，使用与生成业务相同的发布目标及末端字典。
@@ -123,6 +164,20 @@ internal static class FileReferenceScope
             };
         }
         catch(Exception invalid)when(invalid is ArgumentException or InvalidOperationException or JsonException){throw Unsupported();}
+    }
+
+    /// <summary>独立物理父键只有发布页的固定物理条件可以直接转成父记录校验。</summary>
+    private static FileParentScope CompilePublishedPhysicalParent(MetadataCatalog catalog,TableMetadata table,PageMetadata sourcePage,
+        ColumnMetadata source,TableMetadata parent,bool deleted)
+    {
+        var proof=GlobalSingleRelationTarget.Require(catalog,table,source,parent,sourcePage);
+        if(proof.Parent is not null||proof.ScopedLogicalPage||
+            GlobalCrossTableTarget.DeclaresExactPage(parent,proof.Page)||
+            ProjectScopedSingleRelationTarget.ControlScope(catalog,table,source,parent,sourcePage).Terms.Count>0)
+            throw Unsupported();
+        var condition=CrossTableParentCondition.CompileNestedCandidate(catalog,parent,proof.Page,MetadataStoragePolicy.ForTable(catalog,parent));
+        if(!condition.Allowed||condition.HasLogical)throw Unsupported();
+        return new(source,parent,null,deleted,proof.Page.Id,condition.Plan);
     }
 
     /// <summary>实际父键必须是可表示的正整数，不能把null、浮点或表达式解释为记录身份。</summary>

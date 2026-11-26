@@ -208,16 +208,11 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
             .Concat(logical).ToArray();
         // 同一页面的@parentId只有一个实际值，多条等值条件不得被解释为互不相干的父身份。
         if (ids.Distinct(StringComparer.Ordinal).Skip(1).Any()) throw new UnauthorizedAccessException("实际记录不满足同一父记录范围。");
-        var provider = store.Session.Provider;
-        foreach (var parent in parents.DistinctBy(parent => (parent.Scope.Parent.Id, parent.Id)).OrderBy(parent => parent.Scope.Parent.TableName, StringComparer.Ordinal).ThenBy(parent => parent.Id))
+        foreach(var parent in parents.DistinctBy(parent=>(parent.Scope.Parent.Id,parent.Id,parent.Scope.PublishedPageId))
+            .OrderBy(parent=>parent.Scope.Parent.TableName,StringComparer.Ordinal).ThenBy(parent=>parent.Id))
         {
-            await using var command = provider.CreateCommand(context.Transaction.Connection!); command.Transaction = context.Transaction;
-            var query = "SELECT " + provider.QuoteIdentifier("id") + " FROM " + provider.QuoteIdentifier(parent.Scope.Parent.TableName)
-                + " WHERE " + provider.QuoteIdentifier("id") + "=" + Parameter(command, "scope_parent_id", parent.Id);
-            if(parent.Scope.Project is{} owner)query+=" AND "+provider.QuoteIdentifier("yz_project_id")+"="+Parameter(command,"scope_project",FileReferenceScope.IdentityValue(owner,FileReferenceScope.PositiveId(context.ProjectId)));
-            if (parent.Scope.HasSoftDelete) query += " AND " + provider.QuoteIdentifier("delete_no") + " IS NULL";
-            command.CommandText = provider.BuildSelectForUpdate(query);
-            if (await command.ExecuteScalarAsync(token) is null) throw new UnauthorizedAccessException("父记录不存在、已删除或不属于当前项目。");
+            if(!await parent.Scope.ExistsAsync(store.Session,parent.Id,actor,true,token))
+                throw new UnauthorizedAccessException("父记录不存在、已删除或不属于当前项目。");
         }
         return ids;
     }

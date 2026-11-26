@@ -152,11 +152,11 @@ internal static class CrossTableReadCompilation
                 var group=SharedCrossTableSparseSelection.CompileAll(table.Source,columns)
                     .SingleOrDefault(group=>group.Branches.Any(branch=>branch.SourceColumnId==source.Source.Id));
                 if(group?.Slots.Any(slot=>slot.ColumnName==parents[0].Source.ColumnName)==true)continue;
-                // 另一个发布级联或普通项目外键可独立证明父键，读写计划仍按实际路径校验。
+                // 独立物理全局父键须由原 List 声明，实际父页继续由完整读写计划证明。
                 if(table.IsGlobal)return false;
                 var syntax=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
                 var scope=MultiTargetParentScope.CompileSelectionPage(model.Catalog,table.Source,syntax,allowGlobalParent:true);
-                if(scope is not ({Logical:true} or {Global:false}))return false;
+                if(scope is null||scope.Global&&!scope.Logical&&scope.Target.ControlKind!="List")return false;
             }
         }
         return true;

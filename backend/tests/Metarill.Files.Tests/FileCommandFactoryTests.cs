@@ -1073,6 +1073,76 @@ public sealed class FileCommandFactoryTests
         return catalog;
     }
 
+    /// <summary>原保护读取快照和引用写事务校验同一实际全局父页，条件缺失时拒绝。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Published_global_physical_file_parent_uses_fixed_page_and_current_account(bool locking)
+    {
+        const long id=9007199254740993;
+        var catalog=FileSharedCrossParentScopeTests.Catalog("string","int64");
+        var parent=catalog.ConfigTables.Single(item=>item.Id=="2");
+        parent.Extra["scopeKind"]=System.Text.Json.JsonSerializer.SerializeToElement("global");
+        var project=catalog.ConfigColumns.Single(item=>item.ConfigTableId==parent.Id&&item.ColumnName=="yz_project_id");
+        catalog.ConfigColumns.Remove(project);
+        catalog.ConfigPageColumns.RemoveAll(item=>item.ConfigColumnId==project.Id);
+        catalog.ConfigColumns.Add(new(){Id="290",ConfigTableId=parent.Id,ColumnName="store_id",LogicalType="int64"});
+        var targetPage=catalog.ConfigPages.Single(item=>item.Id=="201");
+        targetPage.WhereSql="enabled=1 AND store_id=@current_store_id";
+        catalog.YzAdminTypes.Add(new(){Id="900",YzProjectId=catalog.YzProjectId});
+        foreach(var item in catalog.ConfigPages)item.YzAdminTypeId="900";
+
+        var foreign=catalog.ConfigColumns.Single(item=>item.ColumnName=="owner_country_id");
+        foreign.ControlKind="List";
+        foreign.ControlDetail="""{"tableId":"2","pageId":"201","nameField":"name"}""";
+        var sourcePage=catalog.ConfigPages.Single(item=>item.Id=="105");
+        sourcePage.WhereSql="yz_project_id=@current_yz_project_id AND owner_country_id=@parent_id";
+        var registry=new FileMetadataContext([catalog]);
+        var frozen=Assert.Single(registry.Catalogs);
+        var page=frozen.ConfigPages.Single(item=>item.Id==sourcePage.Id);
+        var scope=registry.PageScope(frozen,page);
+        Assert.Empty(scope.Crosses);
+        Assert.Empty(scope.GlobalParents);
+        var physical=Assert.Single(scope.Parents);
+        Assert.Equal("201",physical.PublishedPageId);
+        Assert.Null(physical.Project);
+        Assert.True(registry.NeedsFileReadSnapshot);
+        Assert.Equal(id,physical.ReadStoredId(new Dictionary<string,object?>{{"owner_country_id",id.ToString()}}));
+
+        var actor=new RuntimeActor(12,"测试",false,"1","900"){StoreId=29};
+        var provider=new Provider();
+        using var session=new DatabaseSession(new(){ExpectedDatabase="offline"},null,provider);
+        var enabled=true;
+        provider.Scalar=command=>
+        {
+            Assert.Same(session.CurrentTransaction,command.Transaction);
+            Assert.NotNull(command.Transaction);
+            var sql=command.CommandText;
+            Assert.Contains("`file_shared_country`",sql);
+            Assert.Contains("`enabled`",sql);
+            Assert.Contains("`store_id`",sql);
+            Assert.Contains("`delete_no` IS NULL",sql);
+            Assert.DoesNotContain("`yz_project_id`",sql);
+            Assert.Equal(locking,sql.EndsWith(" FOR UPDATE",StringComparison.Ordinal));
+            Assert.Equal(id,command.Parameters["parent_id"].Value);
+            return enabled&&command.Parameters.Cast<DbParameter>().Any(parameter=>Equals(parameter.Value,29L))?id:null;
+        };
+        async Task<bool> Run()
+        {
+            Task<bool> Check(RuntimeActor identity)=>physical.ExistsAsync(session,id,identity,locking,default);
+            Assert.True(await Check(actor));
+            Assert.False(await Check(actor with{StoreId=30}));
+            enabled=false;
+            Assert.False(await Check(actor));
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>Check(actor with{StoreId=null}));
+            return true;
+        }
+        if(locking)await session.InTransactionAsync(Run);
+        else await session.InReadSnapshotAsync(Run);
+        Assert.Equal(3,provider.Commands);
+        Assert.Equal(1,provider.Connections);
+    }
+
     /// <summary>原附件查询与写前校验按发布的文本级联授权，页面无需把匹配路径同时用作父级。</summary>
     [Theory]
     [InlineData(false,false)]

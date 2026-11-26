@@ -24,6 +24,7 @@ public sealed class SharedCrossFilesGenerationTests
     [InlineData(false,true,1)]
     [InlineData(false,true,2)]
     [InlineData(false,true,0,true)]
+    [InlineData(false,true,1,true)]
     [InlineData(false,true,0,true,"list")]
     [InlineData(false,true,0,true,"edit")]
     public async Task Full_shared_file_independent_exact_path_builds(bool selfTree,bool textKey=false,int physicalParents=0,
