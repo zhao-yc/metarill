@@ -50,20 +50,21 @@ public static class ProjectScopedSingleRelationTarget
 
     /// <summary>原文本逻辑父级字典的联接条件，保持选择与缓存用途的既有发布范围。</summary>
     public static IReadOnlySet<string> JoinedTextPageFields(MetadataCatalog catalog,TableMetadata target,PageMetadata page)=>
-        PublishedJoinedFields(catalog,target,page,allowPhysicalPage:false);
+        PublishedJoinedFields(catalog,target,page,allowProjectPage:false);
 
-    /// <summary>普通业务页和原单选页可设置固定单值联接条件；有父范围时沿发布元数据核对父键。</summary>
+    /// <summary>普通业务、原单选及同一文本逻辑父的原多选页可设置固定单值联接条件。</summary>
     public static IReadOnlySet<string> JoinedPageFields(MetadataCatalog catalog,TableMetadata target,PageMetadata page)=>
-        PublishedJoinedFields(catalog,target,page,allowPhysicalPage:true);
+        PublishedJoinedFields(catalog,target,page,allowProjectPage:true);
 
     /// <summary>仅接受发布身份、实际项目列和固定常量，变量沿真实账号或父键验证。</summary>
-    private static IReadOnlySet<string> PublishedJoinedFields(MetadataCatalog catalog,TableMetadata target,PageMetadata page,bool allowPhysicalPage)
+    private static IReadOnlySet<string> PublishedJoinedFields(MetadataCatalog catalog,TableMetadata target,PageMetadata page,bool allowProjectPage)
     {
         var fields=new HashSet<string>(StringComparer.Ordinal);
+        var pageType=page.Extra.GetValueOrDefault("type").ToString();
         if(target is not {IsRongyu:0,IsView:0,IsFunctionTable:0}||
             target.YzProjectId!=catalog.YzProjectId||page.YzProjectId!=catalog.YzProjectId||
             page.ConfigTableId!=target.Id||GlobalCrossTableTarget.Declared(target)||
-            page.Extra.GetValueOrDefault("type").ToString() is not ("" or "0" or "1")||
+            pageType is not ("" or "0" or "1" or "2")||pageType=="2"&&!allowProjectPage||
             !catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId))
             return fields;
         var storage=MetadataStoragePolicy.ForTable(catalog,target);
@@ -74,14 +75,16 @@ public static class ProjectScopedSingleRelationTarget
                 .All(term=>term.Values.All(value=>value.Kind!=FixedConditionValueKind.Variable)))
                 fields.Add(column.ColumnName);
         if(fields.Count==0)return fields;
-        var localPage=allowPhysicalPage&&columns.Any(column=>column.ColumnName=="yz_project_id"&&
+        var localPage=allowProjectPage&&pageType!="2"&&columns.Any(column=>column.ColumnName=="yz_project_id"&&
             column.LogicalType is ("int64" or "string")&&GlobalPhysicalRelationValue.IsScalar(storage,target,column));
         // 无父页按实际项目范围执行；声明父参数时仍须证明同项目的真实物理父键。
         if(localPage&&(!syntax.Variables.Any(MultiTargetParentScope.IsParameter)||
             MultiTargetParentScope.CompileListPage(catalog,target,syntax.Terms) is
                 {Logical:false,Global:false} parent&&parent.Parent.YzProjectId==catalog.YzProjectId))
             return fields;
-        if(PageParent(catalog,target,page) is not {Logical:true,Global:false,Target.LogicalType:"string",AdditionalTargets.Count:0})
+        // 原 type=2 页沿多选的父范围证明，不走单值页的父路径识别。
+        var logicalParent=pageType=="2"?MultiTargetParentScope.CompileSelectionPage(catalog,target,syntax):PageParent(catalog,target,page);
+        if(logicalParent is not {Logical:true,Global:false,Target.LogicalType:"string",AdditionalTargets.Count:0})
             fields.Clear();
         return fields;
     }

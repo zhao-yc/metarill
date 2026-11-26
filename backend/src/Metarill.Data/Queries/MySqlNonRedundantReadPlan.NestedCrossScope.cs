@@ -508,9 +508,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 ?compound.AdditionalTargets.Select(parent=>parent.Target.ColumnName).ToHashSet(StringComparer.Ordinal):null;
             if(additional is not null)cascadeLabelPages.Add(page.Id);
             var separateExactScope=exact||storedExact;
-            var pageJoins=page.Extra.GetValueOrDefault("type").ToString()=="1"
-                ?ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,root,page)
-                :ProjectScopedSingleRelationTarget.JoinedTextPageFields(catalog,root,page);
+            var pageJoins=ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,root,page);
             var condition=CrossTableParentCondition.Compile(catalog,root,page,storage[root.Id],allowLogical:true,
                 multiParent:MultiCandidateParent?.Target,selfTreeFields:treeNames,separateExactScope:separateExactScope,
                 additionalParents:additional,joinedFields:pageJoins);

@@ -1768,10 +1768,47 @@ public sealed class TextCascadeParentRelationTests
     [InlineData(1,"int64","OnlyNew","list",true)]
     [InlineData(0,"date","OverWriteByFirstColumn","edit",true)]
     [InlineData(1,"date","OnlyNew","list",false)]
-    public async Task Multi_text_parent_reads_names_from_fixed_join(int sourceStorage,string kind,string import,string export,bool buildPackage)
+    [InlineData(0,"string","OnlyNew","list",true,true)]
+    [InlineData(1,"string","OverWriteByFirstColumn","edit",true,true)]
+    [InlineData(1,"string","OnlyNew","list",true,true,false)]
+    [InlineData(0,"string","OverWriteByFirstColumn","edit",true,true,true,true)]
+    [InlineData(1,"string","OnlyNew","list",true,true,true,true)]
+    public async Task Multi_text_parent_reads_names_from_fixed_join(int sourceStorage,string kind,string import,string export,bool buildPackage,
+        bool joinedPageCondition=false,bool separateConditionPath=true,bool physicalLabel=false)
     {
         var catalog=Catalog(sourceStorage,import,export);
         PublishTextParentJoinedLabels(catalog,kind,["83","84"]);
+        if(joinedPageCondition)
+        {
+            // 固定条件另用联接字段，不依赖关系显示名恰好已参与投影。
+            var project=catalog.YzProjectId;
+            foreach(var (id,limit) in new[]{("83","多选停用"),("84","复选停用")})
+            {
+                var gate=separateConditionPath?"gate_item":"label_item";
+                catalog.ConfigColumns.Add(new(){Id=id+"10",ConfigTableId=id,YzProjectId=project,ColumnName="region_label",
+                    LogicalType="string",Extra={["columnFullName"]=JsonSerializer.SerializeToElement(gate+".name"),
+                        ["isJoinColumn"]=JsonSerializer.SerializeToElement(1)}});
+                if(separateConditionPath)
+                    catalog.ConfigColumns.Add(new(){Id=id+"11",ConfigTableId=id,YzProjectId=project,ColumnName="gate_item_id",
+                        LogicalType="int64",ControlKind="List",LinkConfigTableId="86",
+                        ControlDetail="""{"tableId":"86","pageId":"860","nameField":"name"}""",
+                        Extra={["linkConfigPageId"]=JsonSerializer.SerializeToElement("860")}});
+                catalog.ConfigPages.Single(page=>page.ConfigTableId==id).WhereSql+=$" AND region_label <> '{limit}'";
+                if(physicalLabel)
+                {
+                    var label=catalog.ConfigColumns.Single(column=>column.Id==id+"02");
+                    label.Extra.Remove("isJoinColumn");
+                    label.Extra.Remove("columnFullName");
+                }
+            }
+            catalog.ConfigColumns.Add(new(){Id="8606",ConfigTableId="86",YzProjectId=project,ColumnName="store_id",LogicalType="int64"});
+            catalog.ConfigPages.Single(page=>page.Id=="860").WhereSql+=" AND store_id=@current_store_id AND name <> '字典停用'";
+            if(sourceStorage==1)
+            {
+                catalog.ConfigColumns.Add(new(){Id="8607",ConfigTableId="2",YzProjectId=project,ColumnName="store_id",LogicalType="int64"});
+                catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql+=" AND store_id=@current_store_id";
+            }
+        }
         var model=GenerationModel.Create(catalog,"Example.JoinedTextParentLabels");
         var owner=model.Tables.Single(table=>table.Source.Id=="2");
         var page=Assert.Single(owner.Pages);
@@ -1786,6 +1823,21 @@ public sealed class TextCascadeParentRelationTests
             Assert.Contains("textrel_name_dictionary",maintenance.MixedTargets);
             Assert.Contains("multiitem_names",maintenance.MixedSourceColumns["textrel_source"]);
             Assert.Contains("checkitem_names",maintenance.MixedSourceColumns["textrel_source"]);
+            if(joinedPageCondition)
+            {
+                var definitions=RelationPropagationCompilation.Definitions(RelationPropagationCompilation.DerivedBindings(model)
+                    .Where(binding=>binding.Source.Source.Id=="2"&&binding.Multiple).ToArray());
+                var published=RelationPropagationCompilation.PublishedMaintenanceMetadata(model,definitions);
+                var compiler=typeof(Metarill.Data.Queries.MySqlNonRedundantReadCompiler);
+                var compiled=compiler.GetMethod("CompileRefresh",System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic)!
+                    .Invoke(null,[published,"2",new[]{"multiitem_names","checkitem_names"},definitions,null])!;
+                const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+                var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                    compiled.GetType().GetProperty("Constants",hidden)!.GetValue(compiled));
+                Assert.Contains("多选停用",constants.Values);
+                Assert.Contains("复选停用",constants.Values);
+                Assert.Contains("字典停用",constants.Values);
+            }
         }
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-text-parent-joined-labels");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
@@ -1797,10 +1849,10 @@ public sealed class TextCascadeParentRelationTests
                 new ApplicationPackager().Create(catalog,directory,model.Namespace,NonRedundantApplicationFixture.Root());
                 generated=Path.Combine(directory,"backend/generated");
                 var published=await PublishedReadCatalog(directory);
-                AssertNamePlan(Metarill.Data.Queries.NonRedundantReads.CompileScopedMultiLabel(published,"83","830","name",["id","name"],[]));
+                AssertNamePlan(Metarill.Data.Queries.NonRedundantReads.CompileScopedMultiLabel(published,"83","830","name",["id","name"],[]),"多选停用");
                 AssertNamePlan(sourceStorage==0
                     ?Metarill.Data.Queries.NonRedundantReads.CompileScopedCheckboxLabel(published,"84","840","name",["id","name"],[],false)
-                    :Metarill.Data.Queries.NonRedundantReads.CompileScopedMultiLabel(published,"84","840","name",["id","name"],[]));
+                    :Metarill.Data.Queries.NonRedundantReads.CompileScopedMultiLabel(published,"84","840","name",["id","name"],[]),"复选停用");
             }
             else
             {
@@ -1819,9 +1871,16 @@ public sealed class TextCascadeParentRelationTests
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
 
-        void AssertNamePlan(Metarill.Data.Queries.NonRedundantReadPlan plan)
+        void AssertNamePlan(Metarill.Data.Queries.NonRedundantReadPlan plan,string label)
         {
             Assert.Equal(kind,plan.OutputTypes["name"]);
+            if(joinedPageCondition)
+            {
+                Assert.True(plan.RequiresAccount);
+                var actor=new Metarill.Core.Security.RuntimeActor(8,"联接筛选",false,catalog.YzProjectId,"5"){StoreId=29};
+                Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor with{StoreId=null}));
+                plan=plan.BindAccount(actor);
+            }
             AssertTextParentSql(plan);
             const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
             var mysql=plan.GetType().GetProperty("MySql",flags)!.GetValue(plan)!;
@@ -1830,6 +1889,15 @@ public sealed class TextCascadeParentRelationTests
             var scope=Assert.IsType<string>(mysql.GetType().GetProperty("Scope",flags)!.GetValue(mysql));
             var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(mysql.GetType().GetProperty("Constants",flags)!.GetValue(mysql));
             Assert.Contains(parameters,parameter=>Equals(parameter.Value,"排除地区")&&scope.Contains(parameter.Key,StringComparison.Ordinal));
+            if(joinedPageCondition)
+            {
+                Assert.DoesNotContain("region_label",scope);
+                Assert.Contains(parameters,parameter=>Equals(parameter.Value,label)&&scope.Contains(parameter.Key,StringComparison.Ordinal));
+                Assert.Contains("字典停用",parameters.Values);
+                Assert.Contains(29L,parameters.Values);
+                Assert.Contains(separateConditionPath?"gate_item_id":"label_item_id",from);
+                Assert.Contains("store_id",from+scope);
+            }
         }
     }
 

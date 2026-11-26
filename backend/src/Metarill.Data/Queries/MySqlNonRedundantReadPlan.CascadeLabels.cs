@@ -362,8 +362,7 @@ public static partial class MySqlNonRedundantReadCompiler
         }
         var projectFixedScope=IsProjectFixedMultiPage(catalog,table,page,checkboxAccount:storedExactCheckbox,allowStoredTextParent:true);
         var storedParent=GlobalCrossTableTarget.StoredProjectMultiParent(catalog,table,page,storedExactCheckbox);
-        var pageJoins=importPageType=="1"?ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,table,page):
-            FrozenSet<string>.Empty;
+        var pageJoins=ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,table,page);
         var plan=new Builder(catalog,tableId,matching:true,multiLabel:true,cascadeLabelField:field,crossTables:crossBindings,
             scopedPhysicalCandidate:table.IsRongyu==1&&projectFixedScope,storedMultiParent:storedParent)
         {

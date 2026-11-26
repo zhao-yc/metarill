@@ -27,6 +27,7 @@ internal static class DerivedMultiNamesCompilation
         if(page.Scopes.Select(scope=>scope.Column).Concat(condition?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[])
             .Any(column=>column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,target,column)&&
                 condition?.CrossFields.Contains(column.Source.ColumnName)!=true&&condition?.SelfTreeFields.Contains(column.Source.ColumnName)!=true&&
+                condition?.JoinedFields.Contains(column.Source.ColumnName)!=true&&
                 !NonRedundantCrossParentCompilation.Managed(model,target,page,column)))
             throw new InvalidOperationException("派生多选名称的候选身份及条件缺少物理或逻辑路径证明。");
         // 全局名称路径已由多值固定目标证明，字符串键读取不能误套精确管理的int64专用门槛。

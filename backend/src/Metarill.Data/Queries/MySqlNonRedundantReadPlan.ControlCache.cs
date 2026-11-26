@@ -118,6 +118,8 @@ public static partial class MySqlNonRedundantReadCompiler
         }
 
 
+        private int storedListScopeCount;
+
         /// <summary>冗余字典按实际页面验证物理条件，实时读取绑定请求账号，维护绑定来源行账号与表单值。</summary>
         private string ProjectStoredListCondition(TableMetadata source,string owner,ColumnMetadata relation,TableMetadata target,
             string targetAlias,PageMetadata sourcePage,PageMetadata page,string? sourceParentId,FixedConditionPlan control,
@@ -185,8 +187,9 @@ public static partial class MySqlNonRedundantReadCompiler
             }
             var syntax=FixedConditionPlan.Compile(string.Join(" AND ",scoped.Select(term=>term.ToDefinition())),members.Keys);
             var plan=FixedConditionSqlPlan.Compile(syntax,syntax.Fields.ToDictionary(field=>field,field=>Column(target,field).LogicalType));
-            var clause=plan.RenderRowProjection(ConditionParameterPrefix("mt_stored_list_"+targetAlias),
-                Projection,(variable,type)=>AccountConditionVariables.IsSupported(variable)
+            // 同一个字典联接可以同时出现在候选条件和显示名中，分别保留各自的参数。
+            var prefix=ConditionParameterPrefix("mt_stored_list_"+targetAlias+"_"+storedListScopeCount++);
+            var clause=plan.RenderRowProjection(prefix,Projection,(variable,type)=>AccountConditionVariables.IsSupported(variable)
                     ?null:SingleControlFormColumn(source,owner,validity,variable,type),deferAccount:cacheOwner is null);
             foreach(var parameter in clause.Parameters)crossConstants.Add(parameter.Key,parameter.Value);
             if (parent is not null&&parentSource is not null&&!pageScopeApplied)
