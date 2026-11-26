@@ -192,9 +192,9 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
         => ListVisibleCoreAsync(null,null,folderId,false,cancellationToken);
 
     /// <summary>创建目录时锁定父目录，防止与父目录删除发生竞态。</summary>
-    public Task<FileFolder> CreateFolderAsync(string name, long? parentId = null, CancellationToken cancellationToken = default) => store.Session.InTransactionAsync(async () =>
+    public Task<FileFolder> CreateFolderAsync(string? name, long? parentId = null, CancellationToken cancellationToken = default) => store.Session.InTransactionAsync(async () =>
     {
-        var actor = authorization.RequireActor(); name=DisplayName(name,100);
+        var actor = authorization.RequireActor(); name=DisplayName(name,"文件夹",100);
         await LockFolderScopeAsync(actor,cancellationToken);
         if (parentId is { } parent) RequireProject(await RequiredAsync(Folders, parent, true, cancellationToken), actor);
         await RequireSiblingNameAsync(actor,parentId,name,null,cancellationToken);
@@ -214,17 +214,18 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
     public async Task DeleteFolderAsync(long id, CancellationToken cancellationToken = default) => await store.Session.InTransactionAsync(async () =>
     {
         var actor = authorization.RequireActor();await LockFolderScopeAsync(actor,cancellationToken);RequireProject(await RequiredAsync(Folders, id, true, cancellationToken), actor);
-        if ((await store.ReadForUpdateAsync(Folders, new Dictionary<string, object?> { ["parent_folder_id"] = id,["yz_project_id"]=Project(actor) }, cancellationToken)).Count > 0 ||
-            (await store.ReadForUpdateAsync(Files, new Dictionary<string, object?> { ["folder_id"] = id,["yz_project_id"]=Project(actor) }, cancellationToken)).Any(row=>SqlRowStore.Text(row,"status")!="deleted"))
-            throw new InvalidOperationException("目录不为空，不能删除。");
+        if ((await store.ReadForUpdateAsync(Folders, new Dictionary<string, object?> { ["parent_folder_id"] = id,["yz_project_id"]=Project(actor) }, cancellationToken)).Count > 0)
+            throw new BusinessRuleException("文件夹下存在子文件夹，不能删除");
+        if ((await store.ReadForUpdateAsync(Files, new Dictionary<string, object?> { ["folder_id"] = id,["yz_project_id"]=Project(actor) }, cancellationToken)).Any(row=>SqlRowStore.Text(row,"status")!="deleted"))
+            throw new BusinessRuleException("文件夹下存在文件，不能删除");
         await store.UpdateAsync(Folders, id, new Dictionary<string, object?> { ["delete_no"] = BusinessCalendar.Now }, cancellationToken);
         return true;
     }, cancellationToken);
 
     /// <summary>按原读取权修改展示名，存储键、已验证MIME、内容及历史引用均不改变。</summary>
-    public Task RenameAsync(long id,string name,CancellationToken token=default)=>store.Session.InTransactionAsync(async()=>
+    public Task RenameAsync(long id,string? name,CancellationToken token=default)=>store.Session.InTransactionAsync(async()=>
     {
-        name=DisplayName(name,255);
+        name=DisplayName(name,"文件",255);
         var actor=authorization.RequireActor();var row=await RequiredAsync(Files,id,true,token);await RequireReadableAsync(row,actor,token);
         await store.UpdateAsync(Files,id,new Dictionary<string,object?>{{"name",name},{"update_time",BusinessCalendar.Now}},token);return true;
     },token);
@@ -239,9 +240,9 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
     },token);
 
     /// <summary>目录更名只修改显示字段，保留原有项目及所有者。</summary>
-    public Task RenameFolderAsync(long id,string name,CancellationToken token=default)=>store.Session.InTransactionAsync(async()=>
+    public Task RenameFolderAsync(long id,string? name,CancellationToken token=default)=>store.Session.InTransactionAsync(async()=>
     {
-        name=DisplayName(name,100);var actor=authorization.RequireActor();await LockFolderScopeAsync(actor,token);
+        name=DisplayName(name,"文件夹",100);var actor=authorization.RequireActor();await LockFolderScopeAsync(actor,token);
         var row=await RequiredAsync(Folders,id,true,token);RequireProject(row,actor);await RequireSiblingNameAsync(actor,NullableId(row,"parent_folder_id"),name,id,token);
         await store.UpdateAsync(Folders,id,new Dictionary<string,object?>{{"name",name}},token);return true;
     },token);
@@ -252,11 +253,13 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
         var actor=authorization.RequireActor();
         await LockFolderScopeAsync(actor,token);
         var source=await RequiredAsync(Folders,id,true,token);RequireProject(source,actor);
+        if(parentId==id)throw new BusinessRuleException("不能移动到自身下");
         if(parentId==NullableId(source,"parent_folder_id"))return true;
-        var seen=new HashSet<long>{id};var current=parentId;
+        var seen=new HashSet<long>();var current=parentId;
         while(current is{} parent)
         {
-            if(!seen.Add(parent))throw new InvalidOperationException("目录不能移动到自身或子目录。");
+            if(parent==id)throw new BusinessRuleException("不能移动到自己的子文件夹下");
+            if(!seen.Add(parent))throw new BusinessRuleException("目标文件夹层级异常");
             var ancestor=await RequiredAsync(Folders,parent,true,token);RequireProject(ancestor,actor);current=NullableId(ancestor,"parent_folder_id");
         }
         await RequireSiblingNameAsync(actor,parentId,SqlRowStore.Text(source,"name"),id,token);

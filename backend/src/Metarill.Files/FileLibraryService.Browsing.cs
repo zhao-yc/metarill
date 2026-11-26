@@ -2,6 +2,7 @@ using System.Data.Common;
 using System.Security;
 using System.Text;
 using System.Text.RegularExpressions;
+using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
 using Metarill.Core.Security;
 using Metarill.Runtime.Persistence;
@@ -27,18 +28,18 @@ public sealed partial class FileLibraryService
             .Select(row=>new FileFolder(SqlRowStore.Id(row),SqlRowStore.Text(row,"name"),NullableId(row,"parent_folder_id")){FileCount=counts.GetValueOrDefault(SqlRowStore.Id(row))}).ToArray();
     }
     /// <summary>新建文件夹可按原字段定位上下文；省略字段沿当前真实项目，不引入文件编辑权门槛。</summary>
-    public Task<FileFolder> CreateLibraryFolderAsync(string name,long? parentId,string? configColumnId,CancellationToken token=default)
+    public Task<FileFolder> CreateLibraryFolderAsync(string? name,long? parentId,string? configColumnId,CancellationToken token=default)
     {
         BrowseColumn(configColumnId,authorization.RequireActor(),required:false);
         return CreateFolderAsync(name,parentId,token);
     }
     /// <summary>原HTTP重命名返回已修改的安全描述；既有Task扩展入口保持，结果仍在同一实际事务取得。</summary>
-    public Task<FileDescriptor> RenameWithResultAsync(long id,string name,CancellationToken token=default)=>store.Session.InTransactionAsync(async()=>
+    public Task<FileDescriptor> RenameWithResultAsync(long id,string? name,CancellationToken token=default)=>store.Session.InTransactionAsync(async()=>
     {
         await RenameAsync(id,name,token);return Describe(await RequiredAsync(Files,id,false,token),allowProtectedDraft:true);
     },token);
     /// <summary>原目录重命名返回修改后的节点，读取自身未提交值，不在提交后另开竞态查询。</summary>
-    public Task<FileFolder> RenameFolderWithResultAsync(long id,string name,CancellationToken token=default)=>store.Session.InTransactionAsync(async()=>
+    public Task<FileFolder> RenameFolderWithResultAsync(long id,string? name,CancellationToken token=default)=>store.Session.InTransactionAsync(async()=>
     {
         await RenameFolderAsync(id,name,token);return await FolderResultAsync(id,token);
     },token);
@@ -110,16 +111,19 @@ public sealed partial class FileLibraryService
     {
         if(SqlRowStore.Text(row,"yz_project_id")!=actor.ProjectId)throw new UnauthorizedAccessException("文件或目录不属于当前项目。");
     }
-    /// <summary>展示名不参与磁盘定位，只按原规则修剪、检查空值和长度。</summary>
-    private static string DisplayName(string? name,int maximum)
+    /// <summary>展示名只影响显示，沿用原文件库对文件与文件夹的名称提示。</summary>
+    private static string DisplayName(string? name, string item, int maximum)
     {
-        var value=name?.Trim()??"";if(value.Length==0||value.Length>maximum)throw new InvalidOperationException("名称不能为空或超过允许长度。");return value;
+        var value = name?.Trim() ?? "";
+        if (value.Length == 0) throw new BusinessRuleException($"{item}名称不能为空");
+        if (value.Length > maximum) throw new BusinessRuleException($"{item}名称不能超过{maximum}个字符");
+        return value;
     }
     /// <summary>范围锁已持有，同事务按数据库排序规则检查项目同级重名，排除自身及墓碑。</summary>
     private async Task RequireSiblingNameAsync(RuntimeActor actor,long? parentId,string name,long? exclude,CancellationToken token)
     {
         var matches=await store.ReadForUpdateAsync(Folders,new Dictionary<string,object?>{{"yz_project_id",Project(actor)},{"parent_folder_id",parentId},{"name",name}},token);
-        if(matches.Any(row=>SqlRowStore.Id(row)!=exclude))throw new InvalidOperationException("同级目录已存在相同名称。");
+        if(matches.Any(row=>SqlRowStore.Id(row)!=exclude))throw new BusinessRuleException("同级目录已存在相同名称");
     }
     /// <summary>删除文件仍限定上传者或当前超级身份；读取权不能变成物理删除权。</summary>
     private void RequireDeleteOwner(IReadOnlyDictionary<string,object?> row,RuntimeActor actor)

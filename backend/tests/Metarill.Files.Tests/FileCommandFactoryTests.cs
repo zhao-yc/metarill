@@ -1,5 +1,6 @@
 using System.Data;
 using System.Data.Common;
+using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
 using Metarill.Core.Security;
 using Metarill.Data;
@@ -13,6 +14,81 @@ namespace Metarill.Files.Tests;
 /// <summary>实际调用文件浏览Service，以明确替身验证适配器路由、原事务和连接所有权；不冒充实库权限验收。</summary>
 public sealed class FileCommandFactoryTests
 {
+    /// <summary>原文件库的名称和目录拒绝必须回滚并保留可返回页面的业务提示。</summary>
+    [Theory]
+    [InlineData("create-missing", "文件夹名称不能为空")]
+    [InlineData("create-blank", "文件夹名称不能为空")]
+    [InlineData("rename-long-folder", "文件夹名称不能超过100个字符")]
+    [InlineData("rename-missing-file", "文件名称不能为空")]
+    [InlineData("rename-blank-file", "文件名称不能为空")]
+    [InlineData("rename-long-file", "文件名称不能超过255个字符")]
+    [InlineData("duplicate", "同级目录已存在相同名称")]
+    [InlineData("delete-child", "文件夹下存在子文件夹，不能删除")]
+    [InlineData("delete-file", "文件夹下存在文件，不能删除")]
+    [InlineData("move-self", "不能移动到自身下")]
+    [InlineData("move-child", "不能移动到自己的子文件夹下")]
+    [InlineData("move-cycle", "目标文件夹层级异常")]
+    public async Task Original_file_management_failures_are_displayable_and_roll_back(string scenario, string message)
+    {
+        const long folderId = 41;
+        const long childId = 42;
+        const long fileId = 43;
+        var catalog = new MetadataCatalog { YzProjectId = "1" };
+        var infrastructurePath = Path.Combine(Path.GetDirectoryName(SourcePath())!, "../../metadata/files.json");
+        var infrastructure = System.Text.Json.JsonSerializer.Deserialize<MetadataCatalog>(
+            File.ReadAllText(infrastructurePath), new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+        var provider = new Provider { Read = Read };
+        using var session = new DatabaseSession(
+            new() { ExpectedDatabase = "offline", ConnectionString = "Server=127.0.0.1;Port=1;Database=offline;User ID=unused" },
+            null, provider);
+        var files = new FileLibraryService(new SqlRowStore(session, MetadataCatalogComposition.MergePhysical(catalog, infrastructure)),
+            new FileMetadataContext([catalog]), new SnowflakeIdGenerator(29), new Authorization(), new FileLibraryOptions());
+
+        Func<Task> action = scenario switch
+        {
+            "create-missing" => () => files.CreateFolderAsync(null),
+            "create-blank" => () => files.CreateFolderAsync(" "),
+            "rename-long-folder" => () => files.RenameFolderWithResultAsync(folderId, new string('长', 101)),
+            "rename-missing-file" => () => files.RenameWithResultAsync(fileId, null),
+            "rename-blank-file" => () => files.RenameWithResultAsync(fileId, " "),
+            "rename-long-file" => () => files.RenameWithResultAsync(fileId, new string('长', 256)),
+            "duplicate" => () => files.CreateFolderAsync(" 同名 "),
+            "delete-child" or "delete-file" => () => files.DeleteFolderAsync(folderId),
+            "move-self" => () => files.MoveFolderWithResultAsync(folderId, folderId),
+            _ => () => files.MoveFolderWithResultAsync(folderId, childId)
+        };
+
+        var failure = await Assert.ThrowsAsync<BusinessRuleException>(action);
+        Assert.Equal(message, failure.Message);
+        Assert.Equal(0, provider.Last!.Commits);
+        Assert.Equal(1, provider.Last.Rollbacks);
+
+        DbDataReader Read(DbCommand command)
+        {
+            // 分别模拟已在原范围内读到的父目录、同级和文件，无需自造另一套事务逻辑。
+            var rows = new DataTable();
+            rows.Columns.Add("id", typeof(long));
+            rows.Columns.Add("yz_project_id", typeof(long));
+            rows.Columns.Add("name", typeof(string));
+            rows.Columns.Add("parent_folder_id", typeof(long));
+            rows.Columns.Add("status", typeof(string));
+            if (command.CommandText.Contains("WHERE `id`=@p0", StringComparison.Ordinal)
+                || command.CommandText.Contains("AND `id`=@p0", StringComparison.Ordinal))
+            {
+                var id = Convert.ToInt64(command.Parameters["p0"].Value);
+                long? parentId = id == childId ? scenario == "move-cycle" ? childId : folderId : null;
+                rows.Rows.Add(id, 1L, "目录", parentId is { } parent ? parent : DBNull.Value, DBNull.Value);
+            }
+            else if (scenario == "duplicate" && command.CommandText.Contains("`name`=@p1", StringComparison.Ordinal))
+                rows.Rows.Add(folderId, 1L, "同名", DBNull.Value, DBNull.Value);
+            else if (scenario == "delete-child" && command.CommandText.Contains("`parent_folder_id`=@p0", StringComparison.Ordinal))
+                rows.Rows.Add(childId, 1L, "子文件夹", folderId, DBNull.Value);
+            else if (scenario == "delete-file" && command.CommandText.Contains("FROM `yz_file_library`", StringComparison.Ordinal))
+                rows.Rows.Add(fileId, 1L, "业务文件", DBNull.Value, "ready");
+            return rows.CreateDataReader();
+        }
+    }
+
     /// <summary>无事务自管连接、有事务复用连接；成功、驱动异常和取消均只执行一次原查询。</summary>
     [Theory]
     [InlineData(false,0)][InlineData(true,0)][InlineData(false,1)][InlineData(true,1)][InlineData(false,2)][InlineData(true,2)]

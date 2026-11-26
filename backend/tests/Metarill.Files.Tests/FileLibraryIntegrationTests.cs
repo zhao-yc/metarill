@@ -77,7 +77,7 @@ public sealed class FileLibraryIntegrationTests
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.OpenContentAsync(plan.FileId, true));
         Assert.DoesNotContain(await service.ListAsync(folder.Id), f => f.FileId == plan.FileId);
         Assert.Contains(await fixture.Service(fixture.Actor(administrator:true)).ListAsync(folder.Id), f => f.FileId == plan.FileId);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.DeleteFolderAsync(folder.Id));
+        Assert.Equal("文件夹下存在文件，不能删除", (await Assert.ThrowsAsync<BusinessRuleException>(() => service.DeleteFolderAsync(folder.Id))).Message);
         Assert.True((await service.DeleteAsync(plan.FileId)).StorageRemoved);
         await service.DeleteFolderAsync(folder.Id);
         Assert.DoesNotContain(await service.ListFoldersAsync(), f => f.Id == folder.Id);

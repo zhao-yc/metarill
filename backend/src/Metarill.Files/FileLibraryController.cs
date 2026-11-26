@@ -9,8 +9,8 @@ public sealed record FileListRequest(string? ConfigColumnId,string? Keyword,stri
 public sealed record ResolveFilesRequest(IReadOnlyList<string> FileIds,string? PageId=null,string? RecordId=null);
 public sealed record CompleteFileRequest(long FileId);
 public sealed record FolderListRequest(string? ConfigColumnId,string? ParentId=null);
-public sealed record CreateFolderRequest(string Name,string? ParentId=null,string? ConfigColumnId=null);
-public sealed record RenameFileRequest(string Name);
+public sealed record CreateFolderRequest(string? Name,string? ParentId=null,string? ConfigColumnId=null);
+public sealed record RenameFileRequest(string? Name);
 public sealed record MoveFileRequest(long FileId,string? TargetFolderId);
 public sealed record MoveFolderRequest(string? TargetParentId);
 

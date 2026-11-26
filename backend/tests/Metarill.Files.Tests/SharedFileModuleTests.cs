@@ -1,3 +1,4 @@
+using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
 using Metarill.Core.Security;
 using Metarill.Data;
@@ -106,7 +107,7 @@ public sealed class SharedFileModuleIntegrationTests
         try { await Task.Delay(150); Assert.False(backward.IsCompleted); }
         finally { release.TrySetResult(); }
         await forward.WaitAsync(TimeSpan.FromSeconds(15));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => backward.WaitAsync(TimeSpan.FromSeconds(15)));
+        Assert.Equal("不能移动到自己的子文件夹下", (await Assert.ThrowsAsync<BusinessRuleException>(() => backward.WaitAsync(TimeSpan.FromSeconds(15)))).Message);
         var rows = await fixture.Store.ReadAsync("yz_file_library_folder", new Dictionary<string, object?> { ["id"] = a.Id });
         Assert.Equal(b.Id, SqlRowStore.Id(rows.Single(), "parent_folder_id"));
         rows = await fixture.Store.ReadAsync("yz_file_library_folder", new Dictionary<string, object?> { ["id"] = b.Id });

@@ -1,4 +1,5 @@
 using Metarill.Api.Controllers;
+using Metarill.Core.Contracts;
 using Metarill.Runtime.Files;
 using System.Text;
 using System.Text.Json;
@@ -21,7 +22,7 @@ public sealed class OriginalFileManagementTests
         var other=fixture.Service(fixture.Actor(8002));var tree=await other.ListFoldersAsync();
         Assert.Contains(tree,folder=>folder.Id==root.Id);Assert.Contains(tree,folder=>folder.Id==child.Id&&folder.ParentFolderId==root.Id);
         await other.RenameFolderAsync(child.Id,"共同整理");
-        await Assert.ThrowsAsync<InvalidOperationException>(()=>other.CreateFolderAsync("共同整理",root.Id));
+        Assert.Equal("同级目录已存在相同名称", (await Assert.ThrowsAsync<BusinessRuleException>(()=>other.CreateFolderAsync("共同整理",root.Id))).Message);
         await other.MoveFolderAsync(child.Id,null);
         Assert.Contains(await other.ListFoldersAsync(),folder=>folder.Id==child.Id&&folder.ParentFolderId is null);
         await other.DeleteFolderAsync(child.Id);await other.DeleteFolderAsync(root.Id);
