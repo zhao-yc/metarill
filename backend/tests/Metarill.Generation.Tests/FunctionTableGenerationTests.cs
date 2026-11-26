@@ -422,15 +422,20 @@ public sealed class FunctionTableGenerationTests : IDisposable
     [InlineData("ordinary")]
     [InlineData("globalStored")]
     [InlineData("globalStoredCompound")]
+    [InlineData("globalExactCompound")]
+    [InlineData("globalRowProjectExactCompound")]
+    [InlineData("globalStoredExactCompound")]
     public async Task Function_checkbox_uses_the_published_global_parent(string scenario)
     {
         var catalog=WithGlobalParent(Catalog(),scenario=="ordinary"?"redundant":scenario);
         var targetPage=catalog.ConfigPages.Single(page=>page.Id=="103");
-        if(scenario=="ordinary")targetPage.Extra.Remove("type");
+        if(scenario is "ordinary" or "globalExactCompound")targetPage.Extra.Remove("type");
+        var compound=scenario.EndsWith("Compound",StringComparison.Ordinal);
+        var exactGlobal=scenario.EndsWith("ExactCompound",StringComparison.Ordinal);
         var field=catalog.ConfigColumns.Single(column=>column.Id=="39");
         field.ControlKind="MultiCheckBoxDatabase";
         Assert.Equal("802",Metarill.Data.Queries.NonRedundantReads.MultiGlobalParentPageId(catalog,"7","103"));
-        if(scenario=="globalStoredCompound")
+        if(compound)
         {
             // 同一父表的另一发布页不代表相同账号范围。
             var other=catalog.ConfigColumns.Single(column=>column.Id=="708");
@@ -453,13 +458,15 @@ public sealed class FunctionTableGenerationTests : IDisposable
         Assert.Contains("CheckboxGlobalParent102_39=global::Example.FunctionForm.Generated.GeneratedNonRedundantReadCatalog.CompileMultiGlobalParent(\"7\",\"103\")",code);
         Assert.Contains("CheckboxGlobalParent102_39.BindAccount(actor)",code);
         Assert.Contains("row.ScopeId==long.Parse(parentId!",code);
-        if(scenario=="globalStoredCompound")Assert.Contains("row.OtherScopeId==long.Parse(parentId!",code);
+        if(compound)Assert.Contains("row.OtherScopeId==long.Parse(parentId!",code);
         var global=scenario.StartsWith("global",StringComparison.Ordinal);
         if(global)
         {
             Assert.Contains("PageAsync(DerivedCheckboxPlan102_39.BindAccount(actor)",code);
-            if(scenario=="globalRowProject")
-                Assert.Contains("new(\"yz_project_id\",FixedReadComparison.Equal,long.Parse(actor.ProjectId",code);
+            if(scenario is "globalRowProject" or "globalRowProjectExactCompound")
+                Assert.Contains("""new("yz_project_id",FixedReadComparison.Equal,long.Parse(actor.ProjectId""",code);
+            if(exactGlobal)
+                Assert.Contains("""ResolveExactDataManage("103", "list", "real_name")""",code);
         }
         else
         {
@@ -490,6 +497,19 @@ public sealed class FunctionTableGenerationTests : IDisposable
                 var options=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
                     service.GetField("DerivedCheckboxPlan102_39",binding)!.GetValue(null));
                 Assert.True(options.RequiresAccount);
+                if(exactGlobal)
+                {
+                    // 完整包的实际候选 SQL 必须同时比较两个父字段，并保留门店及显式项目范围。
+                    const System.Reflection.BindingFlags instance=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+                    var mysql=options.GetType().GetProperty("MySql",instance)!.GetValue(options)!;
+                    var scope=Assert.IsType<string>(mysql.GetType().GetProperty("Scope",instance)!.GetValue(mysql));
+                    Assert.Contains("b.`scope_id`",scope);
+                    Assert.Contains("b.`other_scope_id`",scope);
+                    Assert.Contains("b.`store_id`",scope);
+                    Assert.Equal(scenario!="globalExactCompound",scope.Contains("b.`yz_project_id`=@project_scope_number",StringComparison.Ordinal));
+                    Assert.Throws<UnauthorizedAccessException>(()=>options.BindAccount(
+                        new Metarill.Core.Security.RuntimeActor(7,"合成账号",false,"100","70")));
+                }
             }
         }
         finally {context.Unload();}
@@ -513,18 +533,18 @@ public sealed class FunctionTableGenerationTests : IDisposable
                 new(){Id=table.Id+"04",ConfigTableId=table.Id,ColumnName="delete_no",LogicalType="datetime"},
                 new(){Id=table.Id+"05",ConfigTableId=table.Id,ColumnName="store_id",LogicalType="int64"}
             ]);
-        if(scenario!="global")
+        if(scenario is not ("global" or "globalExactCompound"))
             catalog.ConfigColumns.Add(new(){Id="706",ConfigTableId="7",ColumnName="yz_project_id",LogicalType="int64"});
         var published=new PageMetadata {Id="103",ConfigTableId="7",YzProjectId="100",YzAdminTypeId="70",Name="范围候选",
-            WhereSql=(global&&target.IsRongyu==0?"":"yz_project_id=@current_yz_project_id AND ")+"scope_id=@parent_id AND status=1 AND store_id=@current_store_id",
+            WhereSql=(global&&target.IsRongyu==0&&scenario!="globalRowProjectExactCompound"?"":"yz_project_id=@current_yz_project_id AND ")+"scope_id=@parent_id AND status=1 AND store_id=@current_store_id",
             Extra=new(){["type"]=JsonSerializer.SerializeToElement(2)}};
-        if(scenario=="globalStoredCompound")
+        if(scenario.EndsWith("Compound",StringComparison.Ordinal))
         {
             catalog.ConfigColumns.Add(new(){Id="708",ConfigTableId="7",ColumnName="other_scope_id",LogicalType="int64",
                 LinkConfigTableId="8",Extra=new(){["linkConfigPageId"]=JsonSerializer.SerializeToElement("802")}});
             published.WhereSql+=" AND other_scope_id=@parentId";
         }
-        if(!global)
+        if(!global||scenario.EndsWith("ExactCompound",StringComparison.Ordinal))
         {
             published.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("name");
             catalog.YzAdminTypes.Single(item=>item.Id=="70").Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("real_name");

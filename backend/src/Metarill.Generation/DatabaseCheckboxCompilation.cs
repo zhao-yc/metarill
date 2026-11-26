@@ -386,13 +386,18 @@ internal static class DatabaseCheckboxCompilation
             if(functionForm&&physicalParents.Length>0)
             {
                 var targetParent=physicalParents[0].Column;
-                // 功能表只有一个实际父值。冗余全局字典的多个条件须全部属于同一已发布的父记录。
-                var targetBinding=namePage is {} parentPage&&physicalParents.All(scope=>parentPage.Scopes.Any(published=>
-                    published.Source=="parent"&&published.Column.Source.Id==scope.Column.Source.Id))
-                    ?GlobalCrossTableTarget.StoredMultiParent(model.Catalog,target.Source,parentPage.Source,checkbox:true)??
-                        (physicalParents.Length==1?MultiTargetParentScope.Compile(model.Catalog,target.Source,
-                            FixedConditionPlan.Compile(parentPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName))):null)
-                    :null;
+                // 功能表只提供一个父值。多列须由同一实际发布页证明属于同一父记录。
+                MultiTargetParentScope? targetBinding=null;
+                if(namePage is {} parentPage&&physicalParents.All(scope=>parentPage.Scopes.Any(published=>
+                    published.Source=="parent"&&published.Column.Source.Id==scope.Column.Source.Id)))
+                {
+                    targetBinding=GlobalCrossTableTarget.DeclaresExactPage(target.Source,parentPage.Source)
+                        ?GlobalCrossTableTarget.ExactPageParent(model.Catalog,target.Source,parentPage.Source)
+                        :GlobalCrossTableTarget.StoredMultiParent(model.Catalog,target.Source,parentPage.Source,checkbox:true);
+                    if(targetBinding is null&&physicalParents.Length==1)
+                        targetBinding=MultiTargetParentScope.Compile(model.Catalog,target.Source,
+                            FixedConditionPlan.Compile(parentPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName)));
+                }
                 if(physicalParents.Length>1&&(targetBinding is not {Logical:false}||
                     physicalParents.Any(scope=>!targetBinding.HasTarget(scope.Column.Source.Id))))
                     return Gap("功能表复选的多个目标父字段须绑定同一实际发布父页。");
