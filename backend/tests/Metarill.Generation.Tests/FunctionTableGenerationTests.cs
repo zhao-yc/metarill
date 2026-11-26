@@ -141,6 +141,37 @@ public sealed class FunctionTableGenerationTests : IDisposable
         CheckCheckboxPlan(output, scopedTargetStorage, logical);
     }
 
+    /// <summary>原数据库复选按发布的文本祖先取数，并保留当前表单值和目标页范围。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Function_checkbox_uses_the_published_text_parent(bool exact)
+    {
+        var catalog = WithScopedCheckbox(WithCascades(Catalog()), 0);
+        ConfigureDerivedCheckboxScope(catalog, "multi");
+        ConfigureTextSelectionParent(catalog);
+        if (!exact)
+            catalog.ConfigPages.Single(page => page.Id == "103").Extra.Remove("exactDataManageMatchField");
+
+        new ApplicationPackager().Create(catalog, output, "Example.FunctionForm", SourceRoot());
+        await VerifyVueAsync(output, "GeneratedFunctionFormProbe.mjs", "text-parent");
+        var code = await File.ReadAllTextAsync(Path.Combine(output, "backend/generated/Services/SummaryFormService.g.cs"));
+        var start = code.IndexOf(" CheckboxScope102_38Async(string? parentId", StringComparison.Ordinal);
+        Assert.True(start >= 0);
+        var end = code.IndexOf(" CheckboxOptions102_38Async(", start, StringComparison.Ordinal);
+        Assert.True(end > start);
+        var scope = code[start..end];
+        Assert.Contains("""ApplyTextParent(parentQuery,session,"business_key",parentId!,businessKey:true)""", scope);
+        Assert.Contains("parentQuery.Where(row=>row.DeleteNo==null)", scope);
+        Assert.Contains("actor.ProjectId", scope);
+        Assert.DoesNotContain("long.TryParse(parentId", scope);
+        Assert.Contains("""FixedReadFilter.ForTextParent("country_id",parentId!,businessKey:true)""", code);
+        Assert.Equal(exact, code.Contains("""ResolveExactDataManage("103", "list", "real_name")""", StringComparison.Ordinal));
+
+        await BuildFullAsync(output);
+        CheckCheckboxPlan(output, scopedTargetStorage: 0, logical: true, exact: exact, textParent: true);
+    }
+
     /// <summary>功能表的业务键沿用原控件和远端只读权限，整个包不生成来源持久化。</summary>
     [Theory]
     [InlineData("int64","physical","9007199254740995")]
@@ -763,9 +794,6 @@ public sealed class FunctionTableGenerationTests : IDisposable
     /// <summary>原单选和多选共用同一个文本祖先，保留各自的发布页和目标权限。</summary>
     private static void ConfigureTextSelectionParent(MetadataCatalog catalog)
     {
-        // 复选配置由其他场景单独覆盖，避免将不同控件的父键协议混在同一个样本。
-        catalog.ConfigColumns.RemoveAll(field => field.Id == "38");
-        catalog.ConfigPageColumns.RemoveAll(field => field.ConfigColumnId == "38");
         catalog.ConfigColumns.Add(new()
         {
             Id = "16", ConfigTableId = "1", ColumnName = "country_id", LogicalType = "string",
@@ -1163,7 +1191,7 @@ public sealed class FunctionTableGenerationTests : IDisposable
     }
 
     /// <summary>装载包内复选计划，避免生成核验通过而宿主静态初始化失败。</summary>
-    private static void CheckCheckboxPlan(string output,int scopedTargetStorage,bool logical)
+    private static void CheckCheckboxPlan(string output,int scopedTargetStorage,bool logical,bool exact = true,bool textParent = false)
     {
         if(scopedTargetStorage==0)
         {
@@ -1185,8 +1213,18 @@ public sealed class FunctionTableGenerationTests : IDisposable
                     Assert.Equal("country_id",sql.GetType().GetProperty("RequiredMultiParent",hidden)!.GetValue(sql));
                     var scopeSql=Assert.IsType<string>(sql.GetType().GetProperty("Scope",hidden)!.GetValue(sql));
                     Assert.Contains("store_id",scopeSql);
-                    var exact=sql.GetType().GetMethod("Expression",hidden)!.Invoke(sql,["assigned_area_name"]);
-                    Assert.Contains("CASE WHEN",Assert.IsType<string>(exact));
+                    if (textParent)
+                    {
+                        var parent = Metarill.Data.Queries.FixedReadFilter.ForTextParent("country_id", "0007-Ab", businessKey: true);
+                        var parentFilter = typeof(Metarill.Data.Queries.MySqlNonRedundantReader)
+                            .GetMethod("Filter", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+                        var parentSql = Assert.IsType<string>(parentFilter.Invoke(null, [sql, parent, 0]));
+                        Assert.Contains("=BINARY @filter_0", parentSql);
+                        Assert.DoesNotContain("0007-Ab", parentSql);
+                    }
+                    if (!exact) return;
+                    var exactExpression=sql.GetType().GetMethod("Expression",hidden)!.Invoke(sql,["assigned_area_name"]);
+                    Assert.Contains("CASE WHEN",Assert.IsType<string>(exactExpression));
 
                     // 运行实际读取器的谓词生成，核对精确范围使用路径校验和参数绑定。
                     var filter=typeof(Metarill.Data.Queries.MySqlNonRedundantReader)

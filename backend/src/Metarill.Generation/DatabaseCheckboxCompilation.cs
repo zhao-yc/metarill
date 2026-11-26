@@ -21,6 +21,7 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal bool UsesControlRead { get; init; }
     internal bool UsesNameOverride { get; init; }
     internal ColumnModel? FunctionParentField { get; init; }
+    internal ColumnModel? FunctionTextParentKey { get; init; }
     internal ColumnModel? FormParentField { get; init; }
     internal bool SharedAccountScope { get; init; }
     internal bool SharedDerivedPageScope { get; init; }
@@ -383,6 +384,7 @@ internal static class DatabaseCheckboxCompilation
                 globalParentPage=namePage;
             }
             var compoundGlobalSource=false;
+            ColumnModel? functionTextParentKey = null;
             if(functionForm&&physicalParents.Length>0)
             {
                 var targetParent=physicalParents[0].Column;
@@ -414,6 +416,16 @@ internal static class DatabaseCheckboxCompilation
                 if(fields.Length!=1)return Gap("功能表页面须开启唯一的目标父表单字段。");
                 sourceParent=fields[0];
                 parents=[parent];
+                // 文本父值只在目标逻辑层已证明实际业务键时启用，普通物理字符串父字段仍绑定主键。
+                if (!parent.IsGlobal && logicalPage is { } textPage &&
+                    NonRedundantCrossParentCompilation.IsText(model, target, textPage, targetParent))
+                {
+                    var path = NonRedundantCrossParentCompilation.Find(model, target, textPage, targetParent)!.Value;
+                    var level = path.Read.Levels[path.Index];
+                    if (level.Target != parent || level.AlternateKey is not { Type: "string?" } key)
+                        return Gap("功能表复选未证明目标父层对应的文本业务键。");
+                    functionTextParentKey = key;
+                }
                 if(parent.IsGlobal)
                 {
                     if(targetBinding is not {Global:true}||namePage is null)return Gap("全局目标父需要显式发布的复选目标页。");
@@ -525,6 +537,7 @@ internal static class DatabaseCheckboxCompilation
                 UsesControlRead=controlRead,
                 UsesNameOverride=usesNameOverride,
                 FunctionParentField=functionForm?sourceParent:null,
+                FunctionTextParentKey = functionTextParentKey,
                 FormParentField=formParent,
                 SharedAccountScope=sharedAccountScope,
                 SharedDerivedPageScope=sharedDerivedPageScope,

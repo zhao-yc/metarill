@@ -192,7 +192,9 @@ internal static class OriginalUniappDetailFields
             if(form is null)c.OptionWatchers.AppendLine($$$"""
 this.$watch(()=>this.entity.{{{targetField}}},()=>{this.{{{list}}}=[];this._originalOptions=this._originalOptions||{};const sequence=(this._originalOptions[{{{key}}}]||0)+1;this._originalOptions[{{{key}}}]=sequence;const current=this.originalContext(),parent=this.entity.{{{targetField}}};this.$nextTick(()=>{if(current()&&parent===this.entity.{{{targetField}}}&&sequence===this._originalOptions[{{{key}}}])this.{{{method}}}();});},{flush:'sync'});
 """);
-            var guard="if(!that._alive||!that.permissionsReady||that.id&&!that.recordReady||!/^[1-9][0-9]{0,18}$/.test(optionParent)||optionParent.length===19&&optionParent>'9223372036854775807')return;";
+            var invalidParent = checkboxModel?.FunctionTextParentKey is not null ? "!optionParent.trim()" :
+                "!/^[1-9][0-9]{0,18}$/.test(optionParent)||optionParent.length===19&&optionParent>'9223372036854775807'";
+            var guard = $"if(!that._alive||!that.permissionsReady||that.id&&!that.recordReady||{invalidParent})return;";
             load=load.Replace(";that.originalRequest({", ";"+guard+"that.originalRequest({",StringComparison.Ordinal);
         }
         c.Methods.AppendLine($"{method}() {{const that=this;that.{list}=[];{load}}},");

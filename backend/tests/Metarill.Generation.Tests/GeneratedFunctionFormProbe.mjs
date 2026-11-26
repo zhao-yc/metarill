@@ -24,6 +24,8 @@ const app = mountGenerated(source, {}, {}, {
 })
 const ids = ['9007199254740993', '9007199254740994']
 const names = ['客户甲', '客户乙']
+const textParent = process.argv[3] === 'text-parent'
+const parents = textParent ? ['0007-Ab', '0008-aB'] : ids
 
 let failure
 try {
@@ -57,16 +59,20 @@ try {
  // 独立父字段只使用旧 parentId。旧请求迟到时不能把新范围的候选覆盖回去。
  const scopedRequests = () => app.requests.filter(entry => entry.options.url.endsWith('/findNameIdScoped38'))
  assert.equal(scopedRequests().length, 0)
- app.state.entity.reviewCountryId = ids[0]
+ app.state.entity.reviewCountryId = textParent ? '   ' : '0007'
+ await app.flush()
+ assert.equal(scopedRequests().length, 0)
+ app.state.entity.reviewCountryId = parents[0]
  await app.flush()
  const oldScope = scopedRequests().at(-1)
- assert.equal(oldScope.options.data.parentId, ids[0])
+ assert.ok(oldScope, '有效父键应加载原数据库复选候选')
+ assert.equal(oldScope.options.data.parentId, parents[0])
  assert.equal(Object.hasOwn(oldScope.options.data, 'targetParentId'), false)
- app.state.entity.reviewCountryId = ids[1]
+ app.state.entity.reviewCountryId = parents[1]
  await app.flush()
  const newScope = scopedRequests().at(-1)
  assert.equal(scopedRequests().length, 2)
- assert.equal(newScope.options.data.parentId, ids[1])
+ assert.equal(newScope.options.data.parentId, parents[1])
  assert.deepEqual(plain(newScope.options.data.formParameters), { summaryForm: { title: '新条件' } })
  app.respond(newScope, [candidates[1]])
  app.respond(oldScope, [candidates[0]])
@@ -100,6 +106,10 @@ try {
  assert.deepEqual(plain(app.targets.at(-1).selectedNames), names)
  app.targets.at(-1).cancel()
 
+ if (textParent) {
+  app.state.entity.reviewCountryId = parents[1]
+  await app.flush()
+ }
  app.state.customerButtonHandler63()
  app.dialogs.at(-1).success({ confirm: true })
  await app.flush()
@@ -109,6 +119,11 @@ try {
  assert.deepEqual(plain(request.options.data.entity.customerNames), names)
  assert.deepEqual(plain(request.options.data.entity.approvedIds), [ids[1]])
  assert.deepEqual(plain(request.options.data.entity.approvedNames), [names[1]])
+ if (textParent) {
+  assert.equal(request.options.data.entity.reviewCountryId, parents[1])
+  assert.deepEqual(plain(request.options.data.entity.scopedIds), [ids[1]])
+  assert.deepEqual(plain(request.options.data.entity[label]), [names[1]])
+ }
  assert.equal(app.validations(), 1)
  assert.equal(app.writes().length, 0)
 } catch (error) {
