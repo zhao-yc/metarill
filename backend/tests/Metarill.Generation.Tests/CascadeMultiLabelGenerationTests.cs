@@ -300,6 +300,18 @@ public sealed class CascadeMultiLabelGenerationTests
             globalBusinessSource:true,onlyParent:!targetAccount,literalParent:!targetAccount,projectParentScope:true,
             storedDictionary:true);
 
+    /// <summary>冗余来源沿实际父级维护名称副本，全局字典页可以只发布父键和静态条件。</summary>
+    [Theory]
+    [InlineData("MultiSelectPage",true,false)]
+    [InlineData("MultiSelectPage",false,true)]
+    [InlineData("MultiCheckBoxDatabase",true,false)]
+    [InlineData("MultiCheckBoxDatabase",false,true)]
+    public Task Stored_business_multivalue_uses_global_dictionary_without_project_column(string kind,bool ordinary,bool compound)=>
+        CompileCascadeLabel(kind,1,selfTree:false,indirect:false,selectedPage:true,physical:true,globalRowProject:false,
+            parent:true,globalParent:compound,parentWithoutProject:compound,parentAccount:compound,
+            globalBusinessSource:true,ordinaryBusinessSource:ordinary,onlyParent:true,literalParent:true,
+            storedDictionary:true,compoundTargetParent:compound?"physical":null);
+
     /// <summary>冗余多值字典配置多个物理父键时，所有键须匹配同一个实际父记录。</summary>
     [Theory]
     [InlineData("MultiSelectPage",0,false,false)]
@@ -1500,7 +1512,7 @@ public sealed class CascadeMultiLabelGenerationTests
                                     ?MultiTargetParentScope.CompileCheckboxPage(catalog,dictionary,definition,allowGlobalParent:true,allowStoredPhysicalParents:true)
                                     :MultiTargetParentScope.CompileSelectionPage(catalog,dictionary,definition,allowGlobalParent:true,allowStoredPhysicalParents:true)
                                 :storedDictionary
-                                    ?GlobalCrossTableTarget.StoredProjectMultiParent(catalog,dictionary,catalog.ConfigPages.Single(page=>page.Id=="201"),checkboxTarget)
+                                    ?GlobalCrossTableTarget.StoredMultiParent(catalog,dictionary,catalog.ConfigPages.Single(page=>page.Id=="201"),checkboxTarget)
                                     :MultiTargetParentScope.CompileGlobalPage(catalog,dictionary,definition,checkboxTarget))!;
                             var source=catalog.ConfigTables.Single(table=>table.Id=="9");
                             var relation=catalog.ConfigColumns.Single(column=>column.Id=="95");
@@ -1642,7 +1654,8 @@ public sealed class CascadeMultiLabelGenerationTests
                         new Metarill.Core.Contracts.PageRequest{ParentId="9007199254741197",SelectedIds=["9007199254740993"]}})
                     {
                         var scope=query("Query201",[request,actor]);
-                        Assert.Contains("yz_project_id",scope);
+                        if(globalRowProject==false)Assert.DoesNotContain("yz_project_id",scope);
+                        else Assert.Contains("yz_project_id",scope);
                         Assert.Contains(parentField,scope);
                         // 文本父键沿规范 ID 比较，多字段字典的列表和回读须保留全部父条件。
                         Assert.Contains("BINARY",scope,StringComparison.OrdinalIgnoreCase);
@@ -1789,6 +1802,26 @@ public sealed class CascadeMultiLabelGenerationTests
                         if(!onlyParent||parentAccount)Assert.Contains("`store_id`",sql);
                         else Assert.DoesNotContain("`store_id`",sql);
                         if(projectParentScope)Assert.Contains("multi_value.`yz_project_id`="+(textDictionaryProject?"@project_scope_text":"@project_scope_number"),sql);
+                        else if(storedDictionary&&globalRowProject==false)
+                        {
+                            Assert.DoesNotContain("multi_value.`yz_project_id`",sql);
+                            var reverse=Assert.IsAssignableFrom<System.Collections.IEnumerable>(
+                                read.GetType().GetProperty("Reverse",hidden)!.GetValue(read)).Cast<object>().ToArray();
+                            IReadOnlySet<string> Dependencies(string table)
+                            {
+                                var edges=reverse.Where(item=>Equals(table,item.GetType().GetProperty("TargetTable")!.GetValue(item)));
+                                return edges.SelectMany(item=>Assert.IsAssignableFrom<IReadOnlyDictionary<string,IReadOnlySet<string>>>(
+                                    item.GetType().GetProperty("Outputs")!.GetValue(item))["selected_names"]).ToHashSet(StringComparer.Ordinal);
+                            }
+                            var dictionaryFields=Dependencies("label_cross_source");
+                            Assert.Contains("name",dictionaryFields);
+                            Assert.Contains("delete_no",dictionaryFields);
+                            Assert.Contains(parentField,dictionaryFields);
+                            if(compoundTargetParent=="physical")Assert.Contains("other_country_id",dictionaryFields);
+                            var parentFields=Dependencies(globalParent?"label_cross_country":"label_scope_parent");
+                            Assert.Contains("delete_no",parentFields);
+                            Assert.Contains(parentAccount?"store_id":"yz_project_id",parentFields);
+                        }
                         if(alternateCheckboxName)
                         {
                             var alternateSql=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!
