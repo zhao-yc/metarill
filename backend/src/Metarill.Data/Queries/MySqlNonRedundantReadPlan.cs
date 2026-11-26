@@ -204,7 +204,9 @@ public static partial class MySqlNonRedundantReadCompiler
             ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal)
         };
         var fields=dependencies??[];
-        if(builder.MultiCandidateParent is {} parent)fields=fields.Append(parent.Target.ColumnName).ToArray();
+        if(builder.MultiCandidateParent is {} parent)
+            fields=fields.Concat(parent.AdditionalTargets.Select(scope=>scope.Target.ColumnName).Prepend(parent.Target.ColumnName))
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         return builder.Compile(outputs,fields);
     }
 
@@ -434,7 +436,19 @@ public static partial class MySqlNonRedundantReadCompiler
                 {
                     var exactParent=GlobalCrossTableTarget.ExactPageParent(catalog,root,candidatePage);
                     // 原多选的项目和账号条件在候选、联接名称及当前锁读中共用实际字典页。
-                    if(physicalCandidate&&exactParent is null)
+                    if(physicalCandidate&&exactParent is {Logical:false}&&
+                        GlobalCrossTableTarget.DeclaresExactSingle(root,candidatePage))
+                    {
+                        // 实际父级由发布页证明，角色匹配仍由入口使用当前授权值。
+                        MultiCandidateParent=exactParent;
+                        MultiCandidatePage=candidatePage;
+                        LockPublishedJoinScopes=true;
+                        this.accountPhysicalCandidate=true;
+                        explicitProjectCandidate=FixedConditionPlan.Compile(candidatePage.WhereSql,
+                            catalog.ConfigColumns.Where(column=>column.ConfigTableId==root.Id).Select(column=>column.ColumnName))
+                            .Terms.Any(GlobalMultipleRelationTarget.IsProjectScope);
+                    }
+                    else if(physicalCandidate&&exactParent is null)
                     {
                         var syntax=FixedConditionPlan.Compile(candidatePage.WhereSql,
                             catalog.ConfigColumns.Where(column=>column.ConfigTableId==root.Id).Select(column=>column.ColumnName));
@@ -1087,7 +1101,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 // 原单值联接和候选一样携带全部同父字段，隐藏名称也不能绕过附加父范围。
                 var logical=scopedCrossTable?PublishedSingleCrossCondition(table,alias,page,sourceParent):
                     PublishedSingleCondition(table,alias,page,parentField:accountParent?.Target,additionalScopes:accountParent?.AdditionalTargets);
-                return scope.Length==0?logical:scope+" AND "+logical;
+                return scope.Length==0?logical:logical.Length==0?scope:scope+" AND "+logical;
             }
             var condition=PublishedCondition(table,alias,page,allowAccount,projectParent,publishedProject);
             if(condition is null)return scope;

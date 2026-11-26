@@ -318,7 +318,8 @@ public static partial class MySqlNonRedundantReadCompiler
         if(page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)throw new UnauthorizedAccessException("多值目标页不属于已发布项目。");
         var checkbox=IsPublishedCheckboxTarget(catalog,table,page.Id);
         var parent=checkbox?MultiParent(catalog,page,checkbox:true):
-            ProjectScopedSingleRelationTarget.PageParent(catalog,table,page)??MultiParent(catalog,page);
+            ProjectScopedSingleRelationTarget.PageParent(catalog,table,page)??MultiParent(catalog,page)??
+            (GlobalCrossTableTarget.DeclaresExactSingle(table,page)?GlobalCrossTableTarget.ExactSingleParent(catalog,table,page):null);
         if(parent is not{Global:true})throw new NotSupportedException("多值全局父须显式声明全局表关系。");
         var pages=parent.AdditionalTargets.Prepend(parent)
             .Select(scope=>scope.Logical?PublishedLogicalMultiParent(catalog,table,page,scope):

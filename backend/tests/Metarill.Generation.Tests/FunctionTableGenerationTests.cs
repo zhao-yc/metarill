@@ -756,15 +756,21 @@ public sealed class FunctionTableGenerationTests : IDisposable
     [InlineData("globalRowProjectExactCompoundControl")]
     [InlineData("globalStoredExactCompoundControl")]
     [InlineData("globalStoredExactCompoundControlWithoutProject")]
+    [InlineData("globalExactCompoundSplit")]
+    [InlineData("globalRowProjectExactCompoundSplit")]
+    [InlineData("globalStoredExactCompoundSplit")]
+    [InlineData("globalStoredExactCompoundSplitText")]
+    [InlineData("globalStoredExactCompoundSplitWithoutProject")]
     public async Task Function_original_list_uses_one_candidate_scope(string scenario)
     {
         var ordinary=scenario.EndsWith("Ordinary",StringComparison.Ordinal);
         var textParent=scenario.EndsWith("SplitText",StringComparison.Ordinal);
-        var split=textParent||scenario.EndsWith("Split",StringComparison.Ordinal);
+        var splitWithoutProject=scenario.EndsWith("SplitWithoutProject",StringComparison.Ordinal);
+        var split=textParent||splitWithoutProject||scenario.EndsWith("Split",StringComparison.Ordinal);
         var singleControl=scenario.EndsWith("ControlSingle",StringComparison.Ordinal);
         var withoutProject=scenario.EndsWith("ControlWithoutProject",StringComparison.Ordinal);
         var controlOnly=singleControl||withoutProject||scenario.EndsWith("Control",StringComparison.Ordinal);
-        var variant=ordinary?scenario[..^8]:textParent?scenario[..^9]:split?scenario[..^5]:
+        var variant=ordinary?scenario[..^8]:textParent?scenario[..^9]:splitWithoutProject?scenario[..^19]:split?scenario[..^5]:
             singleControl?scenario[..^13]:withoutProject?scenario[..^21]:controlOnly?scenario[..^7]:scenario;
         var catalog = WithFunctionList(Catalog(), variant=="treeExact"?"logical":variant);
         var compound=variant.EndsWith("ExactCompound",StringComparison.Ordinal);
@@ -786,6 +792,12 @@ public sealed class FunctionTableGenerationTests : IDisposable
             if(textParent)catalog.ConfigColumns.Single(column=>column.Id=="708").LogicalType="string";
             var field=catalog.ConfigColumns.Single(column=>column.Id=="39");
             field.ControlDetail="""{"pageId":"103","nameField":"name","whereSql":"status=1 AND other_scope_id=@parentId"}""";
+        }
+        if(splitWithoutProject)
+        {
+            catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId=="7"&&column.ColumnName=="yz_project_id");
+            var targetPage=catalog.ConfigPages.Single(page=>page.Id=="103");
+            targetPage.WhereSql=targetPage.WhereSql.Replace("yz_project_id=@current_yz_project_id AND ","",StringComparison.Ordinal);
         }
         if(controlOnly)
         {
@@ -864,7 +876,7 @@ public sealed class FunctionTableGenerationTests : IDisposable
             using var binary = File.OpenRead(Path.Combine(output, "backend/Application.Host/bin/Debug/net10.0/Application.Host.dll"));
             var runtime = context.LoadFromStream(binary).GetType("Example.FunctionForm.Generated.Services.SummaryFormService", true)!;
             RuntimeHelpers.RunClassConstructor(runtime.TypeHandle);
-            if(globalControl)
+            if(globalControl||split&&variant.StartsWith("global",StringComparison.Ordinal))
             {
                 // 冻结候选同时保留字典账号约束和实际声明的行项目范围。
                 var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(runtime.GetField("DerivedOptionsPlan102_39",
@@ -873,7 +885,14 @@ public sealed class FunctionTableGenerationTests : IDisposable
                 var mysql=plan.GetType().GetProperty("MySql",instance)!.GetValue(plan)!;
                 var scope=Assert.IsType<string>(mysql.GetType().GetProperty("Scope",instance)!.GetValue(mysql));
                 Assert.Contains("b.`store_id`",scope);
-                Assert.Equal(variant!="globalExactCompound"&&!withoutProject,scope.Contains("b.`yz_project_id`=@project_scope_number",StringComparison.Ordinal));
+                Assert.Equal(variant!="globalExactCompound"&&!withoutProject&&!splitWithoutProject,scope.Contains("b.`yz_project_id`=@project_scope_number",StringComparison.Ordinal));
+                if(split)
+                {
+                    // 字典页自身只要求已发布主父键，控件再叠加自己的同父等值。
+                    Assert.Equal("scope_id",mysql.GetType().GetProperty("RequiredMultiParent",instance)!.GetValue(mysql));
+                    Assert.Contains("EXISTS (SELECT 1",scope);
+                    Assert.Contains("function_scope",scope);
+                }
                 Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(new Metarill.Core.Security.RuntimeActor(7,"合成账号",false,"100","70")));
                 RuntimeHelpers.RunClassConstructor(runtime.Assembly.GetType("Example.FunctionForm.Generated.Services.FunctionOptionService",true)!.TypeHandle);
             }

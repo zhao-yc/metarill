@@ -15,7 +15,10 @@ internal static class FixedPageQueryCompilation
 
     /// <summary>全局冗余单选直接分页、详情及导出同样须校验真实物理父记录。</summary>
     internal static bool HasStoredGlobalSelectionParent(MetadataCatalog catalog,TableModel table,PageModel page)=>
-        table.IsGlobal&&table.Source.IsRongyu==1&&GlobalCrossTableTarget.SingleParent(catalog,table.Source,page.Source) is {Logical:false};
+        table.IsGlobal&&table.Source.IsRongyu==1&&
+        (GlobalCrossTableTarget.DeclaresExactSingle(table.Source,page.Source)
+            ?GlobalCrossTableTarget.ExactSingleParent(catalog,table.Source,page.Source)
+            :GlobalCrossTableTarget.SingleParent(catalog,table.Source,page.Source)) is {Logical:false};
 
     /// <summary>有真实项目列的全局 R1 自树来源按项目管理自己的行，目标候选仍使用已发布的全局树。</summary>
     internal static ColumnModel? GlobalSelfTreeProject(TableModel table)=>
