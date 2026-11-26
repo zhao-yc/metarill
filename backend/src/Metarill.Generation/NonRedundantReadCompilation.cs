@@ -19,8 +19,13 @@ internal static partial class NonRedundantReadCompilation
     /// <summary>有行归属的全局选择页及独立物理父多选使用固定全局候选。</summary>
     internal static bool GlobalSelectionPage(TableModel table,PageModel page)=>
         HasGlobalRowProject(table)&&page.Source.Extra.GetValueOrDefault("type").ToString() is "1" or "2"||
-        GlobalAccountMultiPage(table,page)||GlobalSingleParentPage(table,page)||
+        GlobalAccountMultiPage(table,page)||GlobalSingleParentPage(table,page)||GlobalJoinedMultiPage(table,page)||
         table.Source.IsRongyu==0&&GlobalCrossTableTarget.DeclaresExactPage(table.Source,page.Source);
+
+    /// <summary>全局多选发布页的联接筛选必须随分页和已选回读在数据库中执行。</summary>
+    internal static bool GlobalJoinedMultiPage(TableModel table,PageModel page)=>
+        table.IsGlobal&&table.Source.IsRongyu==0&&page.Source.Extra.GetValueOrDefault("type").ToString()=="2"&&
+        FixedPageConditionCompilation.HasJoinedFields(page);
 
     /// <summary>非冗余单值字典的分页和详情执行同一发布条件及已证明的真实父键。</summary>
     internal static bool GlobalSingleParentPage(TableModel table,PageModel page)=>
@@ -145,7 +150,9 @@ internal static partial class NonRedundantReadCompilation
             GlobalCrossTableTarget.StoredProjectMultiParent(model.Catalog,table.Source,page.Source,
                 NonRedundantReads.IsPublishedCheckboxTarget(model.Catalog,table.Source,page.Source.Id)) is null)
         {
-            if(FixedPageConditionCompilation.HasJoinedFields(page))
+            if(GlobalJoinedMultiPage(table,page))
+                GlobalCrossTableTarget.RequireMultiCandidate(model.Catalog,table.Source,page.Source);
+            else if(FixedPageConditionCompilation.HasJoinedFields(page))
                 GlobalCrossTableTarget.RequireJoinedSingleCandidate(model.Catalog,table.Source,page.Source);
             else if(GlobalAccountParentScope(table,page))
                 GlobalCrossTableTarget.RequireMultiCandidate(model.Catalog,table.Source,page.Source,

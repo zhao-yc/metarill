@@ -311,7 +311,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 CascadeTreeStorageColumns.IsLogicalNameField(table,declared,field))||
             // 只有实际多值控件绑定的字典页纳入实时名称、传播和维护计划。
             (checkbox||page.Extra.GetValueOrDefault("type").ToString()=="2")&&
-                ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,table,page).Count>0||
+                (GlobalCrossTableTarget.Declared(table)?GlobalCrossTableTarget.PageJoinedConditionFields(catalog,table,page):
+                    ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,table,page)).Count>0||
             syntax.Terms.Any(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
                 MultiTargetParentScope.IsParameter(value.Text))&&
                 members.SingleOrDefault(column=>column.ColumnName==term.Field) is {LinkConfigTableId.Length:>0} field&&
@@ -337,9 +338,9 @@ public static partial class MySqlNonRedundantReadCompiler
         if(page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)
             throw new UnauthorizedAccessException("多值目标页不属于已发布项目。");
         var table=catalog.ConfigTables.Single(item=>item.Id==tableId);
-        // 全局单选 Excel 沿实际发布页的联接条件编译当前读，复用分页及回显的同一候选范围。
-        if(importPageType=="1"&&page.Extra.GetValueOrDefault("type").ToString()=="1"&&
-            !GlobalCrossTableTarget.DeclaresExactSingle(table,page)&&
+        // 原单选和多选的字典页联接条件共用候选计划，导入单独扩充反查所需字段。
+        if(page.Extra.GetValueOrDefault("type").ToString()==importPageType&&
+            !GlobalCrossTableTarget.DeclaresExactPage(table,page)&&
             GlobalCrossTableTarget.PageJoinedConditionFields(catalog,table,page).Count>0)
         {
             var single=CompileCrossPageCandidate(catalog,tableId,pageId,outputs,dependencies,

@@ -96,7 +96,8 @@ public static class GlobalCrossTableTarget
             .Select(column=>column.ColumnName));
         if(!GlobalMultipleRelationTarget.IsProjectPage(table,page,condition,checkbox))
             throw new NotSupportedException("全局多值项目候选必须来自实际发布页的物理项目条件。");
-        RequireTarget(catalog,table,page,true,allowAccount:table.IsRongyu==0,allowStoredProject:true);
+        RequireTarget(catalog,table,page,true,allowAccount:table.IsRongyu==0,allowStoredProject:true,
+            joinedFields:PageJoinedConditionFields(catalog,table,page));
     }
 
     /// <summary>跨表与全局候选可绑定受限账号等值；既有其它全局关系仍要求常量。</summary>
@@ -124,6 +125,12 @@ public static class GlobalCrossTableTarget
     public static IReadOnlySet<string> ListJoinedConditionFields(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
         IReadOnlyCollection<string> conditionFields)=>PublishedJoinedFields(catalog,table,page,conditionFields,null);
 
+    /// <summary>多选导入的联接成员沿实际字典页证明，只扩充导入计划的字段。</summary>
+    public static IReadOnlySet<string> MultiJoinedConditionFields(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
+        IReadOnlyCollection<string> conditionFields)=>page.Extra.GetValueOrDefault("type").ToString()=="2"
+        ?PublishedJoinedFields(catalog,table,page,conditionFields,null,allowMultiPage:true)
+        :new HashSet<string>(StringComparer.Ordinal);
+
     /// <summary>字典页的联接条件只能使用已发布的常量。保留单值路径的同一递归证明栈。</summary>
     public static IReadOnlySet<string> PageJoinedConditionFields(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
         =>PageJoinedConditionFields(catalog,table,page,null);
@@ -137,15 +144,17 @@ public static class GlobalCrossTableTarget
         var syntax=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
         var variableFields=syntax.Terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable))
             .Select(term=>term.Field).ToHashSet(StringComparer.Ordinal);
-        return PublishedJoinedFields(catalog,table,page,syntax.Fields.Where(field=>!variableFields.Contains(field)).ToArray(),resolving);
+        return PublishedJoinedFields(catalog,table,page,syntax.Fields.Where(field=>!variableFields.Contains(field)).ToArray(),
+            resolving,allowMultiPage:true);
     }
 
     private static IReadOnlySet<string> PublishedJoinedFields(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
-        IReadOnlyCollection<string> conditionFields,ISet<string>? resolving)
+        IReadOnlyCollection<string> conditionFields,ISet<string>? resolving,bool allowMultiPage=false)
     {
+        var type=page.Extra.GetValueOrDefault("type").ToString();
         if(conditionFields.Count==0||!Declared(table)||table is not {IsRongyu:0,IsView:0,IsFunctionTable:0}||
             page.ConfigTableId!=table.Id||table.YzProjectId!=catalog.YzProjectId||page.YzProjectId!=catalog.YzProjectId||
-            page.Extra.GetValueOrDefault("type").ToString() is not ("" or "0" or "1"))
+            type is not ("" or "0" or "1")&&!(allowMultiPage&&type=="2"))
             return new HashSet<string>(StringComparer.Ordinal);
         var storage=MetadataStoragePolicy.ForTable(catalog,table);
         var joined=catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id&&
@@ -163,8 +172,16 @@ public static class GlobalCrossTableTarget
     public static void RequireMultiCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool checkbox=false)
     {
         if(StoredProjectMultiParent(catalog,table,page,checkbox)is not null)return;
+        var joinedFields=PageJoinedConditionFields(catalog,table,page);
+        if(joinedFields.Count>0&&GlobalMultipleRelationTarget.IsProjectPage(table,page,
+            FixedConditionPlan.Compile(page.WhereSql,ConditionColumns(catalog,table,allowLogical:true)
+                .Select(column=>column.ColumnName)),checkbox))
+        {
+            RequireProjectMultiCandidate(catalog,table,page,checkbox);
+            return;
+        }
         RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:true,allowMultiParent:true,
-            allowPhysicalMultiParent:true,checkboxParent:checkbox);
+            allowPhysicalMultiParent:true,checkboxParent:checkbox,joinedFields:joinedFields);
     }
 
     /// <summary>冗余全局多值候选必须证明发布后台、物理父键及当前项目，账号条件仍走统一字段校验。</summary>
@@ -187,7 +204,8 @@ public static class GlobalCrossTableTarget
     public static void RequireSelfTreeConditionCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
         bool allowMultiParent=false,bool checkbox=false)
         =>RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:true,allowMultiParent:allowMultiParent,
-            allowSelfTree:true,allowPhysicalMultiParent:allowMultiParent,checkboxParent:checkbox);
+            allowSelfTree:true,allowPhysicalMultiParent:allowMultiParent,checkboxParent:checkbox,
+            joinedFields:PageJoinedConditionFields(catalog,table,page));
 
     /// <summary>全局非冗余页可按账号和真实物理父键限定单值候选。</summary>
     public static MultiTargetParentScope? PhysicalAccountParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>

@@ -124,6 +124,7 @@ public static class GlobalMultipleRelationTarget
         var expanded=RelationStorageColumns.Expand(target,columns);
         var condition=FixedConditionPlan.Compile(page.WhereSql,expanded.Select(column=>column.ColumnName));
         var checkbox=foreign.ControlKind=="MultiCheckBoxDatabase";
+        var joinedFields=GlobalCrossTableTarget.PageJoinedConditionFields(catalog,target,page);
         var storedAccount=(checkbox||pageId.Length>0)&&IsStoredAccountPage(target,page,condition,checkbox);
         var selfTreeScope=condition.Fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field));
         var scoped=selfTreeScope||target.IsRongyu==0&&condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(target,columns,field));
@@ -173,7 +174,7 @@ public static class GlobalMultipleRelationTarget
         else if(storedParent is null)
         {
             // 冗余父范围已在实际发布目录中校验，其它用途继续走各自的证明。
-            if(physicalParentPage||scoped||target.IsRongyu==0&&condition.Variables.Any(AccountConditionVariables.IsSupported))
+            if(physicalParentPage||scoped||joinedFields.Count>0||target.IsRongyu==0&&condition.Variables.Any(AccountConditionVariables.IsSupported))
                 GlobalCrossTableTarget.RequireMultiCandidate(catalog,target,page,checkbox);
             else GlobalCrossTableTarget.RequireMultiple(catalog,target,page);
         }
@@ -196,7 +197,7 @@ public static class GlobalMultipleRelationTarget
         if(name is null||!idLabel&&name.LogicalType!="string"&&!scalarLabel||!idLabel&&!pathLabel&&!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,physical,target,name,page))
             throw new NotSupportedException("全局多值名称必须为已证明的非凭据标量。");
         var key=columns.SingleOrDefault(column=>column.ColumnName=="id");if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!Scalar(key))throw new InvalidOperationException("全局多值目标必须使用非空int64物理主键。");
-        if(!scoped&&condition.Fields.Any(field=>!Scalar(columns.Single(column=>column.ColumnName==field))))
+        if(!scoped&&condition.Fields.Any(field=>!joinedFields.Contains(field)&&!Scalar(columns.Single(column=>column.ColumnName==field))))
             throw new NotSupportedException("全局多值目标页条件必须为非凭据物理标量。");
         return new(page,name){UsesStoredStaticPage=storedStatic,UsesProjectPage=projectPage,UsesNonRedundantAccountPage=nonRedundantAccountPage,UsesNonRedundantPhysicalParentPage=physicalParentPage,UsesStoredPhysicalParentPage=storedParent is not null};
     }

@@ -84,7 +84,7 @@ public sealed class GlobalMultipleDerivedTargetTests
                 case "privateProducer":middle.Extra.Clear();break;
                 case "wrongPage":c.ConfigPages.Single(p=>p.Id=="10").YzProjectId="101";break;
                 case "dynamicCondition":c.ConfigPages.Single(p=>p.Id=="10").WhereSql="id=@parent_id";break;
-                case "cacheCondition":c.ConfigPages.Single(p=>p.Id=="10").WhereSql="global_target_name='甲'";break;
+                case "cacheCondition":c.ConfigPages.Single(p=>p.Id=="10").WhereSql="global_target_name=@parent_id";break;
                 case "virtual":name.IsVirtualColumn=1;break;
                 case "file":name.ControlKind="FileLibrary";break;
                 case "array":name.ControlKind="MultiSelectPage";break;

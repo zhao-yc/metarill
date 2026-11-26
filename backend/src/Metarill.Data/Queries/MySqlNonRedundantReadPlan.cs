@@ -529,8 +529,9 @@ public static partial class MySqlNonRedundantReadCompiler
                         var parent=GlobalCrossTableTarget.SingleParent(catalog,root,page);
                         if(GlobalCrossTableTarget.PageJoinedConditionFields(catalog,root,page).Count>0)
                         {
-                            // 单值联接条件沿发布页的真实父范围证明，无父页单独校验。
-                            if(parent is null)GlobalCrossTableTarget.RequireJoinedSingleCandidate(catalog,root,page);
+                            if(page.Extra.GetValueOrDefault("type").ToString()=="2")
+                                GlobalCrossTableTarget.RequireMultiCandidate(catalog,root,page);
+                            else if(parent is null)GlobalCrossTableTarget.RequireJoinedSingleCandidate(catalog,root,page);
                             continue;
                         }
                         // 页面投影由生成服务另外附加自己的父筛选；任意单值读取仍须用无父参数的候选。

@@ -73,12 +73,15 @@ public static partial class MySqlNonRedundantReadCompiler
         var storage=MetadataStoragePolicy.ForTable(catalog,table);
         var pageJoins=global?GlobalCrossTableTarget.PageJoinedConditionFields(catalog,table,page):
             ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,table,page);
+        var joinedMultiPage=global&&pageType=="2"&&pageJoins.Count>0;
         IReadOnlySet<string> listJoins=FrozenSet<string>.Empty;
         if(listFields is not null&&!exactCheckboxParent)
         {
             // 精确权限与控件的固定联接分别执行，公开候选和写前计划需要同一字段证明。
             if(global&&!exactSingleParent&&(!projectSingle||projectSingleControlKind=="List"))
-                listJoins=GlobalCrossTableTarget.ListJoinedConditionFields(catalog,table,page,listFields);
+                listJoins=pageType=="2"&&pageJoins.Count>0
+                    ?GlobalCrossTableTarget.MultiJoinedConditionFields(catalog,table,page,listFields)
+                    :GlobalCrossTableTarget.ListJoinedConditionFields(catalog,table,page,listFields);
             else if(!global&&(projectSingle&&projectSingleControlKind=="List"||projectParent is {Logical:true,Global:false}))
                 listJoins=ProjectScopedSingleRelationTarget.JoinedConditionFields(catalog,table,page,listFields);
         }
@@ -90,7 +93,8 @@ public static partial class MySqlNonRedundantReadCompiler
             throw new NotSupportedException("固定下拉附加条件必须引用已发布的逻辑级联或联接字段。");
         // 全局单值候选从自身发布页证明物理父键；旧多选仍满足原独立页合同。
         var physicalParent=globalExactSingle?globalExactParent:
-            global&&page.Extra.GetValueOrDefault("type").ToString()!="2"?GlobalCrossTableTarget.SingleParent(catalog,table,page):null;
+            joinedMultiPage?MultiTargetParentScope.CompileGlobalPage(catalog,table,syntax):
+            global&&pageType!="2"?GlobalCrossTableTarget.SingleParent(catalog,table,page):null;
         var accountParentPage=accountParentPageType is not null;
         var checkbox=accountParentPageType=="2"&&IsPublishedCheckboxTarget(catalog,table,pageId);
         var hasParentScope=physicalParent is not null||accountParentPage||displayBindings is not null||
@@ -101,6 +105,12 @@ public static partial class MySqlNonRedundantReadCompiler
         if(global&&!globalExactSingle)
         {
             if(projectListScope)GlobalCrossTableTarget.RequireProjectSingleCandidate(catalog,table,page,allowListPage:true);
+            else if(joinedMultiPage)
+            {
+                if(treeNames.Count>0)
+                    GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,table,page,allowMultiParent:hasParentScope);
+                else GlobalCrossTableTarget.RequireMultiCandidate(catalog,table,page);
+            }
             else if(pageJoins.Count>0)
             {
                 // 带父范围的实际发布页已由 SingleParent 逐项证明。无父页单独验证。
@@ -127,9 +137,10 @@ public static partial class MySqlNonRedundantReadCompiler
             throw new NotSupportedException("全局候选必须使用实际发布的条件和物理父键。");
         var additional=parent?.AdditionalTargets.Select(scope=>scope.Target.ColumnName).ToHashSet(StringComparer.Ordinal);
         // 精确多选的项目值来自认证请求，父范围采用已经核对的同一发布页。
-        var exactMultiProject=globalExactSingle&&GlobalCrossTableTarget.DeclaresExactMulti(table,page)&&
-            (parent is null?GlobalMultipleRelationTarget.IsProjectPage(table,page,syntax,allowExact:true):
-                parent is {Logical:false}&&GlobalMultipleRelationTarget.IsProjectParentPage(table,page,syntax,allowExact:true));
+        var exactMulti=globalExactSingle&&GlobalCrossTableTarget.DeclaresExactMulti(table,page);
+        var multiProject=(exactMulti||joinedMultiPage)&&
+            (parent is null?GlobalMultipleRelationTarget.IsProjectPage(table,page,syntax,allowExact:exactMulti):
+                parent is {Logical:false}&&GlobalMultipleRelationTarget.IsProjectParentPage(table,page,syntax,allowExact:exactMulti));
         var condition=CascadeScopeCondition(table,storage,columns,syntax,parent?.Target,treeNames,additional,pageJoins);
         // 私有匹配和 Excel 条件只扩充投影；不把路径有效性强加给有无限定范围的账号。
         var projectExactMatch=exactParent||globalExactSingle&&!projectSingle;
@@ -160,7 +171,7 @@ public static partial class MySqlNonRedundantReadCompiler
             ActiveSinglePages=activePages,
             MultiCandidateParent=projectSingle&&parent?.AdditionalTargets.Count is not >0?null:parent,
             MultiCandidatePage=page,
-            MultiCandidateProjectScoped=projectListScope||exactMultiProject||parent is {Logical:false}&&
+            MultiCandidateProjectScoped=projectListScope||multiProject||parent is {Logical:false}&&
                 (accountParentPageType=="2"&&GlobalMultipleRelationTarget.IsProjectParentPage(table,page,syntax)||
                  physicalParent is not null&&(GlobalCrossTableTarget.IsSingleProjectParentPage(page,syntax)||
                     GlobalCrossTableTarget.IsProjectListParentPage(table,page,syntax))),
@@ -494,7 +505,9 @@ public static partial class MySqlNonRedundantReadCompiler
             if(!GlobalCrossCandidate||SelectedMultiPage is not {} page)return false;
             var syntax=FixedConditionPlan.Compile(page.WhereSql,columns[root.Id].Keys);
             var exact=AllowsExactMultiSelection&&GlobalCrossTableTarget.DeclaresExactMulti(root,page);
-            if(MultiCandidateParent is null)return exact&&GlobalMultipleRelationTarget.IsProjectPage(root,page,syntax,allowExact:true);
+            if(MultiCandidateParent is null)
+                return (exact||GlobalCrossTableTarget.PageJoinedConditionFields(catalog,root,page).Count>0)&&
+                    GlobalMultipleRelationTarget.IsProjectPage(root,page,syntax,allowExact:exact);
             return MultiCandidateParent is {Logical:false}&&
                 (GlobalMultipleRelationTarget.IsProjectParentPage(root,page,syntax,AllowsStoredExactCheckbox,allowExact:exact)||
                     GlobalMultipleRelationTarget.IsStoredProjectParentPage(root,page,syntax,AllowsStoredExactCheckbox));
@@ -530,7 +543,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 ?compound.AdditionalTargets.Select(parent=>parent.Target.ColumnName).ToHashSet(StringComparer.Ordinal):null;
             if(additional is not null)cascadeLabelPages.Add(page.Id);
             var separateExactScope=exact||storedExact;
-            var pageJoins=ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,root,page);
+            var pageJoins=global?GlobalCrossTableTarget.PageJoinedConditionFields(catalog,root,page):
+                ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,root,page);
             var condition=CrossTableParentCondition.Compile(catalog,root,page,storage[root.Id],allowLogical:true,
                 multiParent:MultiCandidateParent?.Target,selfTreeFields:treeNames,separateExactScope:separateExactScope,
                 additionalParents:additional,joinedFields:pageJoins);
@@ -561,8 +575,9 @@ public static partial class MySqlNonRedundantReadCompiler
             var fields=RequireCrossCondition(root,page,plan,MultiCandidateParent?.Target,treeNames,additional,pageJoins);
             output=cascadeLabelField!;
             var level=new CrossLevel(root,Column(root,cascadeLabelField!),null,new(page.Id,plan),page,fields);
+            // 项目等值已由根查询绑定，回填复核联接条件时继续从实际字典行读取该项目。
             var selected=NestedCrossCondition(level,rootAlias,multiParent:MultiCandidateParent?.Target,selfTreeFields:treeNames,
-                additionalParents:additional,joinedFields:pageJoins);
+                additionalParents:additional,joinedFields:pageJoins,joinedProjectScope:MultiCandidateProjectScoped);
             return scope.Length==0?selected:scope+" AND "+selected;
         }
         internal bool GlobalCrossCandidate{get;init;}

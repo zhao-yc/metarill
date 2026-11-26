@@ -438,8 +438,12 @@ public sealed class DerivedMultiNamesTests
     [InlineData(true,true,false,true,1,0,true,1)]
     [InlineData(false,false,false,true,1,0,true,2)]
     [InlineData(false,true,false,true,1,0,true,3)]
+    [InlineData(false,false,false,true,1,0,false,1,true)]
+    [InlineData(false,true,false,true,1,0,true,2,true)]
+    [InlineData(false,true,false,true,0,0,true,3,true)]
     public async Task Multi_excel_applies_control_conditions_in_addition_to_the_target_page(bool derived,bool overlay,
-        bool targetAccount=false,bool joinedCondition=false,int sourceMode=0,int targetMode=0,bool exactTarget=false,int globalTarget=0)
+        bool targetAccount=false,bool joinedCondition=false,int sourceMode=0,int targetMode=0,bool exactTarget=false,int globalTarget=0,
+        bool joinedTargetCondition=false)
     {
         const string ns="Example.MultiImportScope";
         var catalog=Catalog("multi_import_scope",false);
@@ -485,6 +489,14 @@ public sealed class DerivedMultiNamesTests
             3=>"yz_project_id=@current_yz_project_id AND sheet_status<>99",
             _=>target.WhereSql+" AND sheet_status<>99"
         };
+        if(joinedTargetCondition)
+        {
+            catalog.ConfigColumns.Add(new(){Id="311",ConfigTableId="3",ColumnName="company_page_tag",LogicalType="string",
+                Extra={["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("company.name")}});
+            target.WhereSql+=" AND company_page_tag<>'隐藏字典项'";
+            target.IsExport=1;
+            target.Extra["exportMethod"]=JsonSerializer.SerializeToElement("list");
+        }
         if(targetAccount)target.WhereSql+=" AND store_id=@current_store_id";
         if(sourceMode==1)
         {
@@ -576,6 +588,19 @@ public sealed class DerivedMultiNamesTests
                 if(joinedCondition)
                     Assert.Contains("LEFT JOIN `multi_import_scope_company`",Assert.IsType<string>(mysql.GetType()
                         .GetProperty("From",HiddenInstance)!.GetValue(mysql)));
+                if(joinedTargetCondition)
+                    AssertDictionaryScope(read);
+            }
+
+            if(joinedTargetCondition)
+            {
+                var dictionaryService=assembly.GetType(ns+".Generated.Services.MultiImportScopeTargetService",true)!;
+                foreach(var name in new[]{"CandidateReadPlan301","ExportReadPlan301"})
+                    AssertDictionaryScope(Assert.IsType<NonRedundantReadPlan>(
+                        dictionaryService.GetField(name,staticPrivate)!.GetValue(null)));
+                var dictionaryCode=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/MultiImportScopeTargetService.g.cs"));
+                Assert.Contains("ApplyCondition(query,session,CrossConditionPlan301",dictionaryCode);
+                Assert.Contains("KeyRowsAsync(CandidateReadPlan301",dictionaryCode);
             }
 
             if(sourceMode==1)
@@ -595,7 +620,10 @@ public sealed class DerivedMultiNamesTests
                 Assert.DoesNotContain(overlay?32:31,constants.Values);
                 Assert.DoesNotContain(".`segment`",expression);
                 Assert.DoesNotContain(".`store_id`",expression);
-
+                if(joinedTargetCondition)Assert.Contains("隐藏字典项",constants.Values);
+            }
+            if(sourceMode==1||joinedTargetCondition)
+            {
                 // 先装载精简生成程序集，再建立独立完整包，避免 SDK 将嵌套项目的源码编进探针。
                 new FrontendPackager().Validate(catalog);
                 var app=Path.Combine(directory,"app");
@@ -608,6 +636,19 @@ public sealed class DerivedMultiNamesTests
             var rejected=MultiSelectCompilation.Resolve(model,table,page201,table.Columns.Single(item=>item.Source.Id=="25"));
             Assert.Null(rejected.Definition);
             Assert.Contains(joinedCondition?"未证明的父级条件":"父键必须沿用目标页",rejected.Reason);
+
+            // 候选分页、字典导出和导入当前读都在各自的固定查询执行同一发布条件。
+            void AssertDictionaryScope(NonRedundantReadPlan read)
+            {
+                var sql=read.GetType().GetProperty("MySql",HiddenInstance)!.GetValue(read)!;
+                var scope=Assert.IsType<string>(sql.GetType().GetProperty("Scope",HiddenInstance)!.GetValue(sql));
+                var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                    sql.GetType().GetProperty("Constants",HiddenInstance)!.GetValue(sql));
+                Assert.Contains(constants,parameter=>Equals(parameter.Value,"隐藏字典项")&&scope.Contains(parameter.Key,StringComparison.Ordinal));
+                Assert.Equal(globalTarget is 1 or 3,scope.Contains("b.`yz_project_id`",StringComparison.Ordinal));
+                Assert.Equal(globalTarget==1?"parent_id":null,
+                    sql.GetType().GetProperty("RequiredMultiParent",HiddenInstance)!.GetValue(sql));
+            }
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
 

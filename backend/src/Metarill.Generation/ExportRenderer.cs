@@ -78,19 +78,24 @@ internal static class ExportRenderer
             // 实际导出用途另编译窄投影，不能复用整页可读集合读取未导出列。
             var globalExact=Metarill.Core.Metadata.GlobalCrossTableTarget.DeclaresExactPage(table.Source,page.Source);
             var accountSingle=NonRedundantReadCompilation.GlobalSingleParentPage(table,page);
-            var globalCandidate=globalExact||accountSingle;
+            var joinedMulti=NonRedundantReadCompilation.GlobalJoinedMultiPage(table,page);
+            var globalCandidate=globalExact||accountSingle||joinedMulti;
             var crossScopes=NonRedundantCrossTableCompilation.Bindings(model,table,page);
             var compiled=globalExact
                 ?NonRedundantReads.CompileGlobalExactSingleCandidate(model.Catalog,table.Source.Id,page.Source.Id,
                     names,plan.Dependencies,plan.SingleTargets,crossScopes,null)
                 :accountSingle
                 ?NonRedundantReads.CompileGlobalSingleParentPage(model.Catalog,table.Source.Id,page.Source.Id,names,plan.Dependencies,crossScopes,plan.SingleTargets)
+                :joinedMulti
+                ?NonRedundantReads.CompileCrossPageCandidate(model.Catalog,table.Source.Id,page.Source.Id,names,plan.Dependencies,crossScopes,plan.SingleTargets)
                 :NonRedundantReadCompilation.CompilePage(model,table,names,plan.Dependencies,crossScopes,plan.SingleTargets,plan.MultiTargets);
             var outputs="new string[]{"+string.Join(",",names.Select(Literal))+"}";var fixedDependencies="new string[]{"+string.Join(",",plan.Dependencies.Select(Literal))+"}";
             var planCall=globalExact
                 ?$"CompileGlobalExactSingleCandidate({Literal(table.Source.Id)},{Literal(page.Source.Id)},{outputs},{fixedDependencies}{NonRedundantCrossTableCompilation.BindingArgument(CrossTableWriteCompilation.ForService(model,table,page),"bindings")}{NonRedundantReadCompilation.SingleTargetArgument(plan.SingleTargets,"singleTargets")})"
                 :accountSingle
                 ?$"CompileGlobalSingleParentPage({Literal(table.Source.Id)},{Literal(page.Source.Id)},{outputs},{fixedDependencies}{NonRedundantCrossTableCompilation.BindingArgument(model,table,page)}{NonRedundantReadCompilation.SingleTargetArgument(plan.SingleTargets,"singleTargets")})"
+                :joinedMulti
+                ?$"CompileCrossPageCandidate({Literal(table.Source.Id)},{Literal(page.Source.Id)},{outputs},{fixedDependencies}{NonRedundantCrossTableCompilation.BindingArgument(model,table,page)}{NonRedundantReadCompilation.SingleTargetArgument(plan.SingleTargets,"singleTargets")})"
                 :NonRedundantReadCompilation.PagePlanCall(model,table,page,plan,outputs,fixedDependencies);
             result.Insert(0,$"    /// <summary>导出只读取原列及必要依赖，普通请求不重编译元数据。</summary>\n    private static readonly Metarill.Data.Queries.NonRedundantReadPlan ExportReadPlan{page.Source.Id}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.{planCall};\n");
             result.AppendLine($"        var rawRows=await new Metarill.Data.Queries.NonRedundantReader(session).RowsAsync({NonRedundantCrossTableCompilation.BoundPlan(model,table,page,"ExportReadPlan"+page.Source.Id,singleTargets:plan.SingleTargets.Count>0||compiled.RequiresAccount)},{BackendRenderer.NonRedundantFilterCall(model,table,page,operation:"\"export\"",globalCandidate:globalCandidate)},ReadOrder{page.Source.Id}(request),maxRows+1,cancellationToken,actor.ProjectId{(globalCandidate?"":FixedPageConditionCompilation.ReadArgument(page))});")

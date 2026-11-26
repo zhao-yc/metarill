@@ -358,7 +358,8 @@ internal static class GeneratedNonRedundantReadCatalog
         var listPlan=globalCandidate?NonRedundantListReadPlan(model,table,page,plan):readPlan;
         var listCondition=globalCandidate?"":FixedPageConditionCompilation.ReadArgument(page);
         var globalExact=GlobalCrossTableTarget.DeclaresExactPage(table.Source,page.Source);
-        var detailUsesCandidate=globalExact||NonRedundantReadCompilation.GlobalSingleParentPage(table,page);
+        var globalSingleParent=NonRedundantReadCompilation.GlobalSingleParentPage(table,page);
+        var detailUsesCandidate=globalExact||globalSingleParent||NonRedundantReadCompilation.GlobalJoinedMultiPage(table,page);
         var logicalCondition=FixedPageConditionCompilation.HasLogicalFields(page);
         var lockScope=NonRedundantCrossParentCompilation.Enabled(model,table,page)||logicalCondition;
         // 普通写范围默认维持真实事务锁；Agent原记录预检显式选择无锁派生匹配。
@@ -384,7 +385,7 @@ internal static class GeneratedNonRedundantReadCatalog
         if(globalCandidate)
         {
             var compiler=globalExact?"CompileGlobalExactSingleCandidate":
-                detailUsesCandidate?"CompileGlobalSingleParentPage":
+                globalSingleParent?"CompileGlobalSingleParentPage":
                 NonRedundantReadCompilation.GlobalAccountMultiPage(table,page)?"CompileGlobalAccountMultiPage":
                 crossCandidate||FixedPageConditionCompilation.HasSelfTreeFields(page)?"CompileCrossPageCandidate":
                 CascadeTreeReadCompilation.ForService(model,table,page).Count>0?"CompileGlobalPage":"CompileGlobalCandidate";
