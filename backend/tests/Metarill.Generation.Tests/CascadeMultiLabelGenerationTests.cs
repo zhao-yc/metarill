@@ -639,6 +639,20 @@ public sealed class CascadeMultiLabelGenerationTests
         CompileCascadeLabel(kind,mode,selfTree:false,indirect:false,selectedPage:true,physical:mode==1,globalRowProject:rowProject,
             parent:true,sourceLogicalParent:sourceLogical,globalParent:true,parentWithoutProject:noParentProject,parentAccount:parentAccount);
 
+    /// <summary>普通物理字典外键使用真实主键，不能把同表的 bigint 业务键作为外键参数。</summary>
+    [Theory]
+    [InlineData("MultiCheckBoxDatabase",null)]
+    [InlineData("MultiCheckBoxDatabase",true)]
+    [InlineData("MultiCheckBoxDatabase",false)]
+    [InlineData("MultiSelectPage",null)]
+    [InlineData("MultiSelectPage",true)]
+    [InlineData("MultiSelectPage",false)]
+    [InlineData("MultiCheckBoxDatabase",null,true)]
+    public Task Physical_dictionary_parent_rejects_a_sparse_business_key(string kind,bool? dictionaryRowProject,bool controlParent=false)=>
+        CompileCascadeLabel(kind,0,selfTree:false,indirect:false,selectedPage:true,globalRowProject:dictionaryRowProject,
+            parent:true,sourceLogicalParent:true,globalParent:true,parentWithoutProject:true,parentAccount:true,
+            rejectPhysicalBusinessParent:true,controlPhysicalParent:controlParent);
+
     /// <summary>固定自树叶名约束原多选和复选目标页，并随名称副本及父参数一起生成。</summary>
     [Theory]
     [InlineData("MultiSelectPage",0,true,null,false)]
@@ -802,7 +816,8 @@ public sealed class CascadeMultiLabelGenerationTests
         bool globalCompoundSource=false,bool projectTargetGlobalParent=false,bool globalBusinessSource=false,bool literalParent=false,
         bool projectParentScope=false,bool ordinaryBusinessSource=false,bool textDictionaryProject=false,
         string? customCheckboxParentType=null,bool customCheckboxTypeTwo=false,string? repeatDictionaryWhere=null,bool storedDictionary=false,
-        bool alternateCheckboxName=false,bool alternateMultiName=false,bool businessParent=false,bool textBusinessParent=false)
+        bool alternateCheckboxName=false,bool alternateMultiName=false,bool businessParent=false,bool textBusinessParent=false,
+        bool rejectPhysicalBusinessParent=false,bool controlPhysicalParent=false)
     {
         const string ns="Example.CascadeLabels";
         var exactGlobalPhysicalDictionary=exact&&globalRowProject is not null&&physical&&parent&&!storedDictionary&&!logicalParent;
@@ -1078,9 +1093,9 @@ public sealed class CascadeMultiLabelGenerationTests
         }
         if(exact&&storedDictionary)
             catalog.ConfigColumns.Add(new(){Id="target_scope_code",ConfigTableId=targetTable,ColumnName="scope_code",LogicalType="string"});
-        if(businessParent)
+        if(businessParent||rejectPhysicalBusinessParent)
         {
-            // 两个逻辑位置保存的是同一业务键，全球唯一索引不含项目列。
+            // 全球唯一索引不含项目列。物理字典的反例只改变来源级联层，保留字典物理外键。
             catalog.ConfigColumns.Add(new(){Id="business_3",ConfigTableId="3",ColumnName="business_key",
                 LogicalType=textBusinessParent?"string":"int64",ColumnLength=textBusinessParent?"50":"",IsDbNotNull=1});
             if(textBusinessParent)
@@ -1095,6 +1110,9 @@ public sealed class CascadeMultiLabelGenerationTests
                 isUnique=1,indexName="uniq_country_business"}));
             catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id="business_index_3_key",
                 configIndexId="business_index_3",configColumnId="business_3",sortNo=1}));
+        }
+        if(businessParent)
+        {
             foreach(var id in new[]{"25","915"})
             {
                 var control=catalog.ConfigColumns.Single(column=>column.Id==id);
@@ -1102,6 +1120,14 @@ public sealed class CascadeMultiLabelGenerationTests
                 path["levels"]![0]!["idField"]="business_key";
                 control.ControlDetail=path.ToJsonString();
             }
+        }
+        if(controlPhysicalParent)
+        {
+            // 单独声明在原复选控件中的范围也将父参数绑定到普通物理外键。
+            var dictionary=catalog.ConfigPages.Single(page=>page.Id==targetPage);
+            dictionary.WhereSql=dictionary.WhereSql.Replace(" AND target_scope_id=@parent_id","");
+            catalog.ConfigColumns.Single(column=>column.Id=="95").ControlDetail=JsonSerializer.Serialize(new
+                {tableId=targetTable,pageId=targetPage,nameField=display,whereSql="target_scope_id=@parent_id"});
         }
         RedundantMultiNameCacheTests.Published(catalog);
         if(exact)
@@ -1113,6 +1139,43 @@ public sealed class CascadeMultiLabelGenerationTests
         }
 
         var model=GenerationModel.Create(catalog,ns);
+        if(rejectPhysicalBusinessParent)
+        {
+            (bool Supported,string? Reason) Resolve(GenerationModel current,bool forService)
+            {
+                var owner=current.Tables.Single(table=>table.Source.Id=="9");
+                var page=owner.Pages.Single(item=>item.Source.Id=="901");
+                var relation=owner.Columns.Single(column=>column.Source.Id=="95");
+                if(kind=="MultiCheckBoxDatabase")
+                {
+                    var result=DatabaseCheckboxCompilation.Resolve(current,owner,page,relation,forService);
+                    return(result.Definition is not null,result.Reason);
+                }
+                var multi=MultiSelectCompilation.Resolve(current,owner,page,relation,forService);
+                return(multi.Definition is not null,multi.Reason);
+            }
+
+            // 使用主键的原配置仍能开启候选与保存。仅改变来源层位后必须拒绝混用。
+            foreach(var forService in new[]{false,true})
+            {
+                var allowed=Resolve(model,forService);
+                Assert.True(allowed.Supported,allowed.Reason);
+            }
+            var source=catalog.ConfigColumns.Single(column=>column.Id=="915");
+            var control=System.Text.Json.Nodes.JsonNode.Parse(source.ControlDetail)!;
+            control["levels"]![0]!["idField"]="business_key";
+            source.ControlDetail=control.ToJsonString();
+            var mismatched=GenerationModel.Create(catalog,ns);
+            foreach(var forService in new[]{false,true})
+            {
+                var invalid=Resolve(mismatched,forService);
+                Assert.False(invalid.Supported,"来源业务键不能进入物理主键范围。");
+                Assert.Contains("同一个已发布业务键",invalid.Reason);
+            }
+            Assert.Contains(GenerationCapabilityAudit.Collect(mismatched),gap=>gap is {PageId:"901",Column:"selected_ids"}&&
+                gap.Reason.Contains("同一个已发布业务键",StringComparison.Ordinal));
+            return;
+        }
         if(businessParent)
         {
             // 任一侧改用同表主键，仍不能共享两种父键的值域。
@@ -1359,8 +1422,10 @@ public sealed class CascadeMultiLabelGenerationTests
                 else
                 {
                     // 非冗余复选的逻辑目标父级由复选计划承接，校验真实目标页和显示列。
+                    // 无行项目列的全局复选沿实际发布字典编译固定名称范围。
+                    var publishedGlobalCheckbox=mode==0&&globalParent&&globalRowProject==false&&sourceLogicalParent&&!physical;
                     var compiler=exact?"CompileExactMultiLabel":
-                        kind=="MultiCheckBoxDatabase"&&(storedDictionary||mode==0&&logicalParent||customCheckboxParentType is not null)
+                        kind=="MultiCheckBoxDatabase"&&(storedDictionary||mode==0&&logicalParent||customCheckboxParentType is not null||publishedGlobalCheckbox)
                             ?"CompileScopedCheckboxLabel":"CompileScopedMultiLabel";
                     Assert.Contains(compiler+"(\"2\",\"201\",\""+display+"\"",code);
                     if(exact)

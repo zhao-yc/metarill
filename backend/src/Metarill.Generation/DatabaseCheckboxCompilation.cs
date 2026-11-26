@@ -490,18 +490,16 @@ internal static class DatabaseCheckboxCompilation
                     BindFormParent(binding,owner);
                 if(binding.Global)
                 {
-                    if(binding.Logical)
-                    {
-                        var key=binding.LogicalAlternateKey(model.Catalog,target.Source);
-                        if(key?.LogicalType=="string"&&sharedTextParent is null)
-                            return Gap("全局复选的来源与目标父范围必须使用同一个已发布文本业务键。");
-                        if(key?.LogicalType is null or "int64"&&
-                            !MultiGlobalParentCompilation.MatchesIntegerParentKey(model,table,page,target,owner,binding,key))
-                            return Gap("全局复选的来源与目标父范围必须使用同一个已发布业务键。");
-                        if(key is {LogicalType:"int64"})
-                            logicalParentBusinessKey=model.Tables.Single(parent=>parent.Source.Id==binding.Parent.Id)
-                                .Columns.Single(column=>column.Source.Id==key.Id);
-                    }
+                    // 已发布的普通物理外键使用父表主键。只有实际级联层位才声明业务键。
+                    var key=binding.LogicalAlternateKey(model.Catalog,target.Source);
+                    if(key?.LogicalType=="string"&&sharedTextParent is null)
+                        return Gap("全局复选的来源与目标父范围必须使用同一个已发布文本业务键。");
+                    if(key?.LogicalType is null or "int64"&&
+                        !MultiGlobalParentCompilation.MatchesIntegerParentKey(model,table,page,target,owner,binding,key))
+                        return Gap("全局复选的来源与目标父范围必须使用同一个已发布业务键。");
+                    if(key is {LogicalType:"int64"})
+                        logicalParentBusinessKey=model.Tables.Single(parent=>parent.Source.Id==binding.Parent.Id)
+                            .Columns.Single(column=>column.Source.Id==key.Id);
                     _=Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(model.Catalog,target.Source.Id,scopedPage.Source.Id);
                     globalParentPage=scopedPage;
                     if(owner.AdditionalColumns.Count>0)
@@ -521,6 +519,11 @@ internal static class DatabaseCheckboxCompilation
             // 只有显式关联了实际级联祖先时，原复选可直接沿来源的全局层位校验。
             var explicitGlobalPath=logicalSource&&physicalParents.Length>0&&parents[0].IsGlobal&&
                 physicalParents.All(scope=>scope.Column.Source.LinkConfigTableId==parents[0].Source.Id);
+            // 控件另加的普通物理父范围也使用主键，即使发布字典页本身使用级联业务键。
+            if(explicitGlobalPath&&physicalParents.Any(scope=>logicalPage is null||
+                !NonRedundantCrossParentCompilation.Managed(model,target,logicalPage,scope.Column))&&
+                logicalBindings.Any(binding=>binding.Path is {} path&&path.Read.Levels[path.Index].AlternateKey?.Source.LogicalType=="int64"))
+                return Gap("全局复选的来源与目标父范围必须使用同一个已发布业务键。");
             if(parents.Any(parent=>Protected(parent)||!(parent.IsGlobal&&(globalParentPage is not null||explicitGlobalPath||independentTextSource))&&!HasIdentity(model,parent)))
                 return Gap("来源父须具有普通业务项目归属或实际全局层位证明。");
             // 原非冗余候选优先采用控件排序，省略时继承实际目标页排序。

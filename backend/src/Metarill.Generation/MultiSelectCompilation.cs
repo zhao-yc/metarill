@@ -232,7 +232,7 @@ internal static class MultiSelectCompilation
                 if(actual?.Source.Id!=owner.Column.Id||logicalSourceParent&&(!same||!NonRedundantCrossParentCompilation.Managed(model,table,page,actual)))
                     return Gap("目标页父字段须与来源记录的固定父键一致。");
                 // 同一张全局父表的记录 ID 与业务键可能重合，须用实际级联层位证明值域。
-                if(scopedParent is {Global:true,Logical:true}&&targetAlternateKey?.LogicalType is null or "int64"&&
+                if(scopedParent.Global&&targetAlternateKey?.LogicalType is null or "int64"&&
                     !MultiGlobalParentCompilation.MatchesIntegerParentKey(model,table,page,target,owner,scopedParent,targetAlternateKey))
                     return Gap("全局多选的来源与目标父范围必须使用同一个已发布业务键。");
                 publishedPhysicalSource=same&&!scopedParent.Global&&!logicalSourceParent&&!table.IsGlobal&&!target.IsGlobal&&
