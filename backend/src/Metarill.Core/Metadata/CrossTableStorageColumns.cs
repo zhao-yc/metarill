@@ -8,7 +8,7 @@ namespace Metarill.Core.Metadata;
 public static class CrossTableStorageColumns
 {
     public const string ReservedIdPrefix="__mt_auto_cross_";
-    /// <summary>页面只可改变路径显示分隔符，生成和文件授权继续使用同一固定层级定义。</summary>
+    /// <summary>页面可改变分隔符或显式声明默认属性，实际层级仍使用表级固定定义。</summary>
     public static bool KeepsDefinition(string tableDetail, string? pageDetail)
     {
         if (string.IsNullOrWhiteSpace(pageDetail))
@@ -21,7 +21,34 @@ public static class CrossTableStorageColumns
             return false;
         baseline.Remove("displayJoiner");
         effective.Remove("displayJoiner");
+        RemoveDefaultLevelProperties(baseline);
+        RemoveDefaultLevelProperties(effective);
         return JsonNode.DeepEquals(baseline, effective);
+    }
+
+    /// <summary>原页面以列前缀生成 JSON 属性。空回退和显式同名不会改变实际字段。</summary>
+    private static void RemoveDefaultLevelProperties(JsonObject definition)
+    {
+        if (definition["levels"] is not JsonArray levels)
+            return;
+
+        foreach (var level in levels.OfType<JsonObject>())
+        {
+            var prefix = level["columnPrefix"] ?? level["table"];
+            if (prefix is not JsonValue value || !value.TryGetValue<string>(out var name) || string.IsNullOrEmpty(name))
+                continue;
+
+            RemoveDefaultProperty(level, "idPropertyName", MetadataNames.Camel(name + "_id"));
+            RemoveDefaultProperty(level, "namePropertyName", MetadataNames.Camel(name + "_name"));
+        }
+    }
+
+    /// <summary>只归一原契约的默认值，保留不同映射、大小写和非字符串供差异比较。</summary>
+    private static void RemoveDefaultProperty(JsonObject level, string property, string defaultName)
+    {
+        var node = level[property];
+        if (node is null || node is JsonValue value && value.TryGetValue<string>(out var name) && name == defaultName)
+            level.Remove(property);
     }
 
     /// <summary>沿原columnPrefix派生缺失列，显式声明包括错误类型和虚拟列均不覆盖。</summary>

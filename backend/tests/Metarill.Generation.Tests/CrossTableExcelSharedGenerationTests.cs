@@ -27,16 +27,25 @@ public sealed class CrossTableExcelSharedGenerationTests
     [InlineData("shared-r1")][InlineData("shared-r1", " > ")][InlineData("short-r1")][InlineData("global-r1")][InlineData("global-no-project-r1")]
     [InlineData("shared-r0")][InlineData("short-r0")][InlineData("derived-r1")][InlineData("derived-global-r1")][InlineData("derived-short-r0")]
     [InlineData("shared-r1",null,"edit")][InlineData("derived-global-r1",null,"edit")]
-    public async Task Shared_paths_compile_and_physical_R1_roundtrips_original_cells(string profile, string? displayJoiner = null, string? exportMode = null)
+    [InlineData("shared-r1"," > ","edit",true)][InlineData("shared-r0",null,"edit",true)]
+    public async Task Shared_paths_compile_and_physical_R1_roundtrips_original_cells(string profile, string? displayJoiner = null,
+        string? exportMode = null,bool explicitAliases = false)
     {
         var definition=Definition(profile);var catalog=Catalog(profile);
         if(exportMode is not null)
             catalog.ConfigPages.Single(page=>page.Id=="201").Extra["exportMethod"]=JsonSerializer.SerializeToElement(exportMode);
-        if (displayJoiner is not null)
+        if (displayJoiner is not null || explicitAliases)
         {
             var control = catalog.ConfigColumns.Single(column => column.Id == "25");
             var overlay = JsonNode.Parse(control.ControlDetail)!.AsObject();
-            overlay["displayJoiner"] = displayJoiner;
+            if(displayJoiner is not null)overlay["displayJoiner"]=displayJoiner;
+            if(explicitAliases)
+                foreach(var level in overlay["levels"]!.AsArray().OfType<JsonObject>())
+                {
+                    var prefix=(level["columnPrefix"]??level["table"])!.GetValue<string>();
+                    level["idPropertyName"]=MetadataNames.Camel(prefix+"_id");
+                    level["namePropertyName"]=MetadataNames.Camel(prefix+"_name");
+                }
             var field = catalog.ConfigPageColumns.Single(column => column.ConfigPageId == "201" && column.ConfigColumnId == "25");
             field.Extra["controlDetail"] = JsonSerializer.SerializeToElement(overlay.ToJsonString());
         }
@@ -55,6 +64,13 @@ public sealed class CrossTableExcelSharedGenerationTests
             var partial=Path.Combine(generated,"Services/SharedExcelSourceService.cs");await File.AppendAllTextAsync(partial,"\n// 共享Excel保留的手写扩展。\n");var bytes=await File.ReadAllBytesAsync(partial);
             new CSharpGenerator().Generate(catalog,generated,Namespace);Assert.Equal(bytes,await File.ReadAllBytesAsync(partial));Assert.Equal(before,JsonSerializer.Serialize(catalog));
             new FrontendPackager().Validate(catalog);
+            if(explicitAliases)
+            {
+                var package=new ApplicationPackager().Create(catalog,Path.Combine(directory,"application"),
+                    Namespace,NonRedundantApplicationFixture.Root());
+                Assert.Equal(ApplicationPackageMode.FullApplication,package.Mode);
+                Assert.True(package.FrontendIncluded);
+            }
             if (definition.Redundant == 1 && definition.Derived)
             {
                 var service = assembly.GetType(Namespace + ".Generated.Services.SharedExcelSourceService", true)!;

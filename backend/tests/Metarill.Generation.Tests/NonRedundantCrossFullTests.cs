@@ -30,8 +30,8 @@ public sealed class NonRedundantCrossFullTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
-    /// <summary>未验覆盖导入、隐藏坏链和未发布目标都必须在创建stage前拒绝。</summary>
-    [Theory][InlineData("import")][InlineData("targetRealm")][InlineData("hiddenBad")][InlineData("targetGlobal")][InlineData("unknownContext")][InlineData("hiddenTargetRealm")][InlineData("targetTableRealm")][InlineData("idPropertyName")][InlineData("namePropertyName")][InlineData("propertyCase")][InlineData("propertyType")][InlineData("prefixEmpty")][InlineData("prefixUpper")][InlineData("keyWhitespace")][InlineData("joinerWhitespace")]
+    /// <summary>未知导入模式、隐藏坏链和未发布目标都必须在创建输出目录前拒绝。</summary>
+    [Theory][InlineData("unknownImportMode")][InlineData("targetRealm")][InlineData("hiddenBad")][InlineData("targetGlobal")][InlineData("unknownContext")][InlineData("hiddenTargetRealm")][InlineData("targetTableRealm")][InlineData("idPropertyName")][InlineData("namePropertyName")][InlineData("propertyCase")][InlineData("propertyType")][InlineData("prefixEmpty")][InlineData("prefixUpper")][InlineData("keyWhitespace")][InlineData("joinerWhitespace")]
     public void Full_cross_keeps_actual_unproven_uses_and_target_realms_gated(string kind)
     {
         var catalog=Catalog("string","int64",false);var page=catalog.ConfigPages.Single(page=>page.Id=="201");
@@ -49,7 +49,7 @@ public sealed class NonRedundantCrossFullTests
             var column=catalog.ConfigColumns.Single(column=>column.Id=="25");var json=JsonNode.Parse(column.ControlDetail)!;var entry=json["levels"]![0]!;
             if(kind=="propertyType")entry["idPropertyName"]=123;else entry[kind=="propertyCase"?"idPropertyName":kind]=kind=="propertyCase"?"CountryId":"unprovedAlias";column.ControlDetail=json.ToJsonString();
         }
-        if(kind=="import"){page.IsImport=1;page.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");}
+        if(kind=="unknownImportMode"){page.IsImport=1;page.Extra["importMethod"]=JsonSerializer.SerializeToElement("unknown");}
         if(kind=="targetRealm")catalog.ConfigPages.Single(page=>page.Id=="301").YzProjectId="";
         if(kind=="hiddenBad"){catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="80");catalog.ConfigColumns.Single(column=>column.Id=="80").ControlDetail="{\"sourceMode\":\"crossTable\",\"levels\":[]}";}
         if(kind=="hiddenTargetRealm"){catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId is "25" or "80");catalog.ConfigPages.Single(page=>page.Id=="301").YzProjectId="";}

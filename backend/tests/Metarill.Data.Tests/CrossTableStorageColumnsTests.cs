@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Metarill.Core.Metadata;
 using Xunit;
 namespace Metarill.Data.Tests;
@@ -30,6 +31,31 @@ public sealed class CrossTableStorageColumnsTests
     {
         foreach(var replace in new[]{("\"country\"","\"yz_project\""),("\"place\"","\"country\""),("\"crossTable\"","\"unknown\"")}){var catalog=Catalog();catalog.ConfigColumns[2].ControlDetail=catalog.ConfigColumns[2].ControlDetail.Replace(replace.Item1,replace.Item2);Assert.Equal(3,MetadataStoragePolicy.ForTable(catalog,catalog.ConfigTables[0]).PhysicalColumns.Count);}
     }
+    /// <summary>显式默认字段和空值回退属于同一原页面属性，真实映射或层级变化仍需拒绝。</summary>
+    [Theory]
+    [InlineData("countryId","countryName",true)]
+    [InlineData(null,null,true)]
+    [InlineData("CountryId","countryName",false)]
+    [InlineData("countryId","districtName",false)]
+    [InlineData("","countryName",false)]
+    public void Page_property_aliases_must_match_the_original_defaults(string? id,string? name,bool expected)
+    {
+        var baseline=Catalog().ConfigColumns[2].ControlDetail;
+        var overlay=JsonNode.Parse(baseline)!;
+        overlay["levels"]![0]!["idPropertyName"]=id;
+        overlay["levels"]![0]!["namePropertyName"]=name;
+        overlay["displayJoiner"]=" > ";
+        Assert.Equal(expected,CrossTableStorageColumns.KeepsDefinition(baseline,overlay.ToJsonString()));
+        Assert.Equal(expected,CrossTableStorageColumns.KeepsDefinition(overlay.ToJsonString(),baseline));
+
+        overlay["levels"]![0]!["idPropertyName"]=1;
+        Assert.False(CrossTableStorageColumns.KeepsDefinition(baseline,overlay.ToJsonString()));
+        overlay["levels"]![0]!["idPropertyName"]="countryId";
+        overlay["levels"]![0]!["namePropertyName"]="countryName";
+        overlay["levels"]![1]!["parentField"]="other_id";
+        Assert.False(CrossTableStorageColumns.KeepsDefinition(baseline,overlay.ToJsonString()));
+    }
+
     /// <summary>存储层只需要来源表及结构定义，目标访问权限留给固定生成计划。</summary>
     private static MetadataCatalog Catalog(string type="string")
     {
