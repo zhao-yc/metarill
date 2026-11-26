@@ -135,10 +135,14 @@ public static partial class FileValidation
     }
 
     /// <summary>控件只允许已知访问模式、大小和扩展名规则，未知配置明确失败。</summary>
-    internal static FileControlPolicy Policy(ColumnMetadata? column, FileLibraryOptions options)
+    internal static FileControlPolicy Policy(ColumnMetadata? column, FileLibraryOptions options, bool applyDefaultFieldLimit = false)
     {
         if (options.MaxFileBytes is <= 0 or > 100L * 1024 * 1024) throw new InvalidOperationException("服务端文件大小上限必须在100MiB以内。");
-        var access = "PROTECTED"; var maximum = options.MaxFileBytes; var count = 9;
+        var access = "PROTECTED"; var count = 9;
+        // 已发布字段的新上传沿用原控件默认值，已就绪文件的引用仍兼容原先的服务端上限。
+        var maximum = applyDefaultFieldLimit && column is not null
+            ? Math.Min(options.MaxFileBytes, 50L * 1024 * 1024)
+            : options.MaxFileBytes;
         IReadOnlySet<string> extensions = options.AllowedExtensions;
         if (column is not null && !string.IsNullOrWhiteSpace(column.ControlDetail))
         {
@@ -148,7 +152,7 @@ public static partial class FileValidation
             {
                 var mb = size.GetInt32();
                 if (mb is <= 0 or > 10240) throw new InvalidOperationException("控件大小上限无效。");
-                maximum = Math.Min(maximum, mb * 1024L * 1024L);
+                maximum = Math.Min(options.MaxFileBytes, mb * 1024L * 1024L);
             }
             if (detail.RootElement.TryGetProperty("maxCount", out var limit) && limit.ValueKind != JsonValueKind.Null) count = limit.GetInt32();
             if (detail.RootElement.TryGetProperty("extensions", out var list) && list.ValueKind == JsonValueKind.Array && list.GetArrayLength() > 0)

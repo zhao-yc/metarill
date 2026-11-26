@@ -31,7 +31,7 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
         var actor = authorization.RequireActor();
         var originalName = FileValidation.RequireName(request.OriginalName);
         var column = ResolveUploadColumn(request.ConfigColumnId, actor);
-        var policy = FileValidation.Policy(column, options);
+        var policy = FileValidation.Policy(column, options, applyDefaultFieldLimit: true);
         if (legacyPublic) policy = policy with { AccessMode = "PUBLIC" };
         if (request.SizeBytes < 0 || request.SizeBytes > policy.MaximumBytes) throw new BusinessRuleException("文件大小超过字段限制");
         if (!policy.Extensions.Contains(Path.GetExtension(originalName))) throw new BusinessRuleException("文件后缀不在字段允许范围内");

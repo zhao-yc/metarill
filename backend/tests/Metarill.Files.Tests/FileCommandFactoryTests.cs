@@ -116,6 +116,76 @@ public sealed class FileCommandFactoryTests
         Assert.Equal(1, provider.Last.Rollbacks);
     }
 
+    /// <summary>上传计划按原文件控件的默认及显式大小校验，服务器上限仍然优先。</summary>
+    [Theory]
+    [InlineData("", true, 100, 50, 0, true)]
+    [InlineData("", true, 100, 50, 1, false)]
+    [InlineData("{}", true, 100, 50, 1, false)]
+    [InlineData("{\"maxSizeMb\":null}", true, 100, 50, 1, false)]
+    [InlineData("{\"maxSizeMb\":80}", true, 100, 80, 0, true)]
+    [InlineData("{\"maxSizeMb\":80}", true, 100, 80, 1, false)]
+    [InlineData("{\"maxSizeMb\":80}", true, 60, 60, 1, false)]
+    [InlineData("", true, 30, 30, 1, false)]
+    [InlineData("", false, 100, 80, 0, true)]
+    public async Task Web_upload_plan_shares_original_file_field_size_limit(
+        string detail, bool published, int hostLimit, int sizeMb, int extraBytes, bool allowed)
+    {
+        const long mib = 1024L * 1024L;
+        var table = new TableMetadata { Id = "10", TableName = "attachment_form", IsFunctionTable = 1 };
+        var page = new PageMetadata { Id = "20", ConfigTableId = table.Id, YzAdminTypeId = "3" };
+        var field = new ColumnMetadata
+        {
+            Id = "14", ConfigTableId = table.Id, ColumnName = "attachments", ControlKind = "FileLibrary",
+            LogicalType = "string", IsVirtualColumn = 1, ControlDetail = detail
+        };
+        var catalog = new MetadataCatalog
+        {
+            YzProjectId = "1", ConfigTables = [table], ConfigPages = [page], ConfigColumns = [field],
+            ConfigPageColumns = [new() { Id = "21", ConfigPageId = page.Id, ConfigColumnId = field.Id, IsEdit = 1 }],
+            YzAdminTypes = [new() { Id = "3" }]
+        };
+        var infrastructurePath = Path.Combine(Path.GetDirectoryName(SourcePath())!, "../../metadata/files.json");
+        var infrastructure = System.Text.Json.JsonSerializer.Deserialize<MetadataCatalog>(
+            File.ReadAllText(infrastructurePath), new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+        var writes = new List<string>();
+        var provider = new Provider { Write = command => { writes.Add(command.CommandText); return 1; } };
+        using var session = new DatabaseSession(
+            new() { ExpectedDatabase = "offline", ConnectionString = "Server=127.0.0.1;Port=1;Database=offline;User ID=unused" },
+            null, provider);
+        var files = new FileLibraryService(new SqlRowStore(session, MetadataCatalogComposition.MergePhysical(catalog, infrastructure)),
+            new FileMetadataContext([catalog]), new SnowflakeIdGenerator(29), new FunctionFileAuthorization("upload"),
+            new FileLibraryOptions { MaxFileBytes = hostLimit * mib });
+        var request = new FileUploadRequest("plan.txt", null, sizeMb * mib + extraBytes, published ? field.Id : null);
+
+        if (allowed)
+        {
+            Assert.True((await files.PlanUploadAsync(request)).FileId > 0);
+            Assert.Contains("INSERT INTO `yz_file_library`", Assert.Single(writes));
+            Assert.Equal(1, provider.Last!.Commits);
+        }
+        else
+        {
+            var failure = await Assert.ThrowsAsync<BusinessRuleException>(() => files.PlanUploadAsync(request));
+            Assert.Equal("文件大小超过字段限制", failure.Message);
+            Assert.Empty(writes);
+            Assert.Equal(1, provider.Last!.Rollbacks);
+        }
+    }
+
+    /// <summary>已有附件按历史字段规则验证，显式大小继续限制引用。</summary>
+    [Theory]
+    [InlineData("{}", 100)]
+    [InlineData("{\"maxSizeMb\":null}", 100)]
+    [InlineData("{\"maxSizeMb\":60}", 60)]
+    public void Existing_file_reference_keeps_the_previous_size_policy(string detail, int expectedMb)
+    {
+        const long mib = 1024L * 1024L;
+        var column = new ColumnMetadata { ControlDetail = detail };
+        var options = new FileLibraryOptions { MaxFileBytes = 100L * mib };
+
+        Assert.Equal(expectedMb * mib, FileValidation.Policy(column, options).MaximumBytes);
+    }
+
     /// <summary>使用真实本地流和文件事务，检查可重试上传的原提示、失败清理及权限错误分类。</summary>
     [Theory]
     [InlineData("expired", "上传计划已过期。")]
