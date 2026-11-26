@@ -131,11 +131,11 @@ internal static class FixedPageConditionCompilation
         page.Scopes.All(scope=>scope.Source=="project")&&page.Condition is {} condition&&!HasLogicalFields(page)&&
         GlobalMultipleRelationTarget.IsStoredAccountPage(table.Source,page.Source,condition.Syntax);
 
-    /// <summary>只识别已声明项目与实际父键的全局冗余字典，物理发布资格由数据计划复核。</summary>
+    /// <summary>识别声明实际父键的全局冗余字典，物理发布资格由数据计划复核。</summary>
     internal static bool HasStoredGlobalMultiParentScope(TableModel table,PageModel page)=>
         table.IsGlobal&&table.Source.IsRongyu==1&&!HasLogicalFields(page)&&
         page.Scopes.Any(scope=>scope.Source=="parent")&&
-        GlobalMultipleRelationTarget.IsStoredProjectParentPage(table.Source,page.Source,
+        GlobalMultipleRelationTarget.IsStoredParentPage(table.Source,page.Source,
             FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName)),
             checkbox:page.Source.Extra.GetValueOrDefault("type").ToString()!="2");
 

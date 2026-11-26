@@ -65,9 +65,14 @@ public static class GlobalMultipleRelationTarget
     public static bool IsProjectParentPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox=false,bool allowExact=false)=>
         table.IsRongyu==0&&IsPublishedMultiPage(table,page,checkbox,allowExact)&&UsesProjectAndParent(condition);
 
-    /// <summary>冗余全局字典必须在实际多值发布页明示项目和物理父字段。</summary>
+    /// <summary>冗余全局字典的父范围由实际发布页声明，项目列只在页面显式限定项目时使用。</summary>
+    public static bool IsStoredParentPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox=false)=>
+        table.IsRongyu==1&&IsPublishedMultiPage(table,page,checkbox)&&condition.Terms.Any(IsParentScope)&&
+        condition.Terms.All(term=>IsFixedOrProject(term)||IsParentScope(term)||IsAccountScope(term));
+
+    /// <summary>仅显式限定项目的冗余父范围页可以证明控件的项目条件。</summary>
     public static bool IsStoredProjectParentPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox=false)=>
-        table.IsRongyu==1&&IsPublishedMultiPage(table,page,checkbox)&&UsesProjectAndParent(condition);
+        IsStoredParentPage(table,page,condition,checkbox)&&condition.Terms.Any(IsProjectScope);
 
     /// <summary>项目、父级和可选账号等值共用同一条件语法，各用途再验证实际页面角色。</summary>
     internal static bool UsesProjectAndParent(FixedConditionPlan condition)=>
@@ -199,7 +204,7 @@ public static class GlobalMultipleRelationTarget
         var projectParentPage=IsProjectParentPage(target,page,condition,checkbox);
         var staticParentPage=GlobalCrossTableTarget.UsesOnlyParentVariables(condition);
         var physicalParentPage=false;
-        var storedParent=(checkbox||pageId.Length>0)?GlobalCrossTableTarget.StoredProjectMultiParent(catalog,target,page,checkbox):null;
+        var storedParent=(checkbox||pageId.Length>0)?GlobalCrossTableTarget.StoredMultiParent(catalog,target,page,checkbox):null;
         if(storedParent is not null)
         {
             // 写入和按来源行回填必须从真实字段得到同一个父键。

@@ -327,7 +327,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var checkbox=relation?.ControlKind=="MultiCheckBoxDatabase";
         var projectFixedScope=selectedPage is not null&&relation is {ControlKind:"MultiSelectPage" or "MultiCheckBoxDatabase"}&&
             IsProjectFixedMultiPage(catalog,target,selectedPage,checkboxAccount:checkbox,allowStoredTextParent:true);
-        var storedParent=selectedPage is null?null:GlobalCrossTableTarget.StoredProjectMultiParent(catalog,target,selectedPage,checkbox);
+        var storedParent=selectedPage is null?null:GlobalCrossTableTarget.StoredMultiParent(catalog,target,selectedPage,checkbox);
         var parent=cacheOwner is null||selectedPage is null?null:MultiParent(catalog,selectedPage,checkbox);
         MultiSourceParent? source=null;
         if(parent is not null)
@@ -452,13 +452,13 @@ public static partial class MySqlNonRedundantReadCompiler
             if(catalog.ConfigColumns.Any(column=>tables.ContainsKey(column.ConfigTableId)&&column.YzProjectId.Length>0&&column.YzProjectId!=catalog.YzProjectId))throw new InvalidOperationException("字段归属与发布项目不一致。");
             columns=tables.Values.ToDictionary(table=>table.Id,table=>RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id)).ToDictionary(column=>column.ColumnName,StringComparer.OrdinalIgnoreCase),StringComparer.Ordinal);
             storage=tables.Values.ToDictionary(table=>table.Id,table=>MetadataStoragePolicy.ForTable(catalog,table),StringComparer.Ordinal);
-            // 全局 R1 路径只接受当前根页编译出的物理父证明，不能借用项目内候选开关。
+            // 全局候选的字典范围由当前发布页证明；项目内候选须额外通过真实行项目列限制。
             if ((scopedPhysicalCandidate||storedMultiParentCandidate) &&
                 (root.IsRongyu != 1 || GlobalCrossTableTarget.Declared(root)!=storedMultiParentCandidate ||
                  storedMultiParentCandidate&&storedMultiParent!.Target.ConfigTableId!=root.Id ||
-                !columns[root.Id].TryGetValue("yz_project_id", out var project) ||
-                project.LogicalType is not ("int64" or "string") || !GlobalPhysicalRelationValue.IsScalar(storage[root.Id], root, project)))
-                throw new InvalidOperationException("物理候选要求已证明的普通 R1 实体和真实项目列。");
+                 scopedPhysicalCandidate&&(!columns[root.Id].TryGetValue("yz_project_id", out var project) ||
+                    project.LogicalType is not ("int64" or "string") || !GlobalPhysicalRelationValue.IsScalar(storage[root.Id], root, project))))
+                throw new InvalidOperationException("物理候选要求实际发布的普通 R1 实体和对应范围字段。");
             foreach(var binding in this.crossTables.Values)if(!columns[root.Id].Values.Any(column=>column.Id==binding.SourceColumnId&&column.ControlKind=="CascadeTree"))throw new InvalidOperationException("跨表读取绑定不属于当前来源表。");
         }
         /// <summary>主键作为稳定排序依赖；根及每个目标分别保留软删和项目范围。</summary>

@@ -86,7 +86,7 @@ internal static class MultiGlobalParentCompilation
         if(!page.Scopes.Any(scope=>scope.Source=="parent")||
             !NonRedundantReads.IsPublishedCheckboxTarget(model.Catalog,table.Source,page.Source.Id))return null;
         var syntax=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
-        return table.IsGlobal?GlobalCrossTableTarget.StoredProjectMultiParent(model.Catalog,table.Source,page.Source,checkbox:true)??
+        return table.IsGlobal?GlobalCrossTableTarget.StoredMultiParent(model.Catalog,table.Source,page.Source,checkbox:true)??
             MultiTargetParentScope.CompileGlobalPage(model.Catalog,table.Source,syntax,checkbox:true):
             MultiTargetParentScope.CompileCheckboxPage(model.Catalog,table.Source,syntax,allowGlobalParent:true);
     }
@@ -112,7 +112,7 @@ internal static class MultiGlobalParentCompilation
         {
             // 同一个 type=2 页实际发布给复选时，须按复选合同识别显式自定义物理父字段。
             if(table.IsGlobal)return CheckboxPageParent(model,table,page)??
-                GlobalCrossTableTarget.StoredProjectMultiParent(model.Catalog,table.Source,page.Source,checkbox);
+                GlobalCrossTableTarget.StoredMultiParent(model.Catalog,table.Source,page.Source,checkbox);
             var catalog=model.Catalog;
             var publishedCheckbox=NonRedundantReads.IsPublishedCheckboxTarget(catalog,table.Source,page.Source.Id)&&
                 NonRedundantReads.IsProjectStoredCheckboxAccountPage(catalog,table.Source,page.Source);

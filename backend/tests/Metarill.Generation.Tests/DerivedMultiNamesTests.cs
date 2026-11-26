@@ -680,6 +680,8 @@ public sealed class DerivedMultiNamesTests
     [InlineData(true,true,true,false,"global-stored-account")]
     [InlineData(false,false,false,false,"global-stored-static")]
     [InlineData(true,false,false,false,"global-stored-static")]
+    [InlineData(false,false,false,false,"global-stored-parent-only")]
+    [InlineData(true,false,false,false,"global-stored-parent-only")]
     public async Task R0_array_page_override_uses_the_actual_target(bool checkbox,bool account,bool overlayOnlyAccount=false,
         bool differentSourceParents=false,string dictionaryMode="")
     {
@@ -697,6 +699,12 @@ public sealed class DerivedMultiNamesTests
             var label=catalog.ConfigColumns.Single(column=>column.Id=="32");
             label.Extra.Remove("isJoinColumn");
             label.Extra.Remove("columnFullName");
+            if(dictionaryMode=="global-stored-parent-only")
+            {
+                var project=catalog.ConfigColumns.Single(column=>column.ConfigTableId=="3"&&column.ColumnName=="yz_project_id");
+                catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId==project.Id);
+                catalog.ConfigColumns.Remove(project);
+            }
         }
         else if(globalDictionary)
         {
@@ -719,6 +727,7 @@ public sealed class DerivedMultiNamesTests
         original.WhereSql=dictionaryMode switch
         {
             "global-owner" or "global-stored-static"=>"status>=31",
+            "global-stored-parent-only"=>"parent_id=@parentId AND status>=31",
             "global-stored-project" or "global-stored-account"=>"yz_project_id=@current_yz_project_id AND status>=31",
             _=>original.WhereSql+" AND status>=31"+(account&&!overlayOnlyAccount?" AND store_id=@current_store_id":"")
         };
@@ -761,6 +770,15 @@ public sealed class DerivedMultiNamesTests
         field202.Extra["controlDetail"]=JsonSerializer.SerializeToElement("{\"pageId\":\"302\"}");
         catalog.ConfigPageColumns.Add(field202);
         RedundantMultiNameCacheTests.Published(catalog);
+        if(dictionaryMode=="global-stored-parent-only")
+        {
+            var target=catalog.ConfigTables.Single(table=>table.Id=="3");
+            var parent=GlobalCrossTableTarget.StoredMultiParent(catalog,target,alternative,checkbox);
+            Assert.Equal("parent_id",parent?.Target.ColumnName);
+            Assert.Equal("1",parent?.Parent.Id);
+            // 父键只证明父记录可见性，不能给字典页增加未声明的项目约束。
+            Assert.Null(GlobalCrossTableTarget.StoredProjectMultiParent(catalog,target,alternative,checkbox));
+        }
         if(globalDictionary)
         {
             var model=GenerationModel.Create(catalog,ns);
@@ -842,6 +860,12 @@ public sealed class DerivedMultiNamesTests
                 var predicates=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(read.GetType()
                     .GetProperty("ArrayNamePredicates",HiddenInstance)!.GetValue(read));
                 Assert.Contains(".`status`",predicates["target_names"]);
+                if(dictionaryMode=="global-stored-parent-only")
+                {
+                    Assert.Contains("b.`parent_id`",predicates["target_names"]);
+                    Assert.Contains("array_page_override_parent",predicates["target_names"]);
+                    Assert.Contains(".`yz_project_id`",predicates["target_names"]);
+                }
                 if(differentSourceParents)
                 {
                     var (current,other)=page=="201"?("parent_id","secondary_parent_id"):("secondary_parent_id","parent_id");
@@ -898,7 +922,7 @@ public sealed class DerivedMultiNamesTests
                         if(checkbox||storedGlobalDictionary)
                         {
                             var targetScope=Assert.IsType<string>(match!.GetType().GetProperty("Scope",HiddenInstance)!.GetValue(match));
-                            Assert.Equal(dictionaryMode is not ("global-owner" or "global-stored-static"),
+                            Assert.Equal(dictionaryMode is not ("global-owner" or "global-stored-static" or "global-stored-parent-only"),
                                 targetScope.Contains("b.`yz_project_id`",StringComparison.Ordinal));
                             Assert.Equal(usesAccount,Parameters(match).Contains(23L));
                         }

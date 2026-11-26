@@ -27,7 +27,7 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal bool SharedLogicalParentScope { get; init; }
     internal bool HasStoredIdentityScope { get; init; }
     /// <summary>全称和简称使用实际发布的冗余字典项目及物理父范围。</summary>
-    internal bool HasStoredProjectParentScope => LogicalTargetPage is {} page&&
+    internal bool HasStoredGlobalParentScope => LogicalTargetPage is {} page&&
         FixedPageConditionCompilation.HasStoredGlobalMultiParentScope(Target,page);
     internal bool HasStoredStaticScope { get; init; }
     internal bool HasProjectStoredAccountScope { get; init; }
@@ -375,7 +375,7 @@ internal static class DatabaseCheckboxCompilation
                 // 功能表只有一个实际父值。冗余全局字典的多个条件须全部属于同一已发布的父记录。
                 var targetBinding=namePage is {} parentPage&&physicalParents.All(scope=>parentPage.Scopes.Any(published=>
                     published.Source=="parent"&&published.Column.Source.Id==scope.Column.Source.Id))
-                    ?GlobalCrossTableTarget.StoredProjectMultiParent(model.Catalog,target.Source,parentPage.Source,checkbox:true)??
+                    ?GlobalCrossTableTarget.StoredMultiParent(model.Catalog,target.Source,parentPage.Source,checkbox:true)??
                         (physicalParents.Length==1?MultiTargetParentScope.Compile(model.Catalog,target.Source,
                             FixedConditionPlan.Compile(parentPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName))):null)
                     :null;
@@ -433,7 +433,7 @@ internal static class DatabaseCheckboxCompilation
             if(!functionForm&&pageHasParent&&logicalPage is {} scopedPage)
             {
                 var syntax=FixedConditionPlan.Compile(scopedPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
-                var storedGlobalParent=GlobalCrossTableTarget.StoredProjectMultiParent(model.Catalog,target.Source,scopedPage.Source,checkbox:true);
+                var storedGlobalParent=GlobalCrossTableTarget.StoredMultiParent(model.Catalog,target.Source,scopedPage.Source,checkbox:true);
                 var binding=(storedGlobalParent??(target.IsGlobal
                     ?MultiTargetParentScope.CompileGlobalPage(model.Catalog,target.Source,syntax,checkbox:true)
                     :MultiTargetParentScope.CompileCheckboxPage(model.Catalog,target.Source,syntax,allowGlobalParent:true)))!;
@@ -553,7 +553,7 @@ internal static class DatabaseCheckboxCompilation
         if(definition.Name.Type!="string?"||definition.ExactTarget is not null||
             definition.Conditions is not null&&!definition.HasStoredIdentityScope&&!definition.HasProjectStoredAccountScope&&!definition.ProjectFormScope)
             return false;
-        if(definition.HasStoredProjectParentScope)
+        if(definition.HasStoredGlobalParentScope)
             return !definition.LogicalSourceParent&&definition.SourceParent is not null&&definition.SourceParents.Count==1;
         if(definition.SharedLogicalParentScope)
             return !definition.LogicalSourceParent&&definition.SourceParent is not null&&

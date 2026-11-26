@@ -11,7 +11,7 @@ internal static class DerivedCheckboxNamesCompilation
         IReadOnlyList<ColumnModel>? cachedLabels=null)
     {
         if(def.Names is null)throw new InvalidOperationException("按主键显示的复选不需要派生名称计划。");
-        if(owner.Source.IsRongyu is not(0 or 1)||def.Target.Source.IsRongyu!=0&&!def.HasStoredProjectParentScope||
+        if(owner.Source.IsRongyu is not(0 or 1)||def.Target.Source.IsRongyu!=0&&!def.HasStoredGlobalParentScope||
             def.Target.Source.IsView!=0||def.Target.Source.IsFunctionTable!=0||
             def.Name.Type!="string?"&&!Metarill.Core.Contracts.MultiValueLabel.IsTyped(def.Name.Source.LogicalType)||def.Name.IsJsonArray)
             throw new InvalidOperationException("复选名称要求已证明来源与目标的固定单值名称。");
@@ -37,7 +37,7 @@ internal static class DerivedCheckboxNamesCompilation
                 def.Target.Source.Id,def.Name.Source.Id,def.Names.Source.Id,true)
             {
                 CheckboxTargetPageId=def.SharedLogicalParentScope||def.SharedDerivedPageScope||def.ProjectFormScope||
-                    def.HasStoredProjectParentScope&&def.UsesNameOverride?ScopedCheckboxPage(def).Source.Id:null,
+                    def.HasStoredGlobalParentScope&&def.UsesNameOverride?ScopedCheckboxPage(def).Source.Id:null,
                 CheckboxSourceParentId=def.SharedDerivedPageScope||def.ProjectFormScope?DatabaseCheckboxCompilation.FixedCacheParent(def):null
             };
             // 无父级的固定常量页沿用原物理传播，具有持久父级的副本统一验证实际父范围。
@@ -143,7 +143,7 @@ internal static class DerivedCheckboxNamesCompilation
 
     /// <summary>文本父键与精确权限共用目标候选计划，由同一查询核对父键与当前角色匹配值。</summary>
     internal static bool UsesScopedCheckboxLabel(GenerationModel model,DatabaseCheckboxModel def)=>
-        !UsesGlobalExactPage(def)&&(def.HasStoredProjectParentScope||UsesPublishedGlobalScope(def)||def.GlobalRealtimeNameOverride||def.SharedDerivedPageScope||def.SharedLogicalParentScope||def.ProjectFormScope||
+        !UsesGlobalExactPage(def)&&(def.HasStoredGlobalParentScope||UsesPublishedGlobalScope(def)||def.GlobalRealtimeNameOverride||def.SharedDerivedPageScope||def.SharedLogicalParentScope||def.ProjectFormScope||
             def.RealtimeLogicalParentScope||def.CompoundTargetParents||
             def is {SharedTextParent:not null,LogicalTargetPage:not null,ExactTarget:not null}||
             def.LogicalTargetPage?.Scopes.Any(scope=>scope.Source=="parent"&&

@@ -147,7 +147,7 @@ internal static partial class NonRedundantReadCompilation
             _=GlobalCrossTableTarget.ExactPageParent(model.Catalog,table.Source,page.Source);
         else if(HasGlobalRowProject(table))GlobalDerivedRelationSource.RequireTable(model.Catalog,table.Source);
         else if(table.IsGlobal&&GlobalCrossTableTarget.SingleParent(model.Catalog,table.Source,page.Source) is null&&
-            GlobalCrossTableTarget.StoredProjectMultiParent(model.Catalog,table.Source,page.Source,
+            GlobalCrossTableTarget.StoredMultiParent(model.Catalog,table.Source,page.Source,
                 NonRedundantReads.IsPublishedCheckboxTarget(model.Catalog,table.Source,page.Source.Id)) is null)
         {
             if(GlobalJoinedMultiPage(table,page))

@@ -171,7 +171,7 @@ public static class GlobalCrossTableTarget
     /// <summary>多值目标和独立页面候选可使用由实际父记录限定的同一范围。</summary>
     public static void RequireMultiCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool checkbox=false)
     {
-        if(StoredProjectMultiParent(catalog,table,page,checkbox)is not null)return;
+        if(StoredMultiParent(catalog,table,page,checkbox)is not null)return;
         var joinedFields=PageJoinedConditionFields(catalog,table,page);
         if(joinedFields.Count>0&&GlobalMultipleRelationTarget.IsProjectPage(table,page,
             FixedConditionPlan.Compile(page.WhereSql,ConditionColumns(catalog,table,allowLogical:true)
@@ -184,13 +184,22 @@ public static class GlobalCrossTableTarget
             allowPhysicalMultiParent:true,checkboxParent:checkbox,joinedFields:joinedFields);
     }
 
-    /// <summary>冗余全局多值候选必须证明发布后台、物理父键及当前项目，账号条件仍走统一字段校验。</summary>
-    public static MultiTargetParentScope? StoredProjectMultiParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool checkbox=false)
+    /// <summary>冗余全局多值候选必须证明发布后台及实际物理父键；字典只执行页面显式声明的项目范围。</summary>
+    public static MultiTargetParentScope? StoredMultiParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool checkbox=false)=>
+        CompileStoredMultiParent(catalog,table,page,checkbox,requireProject:false);
+
+    /// <summary>项目条件须由字典页显式声明，父记录的项目归属不能替代字典项目列。</summary>
+    public static MultiTargetParentScope? StoredProjectMultiParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool checkbox=false)=>
+        CompileStoredMultiParent(catalog,table,page,checkbox,requireProject:true);
+
+    private static MultiTargetParentScope? CompileStoredMultiParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
+        bool checkbox,bool requireProject)
     {
         if(!Declared(table)||table.IsRongyu!=1||page.ConfigTableId!=table.Id)return null;
         var columns=ConditionColumns(catalog,table,allowLogical:false);
         var condition=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
-        if(!GlobalMultipleRelationTarget.IsStoredProjectParentPage(table,page,condition,checkbox))return null;
+        if(!GlobalMultipleRelationTarget.IsStoredParentPage(table,page,condition,checkbox)||
+            requireProject&&!condition.Terms.Any(GlobalMultipleRelationTarget.IsProjectScope))return null;
         RequirePublishedSinglePage(catalog,table,page);
         var parent=MultiTargetParentScope.CompileStoredGlobalPage(catalog,table,condition,checkbox);
         if(parent is not {Logical:false}||parent.AdditionalTargets.Any(item=>item.Logical))
