@@ -138,9 +138,12 @@ public sealed class FileSharedCrossParentScopeTests
     [InlineData("isolatedPlaceId","int64",false,true)]
     [InlineData("treeName","string",false,true)]
     [InlineData("treeName","string",true,true)]
-    public void Shared_file_parent_supports_another_published_exact_path(string field,string type,bool changedShape,bool compound)
+    [InlineData("isolatedCountryName","string",false,false,true)]
+    [InlineData("isolatedCountryId","string",false,true,true)]
+    [InlineData("isolatedCountryId","string",true,false,true)]
+    public void Shared_file_parent_supports_another_published_exact_path(string field,string type,bool changedShape,bool compound,bool textKey=false)
     {
-        var catalog=Catalog(type,"int64");
+        var catalog=Catalog(type,textKey?"string":"int64");
         var page=catalog.ConfigPages.Single(item=>item.Id=="102");
         catalog.YzAdminTypes.Add(new(){Id="900",YzProjectId=catalog.YzProjectId});
         foreach(var item in catalog.ConfigPages)item.YzAdminTypeId="900";
@@ -159,6 +162,14 @@ public sealed class FileSharedCrossParentScopeTests
         {
             definition=JsonNode.Parse(catalog.ConfigColumns.Single(item=>item.Id=="15").ControlDetail)!;
             foreach(var level in definition["levels"]!.AsArray())level!["columnPrefix"]="isolated_"+level["columnPrefix"]!.GetValue<string>();
+            if(textKey)
+            {
+                definition["levels"]![0]!["idField"]="business_key";
+                catalog.ConfigColumns.Add(new(){Id="209",YzProjectId="1",ConfigTableId="2",ColumnName="business_key",
+                    LogicalType="string",ColumnLength="50",IsDbNotNull=1});
+                catalog.ConfigIndexes.Add(JsonSerializer.SerializeToElement(new{id="210",configTableId="2",isUnique=1}));
+                catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id="211",configIndexId="210",configColumnId="209"}));
+            }
         }
         catalog.ConfigColumns.Add(new(){Id="19",YzProjectId="1",ConfigTableId="1",ControlKind="CascadeTree",
             ColumnName=selfTree?"tree_id":"isolated_place_id",LinkConfigTableId=selfTree?"2":"4",LogicalType=type,ControlDetail=definition.ToJsonString()});

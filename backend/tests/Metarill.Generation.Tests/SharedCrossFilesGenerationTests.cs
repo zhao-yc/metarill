@@ -20,9 +20,10 @@ public sealed class SharedCrossFilesGenerationTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Full_shared_file_independent_exact_path_builds(bool selfTree)
+    [InlineData(false,true)]
+    public async Task Full_shared_file_independent_exact_path_builds(bool selfTree,bool textKey=false)
     {
-        var catalog=Catalog("shared_parent","int64","int64");
+        var catalog=Catalog("shared_parent",textKey?"string":"int64",textKey?"string":"int64");
         var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="202");
         var cascade=catalog.ConfigColumns.Single(column=>column.Id=="25");
         var definition=JsonNode.Parse(cascade.ControlDetail)!;
@@ -47,16 +48,38 @@ public sealed class SharedCrossFilesGenerationTests
         {
             foreach(var level in definition["levels"]!.AsArray())
                 level!["columnPrefix"]="isolated_"+level["columnPrefix"]!.GetValue<string>();
+            if(textKey)
+            {
+                match="isolatedCountryId";
+                definition["levels"]![0]!["idField"]="business_key";
+                catalog.ConfigColumns.Add(new(){Id="9503",YzProjectId=catalog.YzProjectId,ConfigTableId="3",
+                    ColumnName="business_key",LogicalType="string",ColumnLength="50",IsDbNotNull=1});
+                catalog.ConfigIndexes.Add(JsonSerializer.SerializeToElement(new{id="9504",configTableId="3",isUnique=1}));
+                catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id="9505",configIndexId="9504",configColumnId="9503"}));
+            }
         }
         catalog.ConfigColumns.Add(new(){Id="9501",YzProjectId=catalog.YzProjectId,ConfigTableId="2",ColumnName=pathColumn,
-            LogicalType="int64",LinkConfigTableId=targetId,ControlKind="CascadeTree",ControlDetail=definition.ToJsonString()});
+            LogicalType=textKey?"string":"int64",LinkConfigTableId=targetId,ControlKind="CascadeTree",ControlDetail=definition.ToJsonString()});
         catalog.ConfigPageColumns.Add(new(){Id="2029501",YzProjectId=catalog.YzProjectId,
             ConfigPageId=sourcePage.Id,ConfigColumnId="9501",IsShow=1,IsEdit=1});
         sourcePage.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement(match);
         catalog.YzAdminTypes.Single(item=>item.Id=="5").Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("realName");
 
+        if(textKey)
+        {
+            var model=GenerationModel.Create(catalog,"Example.SharedFileExact");
+            var source=model.Tables.Single(item=>item.Source.Id==sourcePage.ConfigTableId);
+            var control=source.Columns.Single(item=>item.Source.Id=="9501");
+            foreach(var page in source.Pages)
+            {
+                var proof=CrossTableWriteCompilation.Resolve(model,source,page,control);
+                Assert.True(proof.Definition is not null,page.Source.Id+" "+proof.Reason);
+            }
+        }
+
+
         await AssertFullSharedFileExactPlan(catalog,sourcePage.Id,
-            selfTree?"tree_name":"isolated_country_name",false,"country_id");
+            selfTree?"tree_name":textKey?"isolated_country_id":"isolated_country_name",false,"country_id");
     }
 
     /// <summary>普通、物理父键及逻辑父级的完整应用均按当前发布页编译附件范围。</summary>

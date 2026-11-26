@@ -1073,6 +1073,127 @@ public sealed class FileCommandFactoryTests
         return catalog;
     }
 
+    /// <summary>原附件查询与写前校验按发布的文本级联授权，页面无需把匹配路径同时用作父级。</summary>
+    [Theory]
+    [InlineData(false,false)]
+    [InlineData(false,true)]
+    [InlineData(true,false)]
+    [InlineData(true,true)]
+    public async Task File_exact_text_cascade_applies_to_lookup_and_reference_validation(bool shared,bool locking)
+    {
+        const long recordId=9007199254740993;
+        const long fileId=9007199254740994;
+        const string key="001-A";
+        var catalog=FileCrossParentScopeTests.Catalog("file_exact_text","string","string");
+        var source=catalog.ConfigPages[0];
+        foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId==source.Id))
+            field.ConfigPageId="102";
+        source.Id="102";
+        source.WhereSql="yz_project_id=@current_yz_project_id";
+        source.Extra["exactDataManageMatchField"]=System.Text.Json.JsonSerializer.SerializeToElement("countryId");
+        catalog.YzAdminTypes.Add(new(){Id="900",YzProjectId="1"});
+        foreach(var publishedPage in catalog.ConfigPages)publishedPage.YzAdminTypeId="900";
+
+        var control=catalog.ConfigColumns.Single(column=>column.Id=="15");
+        var definition=System.Text.Json.Nodes.JsonNode.Parse(control.ControlDetail)!;
+        definition["levels"]![0]!["idField"]="business_key";
+        control.ControlDetail=definition.ToJsonString();
+        catalog.ConfigColumns.AddRange([
+            new(){Id="209",ConfigTableId="2",ColumnName="business_key",LogicalType="string",ColumnLength="50",IsDbNotNull=1},
+            new(){Id="208",ConfigTableId="2",ColumnName="store_id",LogicalType="int64"}
+        ]);
+        catalog.ConfigIndexes.Add(System.Text.Json.JsonSerializer.SerializeToElement(new{id="210",configTableId="2",isUnique=1}));
+        catalog.ConfigIndexColumns.Add(System.Text.Json.JsonSerializer.SerializeToElement(new{id="211",configIndexId="210",configColumnId="209"}));
+        catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql+=" AND store_id=@current_store_id";
+        if(shared)
+        {
+            definition["levels"]![2]!["columnPrefix"]="warehouse";
+            catalog.ConfigColumns.Add(new(){Id="16",ConfigTableId="1",ColumnName="warehouse_id",LogicalType="string",
+                ControlKind="CascadeTree",LinkConfigTableId="4",ControlDetail=definition.ToJsonString()});
+        }
+
+        var registry=new FileMetadataContext([catalog]);
+        var frozen=Assert.Single(registry.Catalogs);
+        var page=frozen.ConfigPages.Single(item=>item.Id=="102");
+        var table=frozen.ConfigTables.Single(item=>item.Id=="1");
+        var physical=registry.PhysicalColumns(frozen,table);
+        var file=physical.Single(item=>item.ColumnName=="attachments");
+        var scope=registry.PageScope(frozen,page);
+        Assert.Empty(scope.Crosses);
+        var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(registry.DerivedExactPlan(frozen,page,file));
+        Assert.True(plan.RequiresAccount);
+        Assert.DoesNotContain("country_id",plan.OutputTypes.Keys);
+
+        var filesPath=Path.Combine(Path.GetDirectoryName(SourcePath())!,"../../metadata/files.json");
+        var infrastructure=System.Text.Json.JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(filesPath),
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+        var actor=new RuntimeActor(12,"测试",false,"1","900"){StoreId=29};
+        var provider=new Provider();
+        using var session=new DatabaseSession(new(){ExpectedDatabase="offline"},null,provider);
+        var store=new SqlRowStore(session,MetadataCatalogComposition.MergePhysical(frozen,infrastructure));
+        var scopeReads=0;
+        provider.Read=command=>
+        {
+            Assert.Same(session.CurrentTransaction,command.Transaction);
+            var sql=command.CommandText;
+            var data=new DataTable();
+            if(sql.Contains(" FROM `yz_file_ref`",StringComparison.Ordinal))
+            {
+                Assert.False(locking);
+                data.Columns.Add("record_id",typeof(long));
+                data.Columns.Add("field_name",typeof(string));
+                data.Rows.Add(recordId,"attachments");
+                return data.CreateDataReader();
+            }
+
+            scopeReads++;
+            Assert.Contains("`file_exact_text_country`",sql);
+            Assert.Contains(".`business_key`",sql);
+            Assert.Contains(".`store_id`",sql);
+            Assert.Contains("utf8mb4_bin",sql);
+            Assert.Contains(" IN (@filter_1_0)",sql);
+            Assert.DoesNotContain("AS `country_id`",sql);
+            Assert.Equal(locking,sql.EndsWith(" FOR SHARE",StringComparison.Ordinal));
+            Assert.Contains(command.Parameters.Cast<DbParameter>(),parameter=>Equals(parameter.Value,29L));
+            Assert.Equal(recordId,command.Parameters["@filter_0"].Value);
+
+            // 模拟驱动返回满足条件的源记录，测试固定 SQL 和参数，不替代真实 MySQL 排序规则验收。
+            if(Equals(command.Parameters["@filter_1_0"].Value,key))
+            {
+                data.Columns.Add("attachments",typeof(string));
+                var values=new List<object>{System.Text.Json.JsonSerializer.Serialize(new[]{fileId.ToString()})};
+                foreach(System.Text.RegularExpressions.Match alias in System.Text.RegularExpressions.Regex.Matches(sql,
+                    " AS `(metarill_cross_(?:input|valid)_[0-9]+)`"))
+                {
+                    var name=alias.Groups[1].Value;
+                    data.Columns.Add(name,typeof(long));
+                    values.Add(name.StartsWith("metarill_cross_valid_",StringComparison.Ordinal)?1L:DBNull.Value);
+                }
+                data.Rows.Add(values.ToArray());
+            }
+            return data.CreateDataReader();
+        };
+        var allowed=new JoinedFileAuthorization(actor,false,key);
+        var denied=new JoinedFileAuthorization(actor,false,"001-a");
+        if(locking)
+        {
+            Task Check(IRuntimeAuthorization authorization)=>FileReferenceReadAuthorization.RequireCurrentUpdateScopeAsync(
+                store,registry,authorization,frozen,table,page,file,physical,scope,recordId,actor,default);
+            await session.InTransactionAsync(async()=>
+            {
+                await Check(allowed);
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>Check(denied));
+                return true;
+            });
+        }
+        else
+        {
+            Assert.True(await FileReferenceReadAuthorization.CanReadAsync(store,registry,allowed,fileId,actor,default));
+            Assert.False(await FileReferenceReadAuthorization.CanReadAsync(store,registry,denied,fileId,actor,default));
+        }
+        Assert.Equal(2,scopeReads);
+    }
+
     /// <summary>原附件更新校验对物理和联接TIME字段使用原写事务及有类型的微秒参数。</summary>
     [Theory]
     [InlineData(false,true)]

@@ -134,6 +134,11 @@ internal static class CrossTableReadCompilation
                 var syntax=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
                 var scope=MultiTargetParentScope.CompileSelectionPage(model.Catalog,table.Source,syntax,allowGlobalParent:true);
                 if(scope?.HasCompoundLogicalTextKey(model.Catalog,table.Source,allowGlobalParent:true)==true)continue;
+                // 独立文本链不消费页面父参数。混合逻辑与物理范围可继续使用同一项目父表的真实 ID。
+                if(!table.IsGlobal&&scope is {Logical:true,Global:false,AdditionalTargets.Count:>0}&&
+                    parents.All(parent=>!levels.Any(level=>level.Prefix+"_id"==parent.Source.ColumnName))&&
+                    scope.LogicalAlternateKey(model.Catalog,table.Source) is null&&
+                    scope.AdditionalTargets.All(target=>!target.Logical||target.LogicalAlternateKey(model.Catalog,table.Source) is null))continue;
                 if(scope is not {Logical:true,AdditionalTargets.Count:>0}||
                     scope.LogicalAlternateKey(model.Catalog,table.Source) is {LogicalType:not "int64"}||
                     !scope.HasSameLogicalKey(model.Catalog,table.Source))return false;
@@ -146,7 +151,11 @@ internal static class CrossTableReadCompilation
                 var columns=model.Catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Source.Id);
                 var group=SharedCrossTableSparseSelection.CompileAll(table.Source,columns)
                     .SingleOrDefault(group=>group.Branches.Any(branch=>branch.SourceColumnId==source.Source.Id));
-                if(group is null||!group.Slots.Any(slot=>slot.ColumnName==parents[0].Source.ColumnName))return false;
+                if(group?.Slots.Any(slot=>slot.ColumnName==parents[0].Source.ColumnName)==true)continue;
+                // 另一条发布级联可独立证明页级父键。完整生成仍分别校验各自的读取与写入路径。
+                if(table.IsGlobal)return false;
+                var syntax=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
+                if(MultiTargetParentScope.CompileSelectionPage(model.Catalog,table.Source,syntax,allowGlobalParent:true) is not {Logical:true})return false;
             }
         }
         return true;

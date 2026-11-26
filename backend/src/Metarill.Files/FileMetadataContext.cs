@@ -139,12 +139,12 @@ public sealed class FileMetadataContext
         catch(Exception invalid)when(invalid is NotSupportedException or InvalidOperationException or ArgumentException or JsonException){/* 当前来源缺少可执行证明，读取时明确拒权，不能降级为物理列或无限制。 */}
     }
 
-    /// <summary>精确匹配的每条独立或共享分支都使用当前发布页面的目标证明。</summary>
+    /// <summary>精确匹配独立使用发布页的目标证明，文本业务键与页面父范围共用同一校验。</summary>
     internal static NonRedundantCrossTableScope CompileExactBranchBinding(MetadataCatalog catalog,TableMetadata table,
         PageMetadata page,CrossTableSparseSelection selection)
     {
         var control=catalog.ConfigColumns.Single(field=>field.Id==selection.SourceColumnId);
-        return FileCrossParentScope.CompileBranch(catalog,table,page,control,selection,0,allowExactSource:true).Binding;
+        return FileCrossParentScope.CompileBranch(catalog,table,page,control,selection,0,allowExactSource:true,allowTextKeys:true).Binding;
     }
 
     /// <summary>从每条实际父路径保留读绑定，再补齐只参与匹配的分支。重复层级共用同一固定定义。</summary>
