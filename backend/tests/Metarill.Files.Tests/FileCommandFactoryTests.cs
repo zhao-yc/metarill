@@ -517,19 +517,36 @@ public sealed class FileCommandFactoryTests
     [InlineData(false,true,false,false)]
     [InlineData(true,false,false,false)]
     [InlineData(true,true,true,false)]
-    public async Task File_page_uses_joined_dictionary_conditions(bool stored,bool locking,bool visible,bool parented)
+    [InlineData(false,false,true,false,"int64")]
+    [InlineData(false,true,false,false,"string")]
+    [InlineData(true,false,false,false,"int64")]
+    [InlineData(true,true,true,false,"string")]
+    public async Task File_page_uses_joined_dictionary_conditions(bool stored,bool locking,bool visible,bool parented,string? physicalType=null)
     {
         const long recordId=9007199254740993L;
         var catalog=JoinedConditionFileCatalog(stored);
+        var source=catalog.ConfigPages.Single(item=>item.Id=="101");
         if(!parented)
-            catalog.ConfigPages.Single(item=>item.Id=="101").WhereSql=
-                "yz_project_id=@current_yz_project_id AND display_region='可下载'";
+            source.WhereSql="yz_project_id=@current_yz_project_id AND display_region='可下载'";
+        if(physicalType is not null)
+        {
+            catalog.ConfigColumns.Add(new(){Id="185",ConfigTableId="1",ColumnName="owner_country_id",
+                LogicalType=physicalType,LinkConfigTableId="2",YzProjectId="1"});
+            source.WhereSql+=" AND owner_country_id=@parent_id";
+        }
         var registry=new FileMetadataContext([catalog]);
         var frozen=Assert.Single(registry.Catalogs);
         var page=frozen.ConfigPages.Single(item=>item.Id=="101");
         var scope=registry.PageScope(frozen,page);
         Assert.True(registry.NeedsFileReadSnapshot);
         Assert.Equal(parented?1:0,scope.Crosses.Count);
+        if(physicalType is not null)
+        {
+            var parent=Assert.Single(scope.Parents);
+            Assert.Equal("2",parent.Parent.Id);
+            Assert.Equal("owner_country_id",parent.Source.ColumnName);
+            Assert.Equal(physicalType,parent.Source.LogicalType);
+        }
         var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(scope.LogicalConditionPlan);
         var actor=new RuntimeActor(12,"测试",false,"1","3");
         Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor));

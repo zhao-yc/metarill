@@ -75,10 +75,14 @@ public static class ProjectScopedSingleRelationTarget
                 fields.Add(column.ColumnName);
         if(fields.Count==0)return fields;
         var ordinaryPage=allowOrdinaryPage&&page.Extra.GetValueOrDefault("type").ToString() is ("" or "0")&&
-            !syntax.Variables.Any(MultiTargetParentScope.IsParameter)&&
             columns.Any(column=>column.ColumnName=="yz_project_id"&&column.LogicalType is ("int64" or "string")&&
                 GlobalPhysicalRelationValue.IsScalar(storage,target,column));
-        if(!ordinaryPage&&PageParent(catalog,target,page) is not {Logical:true,Global:false,Target.LogicalType:"string",AdditionalTargets.Count:0})
+        // 父参数须落到同项目真实父表的物理键，联接谓词仍由原页面的读取及事务范围执行。
+        if(ordinaryPage&&(!syntax.Variables.Any(MultiTargetParentScope.IsParameter)||
+            MultiTargetParentScope.CompileListPage(catalog,target,syntax.Terms) is
+                {Logical:false,Global:false} parent&&parent.Parent.YzProjectId==catalog.YzProjectId))
+            return fields;
+        if(PageParent(catalog,target,page) is not {Logical:true,Global:false,Target.LogicalType:"string",AdditionalTargets.Count:0})
             fields.Clear();
         return fields;
     }

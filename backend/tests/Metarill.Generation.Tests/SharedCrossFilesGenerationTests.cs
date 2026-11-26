@@ -67,6 +67,9 @@ public sealed class SharedCrossFilesGenerationTests
     [InlineData("unparented-condition",false)]
     [InlineData("unparented-condition-stored",false)]
     [InlineData("physical",false)]
+    [InlineData("physical-condition",false)]
+    [InlineData("physical-condition-stored",true)]
+    [InlineData("physical-condition-compound",false)]
     [InlineData("shared",true)]
     [InlineData("physical",true)]
     public async Task Full_file_joined_exact_path_builds(string parentMode,bool textForeignKey)
@@ -74,7 +77,7 @@ public sealed class SharedCrossFilesGenerationTests
         var catalog=Catalog("shared_parent","int64","int64");
         var project=catalog.YzProjectId;
         var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="202");
-        catalog.ConfigTables.Add(new(){Id="950",YzProjectId=project,TableName="shared_parent_branch",IsRongyu=parentMode=="unparented-condition-stored"?1:0});
+        catalog.ConfigTables.Add(new(){Id="950",YzProjectId=project,TableName="shared_parent_branch",IsRongyu=parentMode.EndsWith("-stored",StringComparison.Ordinal)?1:0});
         catalog.ConfigColumns.AddRange([
             new(){Id="951",YzProjectId=project,ConfigTableId="950",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
             new(){Id="952",YzProjectId=project,ConfigTableId="950",ColumnName="name",LogicalType="string"},
@@ -105,17 +108,30 @@ public sealed class SharedCrossFilesGenerationTests
                 ConfigColumnId="957",IsShow=1,IsEdit=1});
             sourcePage.WhereSql+=" AND parent_country_id=@parent_id";
         }
-        if(parentMode is "unparented" or "unparented-condition" or "unparented-condition-stored" or "physical")
+        var physicalParent=parentMode.StartsWith("physical",StringComparison.Ordinal);
+        if(physicalParent||parentMode.StartsWith("unparented",StringComparison.Ordinal))
         {
             sourcePage.WhereSql="yz_project_id=@current_yz_project_id";
-            if(parentMode=="physical")sourcePage.WhereSql+=" AND owner_country_id=@parent_id";
-            if(parentMode.StartsWith("unparented-condition",StringComparison.Ordinal))
+            if(physicalParent)
+            {
+                sourcePage.WhereSql+=" AND owner_country_id=@parent_id";
+                if(parentMode=="physical-condition-stored")
+                    catalog.ConfigColumns.Single(column=>column.Id=="91").LogicalType="string";
+                if(parentMode=="physical-condition-compound")
+                {
+                    catalog.ConfigColumns.Add(new(){Id="960",YzProjectId=project,ConfigTableId="2",ColumnName="alternate_country_id",
+                        LogicalType="string",LinkConfigTableId="3"});
+                    sourcePage.WhereSql+=" AND alternate_country_id=@parentId";
+                }
+            }
+            if(parentMode.Contains("-condition",StringComparison.Ordinal))
                 sourcePage.WhereSql+=" AND branch_name <> '隐藏分组'";
         }
         var requiredStorage=parentMode switch
         {
             "compound"=>new[]{"country_id","parent_country_id","parent_area_id","parent_place_id"},
-            "physical"=>["owner_country_id"],
+            "physical-condition-compound"=>["owner_country_id","alternate_country_id"],
+            _ when physicalParent=>["owner_country_id"],
             "shared"=>["country_id"],
             _=>Array.Empty<string>()
         };
@@ -138,6 +154,12 @@ public sealed class SharedCrossFilesGenerationTests
                 var service=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/Services/SharedParentSourceService.g.cs"));
                 Assert.Contains("CrossConditionPlan"+sourcePageId,service);
                 Assert.Contains("NonRedundantCrossTableScopeSql.ApplyCondition",service);
+                foreach(var parent in new[]{"owner_country_id","alternate_country_id"}.Where(field=>
+                    modelPage.WhereSql.Contains(field+"=@parent",StringComparison.Ordinal)))
+                {
+                    Assert.Contains("result.Add(new(\""+parent+"\",FixedReadComparison.Equal,",service);
+                    Assert.Contains("query=query.Where(entity=>entity."+GenerationModel.Pascal(parent)+"==",service);
+                }
                 var model=GenerationModel.Create(catalog,"Example.SharedFileExact");
                 var source=model.Tables.Single(item=>item.Source.Id==modelPage.ConfigTableId);
                 var pageModel=source.Pages.Single(item=>item.Source.Id==sourcePageId);
