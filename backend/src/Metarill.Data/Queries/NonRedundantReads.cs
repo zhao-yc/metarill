@@ -383,6 +383,10 @@ public static class NonRedundantReads
         page.Extra.GetValueOrDefault("type").ToString()=="2"&&IsScopedMultiSelectTarget(metadata,target,page.Id)&&
         MySqlNonRedundantReadCompiler.IsProjectFixedMultiPage(metadata,target,page);
 
+    /// <summary>原多选候选页可用精确匹配和多个物理全局父字段，实体名称缓存另行验证。</summary>
+    public static bool IsProjectStoredExactMultiGlobalParent(MetadataCatalog metadata,TableMetadata target,PageMetadata page)=>
+        MySqlNonRedundantReadCompiler.IsProjectStoredExactMultiGlobalParent(metadata,target,page);
+
     public static bool HasScopedMultiPage(MetadataCatalog metadata,TableMetadata target,ColumnMetadata relation)=>
         MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(metadata,target,relation) is not null;
 

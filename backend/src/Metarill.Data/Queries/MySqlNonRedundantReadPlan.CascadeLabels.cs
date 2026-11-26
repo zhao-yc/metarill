@@ -243,7 +243,7 @@ public static partial class MySqlNonRedundantReadCompiler
 
     /// <summary>项目内多选字典保留物理常量、实际父键和冗余字典的原账号等值条件。</summary>
     internal static bool IsProjectFixedMultiPage(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
-        bool checkboxAccount=false,bool allowStoredTextParent=false)
+        bool checkboxAccount=false,bool allowStoredTextParent=false,bool exactCompoundGlobalParent=false)
     {
         var pageType=page.Extra.GetValueOrDefault("type").ToString();
         if(GlobalCrossTableTarget.Declared(table)||table.IsRongyu is not(0 or 1)||table.IsView!=0||table.IsFunctionTable!=0||
@@ -273,10 +273,15 @@ public static partial class MySqlNonRedundantReadCompiler
                 CrossTableStorageColumns.IsLogicalPathField(table,catalog.ConfigColumns,field)))
             return false;
         var usesDictionaryAccount=syntax.Terms.Any(IsStoredAccount);
+        if(exactCompoundGlobalParent&&(exact.Length==0||table.IsRongyu!=1||parents.Length<2))
+            return false;
         if(parents.Length==0)return (exact.Length==0||table.IsRongyu==0)&&(!checkboxAccount||usesDictionaryAccount);
         var binding=checkboxAccount
             ?MultiTargetParentScope.CompileCheckboxPage(catalog,table,syntax,allowGlobalParent:true,allowStoredPhysicalParents:true)
             :MultiTargetParentScope.CompileSelectionPage(catalog,table,syntax,allowGlobalParent:true,allowStoredPhysicalParents:true);
+        // 此范围只证明候选查询的物理父字段，不参与名称缓存的写入归属判定。
+        if(exactCompoundGlobalParent)
+            return binding is {Global:true,Logical:false,AdditionalTargets.Count:>0};
         // 冗余字典可由全局父页限定账号，实际父页在候选、读取和维护编译时重新验证。
         return binding is {Logical:false} parent&&
             (exact.Length==0||table.IsRongyu==0||
@@ -290,6 +295,10 @@ public static partial class MySqlNonRedundantReadCompiler
             AccountConditionVariables.IsPageField(value.Text,term.Field)&&storage.PhysicalColumns.Any(column=>
                 column.ColumnName==term.Field&&column.LogicalType is "int32" or "int64" or "string");
     }
+
+    /// <summary>项目内冗余多选页从已声明的物理精确字段及复合全局父键读取候选。</summary>
+    internal static bool IsProjectStoredExactMultiGlobalParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>
+        IsProjectFixedMultiPage(catalog,table,page,exactCompoundGlobalParent:true);
 
     /// <summary>按实际目标页，将原逻辑、账号或已证明的固定范围嵌入多值计划。</summary>
     internal static PageMetadata? MultiTargetLogicalPage(MetadataCatalog catalog,TableMetadata table,ColumnMetadata relation)
@@ -488,7 +497,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 MultiTargetParentScope.CompileCheckboxPage(catalog,table,syntax,allowGlobalParent:true);
         return page.Extra.GetValueOrDefault("type").ToString()=="2"
             ?MultiTargetParentScope.CompileSelectionPage(catalog,table,syntax,allowGlobalParent:true,
-                allowStoredPhysicalParents:table.IsRongyu==1&&IsProjectFixedMultiPage(catalog,table,page))
+                allowStoredPhysicalParents:table.IsRongyu==1&&(IsProjectFixedMultiPage(catalog,table,page)||
+                    IsProjectStoredExactMultiGlobalParent(catalog,table,page)))
             :MultiTargetParentScope.Compile(catalog,table,syntax);
     }
 

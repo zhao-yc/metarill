@@ -364,12 +364,16 @@ public sealed class FunctionTableGenerationTests : IDisposable
     [InlineData("globalExactCompound")]
     [InlineData("globalRowProjectExactCompound")]
     [InlineData("globalStoredExactCompound")]
+    [InlineData("projectExactCompound")]
+    [InlineData("projectStoredExactCompound")]
     public async Task Function_multiselect_uses_the_published_global_parent(string scenario)
     {
         var catalog=WithGlobalParent(Catalog(),scenario);
-        var exactGlobal=scenario.EndsWith("ExactCompound",StringComparison.Ordinal);
+        var exactCompound=scenario.EndsWith("ExactCompound",StringComparison.Ordinal);
         Assert.Equal("802",Metarill.Data.Queries.NonRedundantReads.MultiGlobalParentPageId(catalog,"7","103"));
-        if(exactGlobal)
+        var stored=catalog.ConfigTables.Single(table=>table.Id=="7").IsRongyu==1;
+        var global=scenario.StartsWith("global",StringComparison.Ordinal);
+        if(exactCompound)
         {
             // 同一实体的其他父页可能使用不同账号范围，每个父字段都须明确绑定实际发布页。
             var peer=catalog.ConfigColumns.Single(column=>column.Id=="708");
@@ -396,7 +400,7 @@ public sealed class FunctionTableGenerationTests : IDisposable
         Assert.True(start>=0);
         var selected=code[start..];
         Assert.Contains("InReadSnapshotAsync",selected[..selected.IndexOf("ArgumentNullException",StringComparison.Ordinal)]);
-        if(scenario.StartsWith("globalStored",StringComparison.Ordinal))
+        if(stored&&scenario!="redundant")
         {
             // 冗余实体的分页、数量和已选使用同一普通实体查询，显式项目及固定账号条件始终生效。
             Assert.Contains("query = query.Where(entity => entity.YzProjectId == long.Parse(actor.ProjectId",code);
@@ -405,7 +409,7 @@ public sealed class FunctionTableGenerationTests : IDisposable
             Assert.Contains("var query = Query103(new PageRequest { ParentId = request.ParentId",selected);
             if(scenario.EndsWith("Compound",StringComparison.Ordinal))Assert.Contains("query = query.Where(entity => entity.OtherScopeId",code);
         }
-        else if(scenario.StartsWith("global",StringComparison.Ordinal))
+        else if(global)
         {
             Assert.Contains("PageAsync(CandidateReadPlan103.BindAccount(actor)",code);
             Assert.Contains("KeyRowsAsync(CandidateReadPlan103.BindAccount(actor)",selected);
@@ -415,10 +419,10 @@ public sealed class FunctionTableGenerationTests : IDisposable
             Assert.Contains("ResolveExactDataManage(\"103\", authorizationOperation, \"real_name\")",code);
         }
 
-        if(exactGlobal)
+        if(exactCompound)
         {
             Assert.Contains("""ResolveExactDataManage("103", authorizationOperation, "real_name")""",code);
-            if(!scenario.StartsWith("globalStored",StringComparison.Ordinal))
+            if(global&&!stored)
                 Assert.Contains("ReadFilters103(new PageRequest{ParentId=request.ParentId},actor,globalCandidate:true)",selected);
             Assert.Contains("Count103Async",code);
         }
@@ -434,7 +438,7 @@ public sealed class FunctionTableGenerationTests : IDisposable
             var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
                 service.GetField("PageMultiGlobalParent103",binding)!.GetValue(null));
             Assert.True(plan.RequiresAccount);
-            if(exactGlobal&&!scenario.StartsWith("globalStored",StringComparison.Ordinal))
+            if(exactCompound&&global&&!stored)
             {
                 // 实际包内 SQL 保留两列物理父比较、字典门店及显式项目条件。
                 var candidate=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
@@ -562,7 +566,7 @@ public sealed class FunctionTableGenerationTests : IDisposable
         var parent=new TableMetadata {Id="8",TableName="function_scope",Name="全局范围",YzProjectId="100",IsRongyu=1,
             Extra=new(){["scopeKind"]=JsonSerializer.SerializeToElement("global")}};
         var target=new TableMetadata {Id="7",TableName="function_option",Name="范围候选",YzProjectId="100",
-            IsRongyu=scenario=="redundant"||scenario.StartsWith("globalStored",StringComparison.Ordinal)?1:0};
+            IsRongyu=scenario=="redundant"||scenario.Contains("Stored",StringComparison.Ordinal)?1:0};
         if(global)target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
         catalog.ConfigTables.AddRange([parent,target]);
         foreach(var table in new[]{parent,target})

@@ -119,8 +119,8 @@ internal static class MultiGlobalParentCompilation
             var catalog=model.Catalog;
             var publishedCheckbox=NonRedundantReads.IsPublishedCheckboxTarget(catalog,table.Source,page.Source.Id)&&
                 NonRedundantReads.IsProjectStoredCheckboxAccountPage(catalog,table.Source,page.Source);
-            if(!publishedCheckbox&&(!NonRedundantReads.IsScopedMultiSelectTarget(catalog,table.Source,page.Source.Id)||
-                !NonRedundantReads.IsProjectFixedMultiSelectTarget(catalog,table.Source,page.Source)))return null;
+            if(!publishedCheckbox&&!NonRedundantReads.IsProjectFixedMultiSelectTarget(catalog,table.Source,page.Source)&&
+                !NonRedundantReads.IsProjectStoredExactMultiGlobalParent(catalog,table.Source,page.Source))return null;
             var syntax=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
             return publishedCheckbox
                 ?MultiTargetParentScope.CompileCheckboxPage(catalog,table.Source,syntax,allowGlobalParent:true,allowStoredPhysicalParents:true)

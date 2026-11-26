@@ -184,7 +184,8 @@ internal static class MultiSelectCompilation
                     MultiTargetParentScope.CompileGlobalPage(model.Catalog,target.Source,syntax):
                     MultiTargetParentScope.CompileSelectionPage(model.Catalog,target.Source,syntax,allowGlobalParent:true,
                         allowStoredPhysicalParents:target.Source.IsRongyu==1&&
-                            Metarill.Data.Queries.NonRedundantReads.IsProjectFixedMultiSelectTarget(model.Catalog,target.Source,targetPage.Source));
+                            (Metarill.Data.Queries.NonRedundantReads.IsProjectFixedMultiSelectTarget(model.Catalog,target.Source,targetPage.Source)||
+                                functionForm&&Metarill.Data.Queries.NonRedundantReads.IsProjectStoredExactMultiGlobalParent(model.Catalog,target.Source,targetPage.Source)));
             }
             if(functionForm)scopedParent??=MultiGlobalParentCompilation.PhysicalPageParent(model,target,targetPage);
             var targetParents = scopedParent is not null?[model.Tables.Single(parent=>parent.Source.Id==scopedParent.Parent.Id)]:
