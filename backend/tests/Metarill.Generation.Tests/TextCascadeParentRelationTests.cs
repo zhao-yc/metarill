@@ -42,7 +42,7 @@ public sealed class TextCascadeParentRelationTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
     }
 
-    /// <summary>整数级联父校验来源页，独立复选字典继续按自己的项目和发布范围读取。</summary>
+    /// <summary>整数和文本级联父校验来源页，独立复选字典按自身项目及发布范围读取。</summary>
     [Theory]
     [InlineData(false,"OnlyNew","list")]
     [InlineData(true,"OverWriteByFirstColumn","edit")]
@@ -58,12 +58,14 @@ public sealed class TextCascadeParentRelationTests
     [InlineData(false,"OnlyNew","list",0,false,false,true)]
     [InlineData(true,"OverWriteByFirstColumn","edit",0,true,false,true)]
     [InlineData(true,"OverWriteByFirstColumn","edit",0,false,false,true,true)]
-    public async Task Integer_parent_with_independent_checkbox_compiles_original_pages(bool businessKey,string import,string export,
-        int redundant=0,bool globalCountry=false,bool storedAsText=false,bool compound=false,bool numericCascade=false)
+    [InlineData(true,"OnlyNew","list",1,false,true,true,false,true)]
+    [InlineData(true,"OverWriteByFirstColumn","edit",1,true,true,true,false,true)]
+    public async Task Published_parent_with_independent_checkbox_compiles_original_pages(bool businessKey,string import,string export,
+        int redundant=0,bool globalCountry=false,bool storedAsText=false,bool compound=false,bool numericCascade=false,bool textParent=false)
     {
         var catalog=Catalog(redundant,import,export);
-        foreach(var column in catalog.ConfigColumns.Where(column=>column.Id=="business_3"||
-            column.Id=="282"&&!storedAsText||numericCascade&&column.Id=="business_5"))
+        foreach(var column in catalog.ConfigColumns.Where(column=>!textParent&&
+            (column.Id=="business_3"||column.Id=="282"&&!storedAsText||numericCascade&&column.Id=="business_5")))
         {
             column.LogicalType="int64";
             column.ColumnLength="";
@@ -84,8 +86,8 @@ public sealed class TextCascadeParentRelationTests
             levels[0]!["columnPrefix"]="other_country";
             levels[1]!["columnPrefix"]="other_area";
             catalog.ConfigColumns.AddRange([
-                new(){Id="290",ConfigTableId="2",ColumnName="other_country_id",LogicalType="int64",
-                    LinkConfigTableId="3",YzProjectId=catalog.YzProjectId},
+                new(){Id="290",ConfigTableId="2",ColumnName="other_country_id",LogicalType=textParent?"string":"int64",
+                    ColumnLength=textParent?"50":"",LinkConfigTableId="3",YzProjectId=catalog.YzProjectId},
                 new(){Id="291",ConfigTableId="2",ColumnName="other_area_id",LogicalType="int64",ControlKind="CascadeTree",
                     LinkConfigTableId="4",ControlDetail=control.ToJsonString(),YzProjectId=catalog.YzProjectId}
             ]);
@@ -114,6 +116,7 @@ public sealed class TextCascadeParentRelationTests
         var cascade=table.Columns.Single(item=>item.Source.Id=="25");
         var path=CrossTableWriteCompilation.Resolve(model,table,page,cascade);
         Assert.True(path.Definition is not null,path.Reason);
+        if(textParent)Assert.NotNull(CrossTableReadCompilation.TextSourceParent(model,table,page));
         var resolved=DatabaseCheckboxCompilation.Resolve(model,table,page,field);
         Assert.True(resolved.Definition is not null,resolved.Reason);
         Assert.DoesNotContain(resolved.Definition.Scopes,scope=>scope.Source=="parent");
@@ -125,9 +128,9 @@ public sealed class TextCascadeParentRelationTests
             Assert.Equal("checkitem_names",binding.Cache.Source.ColumnName);
         }
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
-        if(compound&&numericCascade)
+        if(compound&&(numericCascade||textParent))
         {
-            // 同一张表的整数主键和业务键可能数值相同，生成时仍须拒绝混用。
+            // 同一张表的主键和业务键代表不同记录范围，生成时仍须拒绝混用。
             var branch=catalog.ConfigColumns.Single(column=>column.Id=="291");
             var original=branch.ControlDetail;
             try
@@ -137,10 +140,21 @@ public sealed class TextCascadeParentRelationTests
                 branch.ControlDetail=control.ToJsonString();
                 var wrong=GenerationModel.Create(catalog,model.Namespace);
                 var owner=wrong.Tables.Single(item=>item.Source.Id=="2");
-                var result=DatabaseCheckboxCompilation.Resolve(wrong,owner,Assert.Single(owner.Pages),
-                    owner.Columns.Single(item=>item.Source.Id=="706"));
-                Assert.Null(result.Definition);
-                Assert.Contains("同一个已发布父键",result.Reason);
+                var wrongPage=Assert.Single(owner.Pages);
+                if(textParent)
+                {
+                    var wrongPath=CrossTableWriteCompilation.Resolve(wrong,owner,wrongPage,
+                        owner.Columns.Single(item=>item.Source.Id=="25"));
+                    Assert.Null(wrongPath.Definition);
+                    Assert.Contains("文本业务键要求",wrongPath.Reason);
+                }
+                else
+                {
+                    var result=DatabaseCheckboxCompilation.Resolve(wrong,owner,wrongPage,
+                        owner.Columns.Single(item=>item.Source.Id=="706"));
+                    Assert.Null(result.Definition);
+                    Assert.Contains("同一个已发布父键",result.Reason);
+                }
             }
             finally { branch.ControlDetail=original; }
         }
@@ -172,7 +186,14 @@ public sealed class TextCascadeParentRelationTests
                 else Assert.Contains("复选的来源父字段必须属于同一父记录",service);
             }
             var key=redundant==0?"parentKey":parentReader;
-            Assert.Contains(numericCascade?$"PathAsync(0,{key},cancellationToken)":
+            if(textParent)
+            {
+                Assert.Contains($"PathByKeyAsync(0,{key},cancellationToken)",scope);
+                Assert.Contains("private static string SharedR1ParentKey201",service);
+                Assert.Contains("string.Equals(entity.CountryId,entity.OtherCountryId,StringComparison.Ordinal)",service);
+                Assert.DoesNotContain("out var fixedSourceParentKey",service);
+            }
+            else Assert.Contains(numericCascade?$"PathAsync(0,{key},cancellationToken)":
                 $"PathByKeyAsync(0,{key}.ToString(CultureInfo.InvariantCulture),cancellationToken)",scope);
             Assert.DoesNotContain("parentQuery=",scope);
             if(globalCountry)Assert.Contains("store_id=@current_store_id",service);
@@ -190,6 +211,14 @@ public sealed class TextCascadeParentRelationTests
             {
                 Assert.Contains("ImportMatchesAsync(",service);
                 Assert.Contains("if(importMatches.Count>1)",service);
+            }
+            if(textParent)
+            {
+                var probe=NonRedundantApplicationFixture.Start("node",directory);
+                probe.ArgumentList.Add(Path.Combine(NonRedundantApplicationFixture.TestDirectory(),"CrossTableTextParentVueProbe.mjs"));
+                probe.ArgumentList.Add(Path.Combine(directory,"frontend/pages/yzp/textrel_source-detail-201.vue"));
+                probe.ArgumentList.Add("0007-Ab+字段&值#北% ");
+                await NonRedundantApplicationFixture.RunAsync(probe);
             }
             foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
         }

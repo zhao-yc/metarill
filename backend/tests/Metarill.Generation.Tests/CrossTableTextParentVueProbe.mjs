@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { mountGenerated } from './GeneratedOriginalVueHarness.mjs'
 
 const source = await readFile(process.argv[2], 'utf8')
-const parent = ' 甲+001&区#北% '
+const parent = process.argv[3] ?? ' 甲+001&区#北% '
 const page = mountGenerated(source, {}, { id: '101', parent_id: parent })
 try {
   await page.flush()

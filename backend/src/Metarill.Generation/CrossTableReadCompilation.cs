@@ -121,13 +121,13 @@ internal static class CrossTableReadCompilation
             if(parents.Length==0)continue;
             if(parents.Length>1)
             {
-                // 末级使用文本键时，冗余页的多个整数父仍可由各自的物理级联计划证明。
+                // 冗余页的每个父字段都须由物理级联计划证明，且共用同一父表与业务列。
                 if(table.Source.IsRongyu==1)
                 {
                     var plans=Metarill.Data.Queries.RedundantSharedParents.Compile(model.Catalog,table.Source.Id,page.Source.Id);
                     var actual=parents.Select(column=>plans.GetValueOrDefault(column.Source.Id)?.Levels.LastOrDefault()).ToArray();
-                    if(actual.Any(level=>level is null||level.TextKey)||
-                        actual.Select(level=>(level!.TableId,level.KeyColumn)).Distinct().Count()!=1)return false;
+                    if(actual.Any(level=>level is null)||
+                        actual.Select(level=>(level!.TableId,level.KeyColumn,level.TextKey)).Distinct().Count()!=1)return false;
                     continue;
                 }
                 // 多条稀疏级联可以共享已发布的整数父键，下级仍可使用文本键。
@@ -157,12 +157,10 @@ internal static class CrossTableReadCompilation
     {
         var parents=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column)
             .DistinctBy(column=>column.Source.Id).OrderBy(column=>column.Source.Id,StringComparer.Ordinal).ToArray();
-        if(parents is [var parent]&&parent.Type=="string?")
-            return NonRedundantCrossParentCompilation.IsText(model,table,page,parent)||
-                SharedRedundantParentCompilation.IsText(model,table,page,parent)?parent:null;
-        // 复合页仅在每条已经编译的稀疏路径都证明文本父键时才切换输入类型。
-        return parents.Length>1&&parents.All(column=>column.Type=="string?"&&
-            NonRedundantCrossParentCompilation.IsText(model,table,page,column))?parents[0]:null;
+        // 每条已发布路径都使用文本键时，原父参数保留字符串。普通文本列仍可承载整数父键。
+        return parents.Length>0&&parents.All(column=>column.Type=="string?"&&
+            (NonRedundantCrossParentCompilation.IsText(model,table,page,column)||
+                SharedRedundantParentCompilation.IsText(model,table,page,column)))?parents[0]:null;
     }
 
     /// <summary>不接受JSON最后值覆盖，结构与读取采用相同键解释。</summary>
