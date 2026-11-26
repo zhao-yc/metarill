@@ -354,7 +354,8 @@ internal static class DatabaseCheckboxCompilation
             if(scopes.Any(scope=>scope.Column.Type is not("long?" or "int?" or "string?")||!NonRedundantReadCompilation.Physical(model,target,scope.Column)&&!PublishedLogicalParent(scope.Column)||scope.Column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,scope.Column)))return Gap("身份／父范围必须绑定真实物理ID标量或已发布的逻辑父级。");
             TableModel Parent(ColumnModel column)=>model.Tables.SingleOrDefault(parent=>column.Source.LinkConfigTableId.Length>0?parent.Source.Id==column.Source.LinkConfigTableId:parent.Source.TableName+"_id"==column.Source.ColumnName)??throw new InvalidOperationException("复选父范围缺少明确真实父表。");
             var textSource=CrossTableReadCompilation.TextSourceParent(model,table,page);
-            if(sourceScopeColumns.Any(column=>(column!=textSource&&!NonRedundantReadCompilation.Physical(model,table,column))||column.IsJsonArray||
+            if(sourceScopeColumns.Any(column=>(column!=textSource&&!NonRedundantReadCompilation.Physical(model,table,column)&&
+                !(sharedTextParent is not null&&NonRedundantCrossParentCompilation.IsText(model,table,page,column)))||column.IsJsonArray||
                 column.Type is not("long?" or "string?")))return Gap("来源父必须为固定标量ID。");
             var physicalParents=scopes.Where(scope=>scope.Source=="parent").ToArray();
             var pageHasParent=logicalPage?.Scopes.Any(scope=>scope.Source=="parent")==true;
@@ -403,7 +404,9 @@ internal static class DatabaseCheckboxCompilation
             PageModel? globalParentPage=null;
             if(projectStoredGlobalParent is not null)
             {
-                _=Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(model.Catalog,target.Source.Id,namePage!.Source.Id);
+                // 共用文本业务键已沿实际级联证明，普通全局物理父才需要按记录主键编译。
+                if(sharedTextParent is null)
+                    _=Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(model.Catalog,target.Source.Id,namePage!.Source.Id);
                 globalParentPage=namePage;
             }
             var compoundGlobalSource=false;

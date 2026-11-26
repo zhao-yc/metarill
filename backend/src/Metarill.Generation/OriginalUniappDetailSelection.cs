@@ -108,7 +108,8 @@ onPopSelect{{{id}}}(row) { this.permissionVersion++;if(this.{{{ro}}} || !this._s
             if(relation?.SharedTextParent is null&&CrossTableReadCompilation.TextSourceParent(c.Model,c.Table,c.Page) is not null&&
                 SharedRedundantParentCompilation.CommonTextParent(c.Model,c.Table,c.Page,targetTable,target,
                     allowSparseTarget:true,allowCompoundSource:true) is null&&
-                NonRedundantCrossParentCompilation.CommonTextParent(c.Model,c.Table,c.Page,targetTable,target,allowStoredTarget:true) is null)
+                NonRedundantCrossParentCompilation.CommonTextParent(c.Model,c.Table,c.Page,targetTable,target,
+                    allowStoredTarget:true,allowCompoundSource:true) is null)
                 throw new NotSupportedException("原单选目标父尚未证明使用与来源相同的文本业务键。");
             return "parent_id";
         }

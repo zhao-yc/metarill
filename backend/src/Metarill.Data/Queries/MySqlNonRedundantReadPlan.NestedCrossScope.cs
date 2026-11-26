@@ -253,8 +253,10 @@ public static partial class MySqlNonRedundantReadCompiler
         if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("固定全局父页要求已发布的MySQL读取计划。");
         var (parent,published)=ResolveMultiGlobalParent(catalog,tableId,pageId);
         var target=catalog.ConfigTables.Single(table=>table.Id==tableId);
-        var businessKey=parent.LogicalAlternateKey(catalog,target);
-        return CompileMultiParentPage(catalog,parent.Parent,published,"b","r",null,false,businessKey?.ColumnName);
+        var key=parent.LogicalAlternateKey(catalog,target)?.ColumnName;
+        var page=catalog.ConfigPages.Single(item=>item.Id==pageId&&item.ConfigTableId==tableId);
+        key??=PublishedStoredTextParent(catalog,target,page,parent)?.KeyColumn;
+        return CompileMultiParentPage(catalog,parent.Parent,published,"b","r",null,false,key);
     }
 
     /// <summary>无父参数的字典页按原权限读取，控件单独从固定物理字段证明实际全局父页。</summary>
@@ -334,9 +336,13 @@ public static partial class MySqlNonRedundantReadCompiler
             ProjectScopedSingleRelationTarget.PageParent(catalog,table,page)??
             (table.IsRongyu==1?GlobalCrossTableTarget.PhysicalSingleParent(catalog,table,page):null)??MultiParent(catalog,page);
         if(parent is not{Global:true})throw new NotSupportedException("多值全局父须显式声明全局表关系。");
-        var pages=parent.AdditionalTargets.Prepend(parent)
-            .Select(scope=>scope.Logical?PublishedLogicalMultiParent(catalog,table,page,scope):
-                PublishedPhysicalMultiParent(catalog,scope)).DistinctBy(item=>item.Id).ToArray();
+        var scopes=parent.AdditionalTargets.Prepend(parent).ToArray();
+        var storedLevels=scopes.Select(scope=>PublishedStoredTextParent(catalog,table,page,scope)).ToArray();
+        if(storedLevels.Any(level=>level is not null)&&
+            storedLevels.Select(level=>level?.KeyColumn).Distinct(StringComparer.Ordinal).Count()!=1)
+            throw new InvalidOperationException("全局物理父范围必须使用同一个已发布文本业务键。");
+        var pages=scopes.Select((scope,index)=>scope.Logical?PublishedLogicalMultiParent(catalog,table,page,scope):
+            PublishedPhysicalMultiParent(catalog,scope,storedLevels[index]?.PageId)).DistinctBy(item=>item.Id).ToArray();
         if(pages.Length!=1)
             throw new InvalidOperationException("同一全局父记录的各物理外键和级联层位必须绑定同一个实际发布父页。");
         return(parent,pages[0]);
@@ -410,6 +416,18 @@ public static partial class MySqlNonRedundantReadCompiler
         var published=catalog.ConfigPages.Single(item=>item.Id==parentPages[0]&&item.ConfigTableId==parent.Parent.Id);
         RequireFixedGlobalParent(catalog,parent.Parent,published);
         return published;
+    }
+
+    /// <summary>冗余父字段按实际页面读取文本层位，普通外键继续按页面声明核验。</summary>
+    private static RedundantSharedParentLevel? PublishedStoredTextParent(MetadataCatalog catalog,TableMetadata table,
+        PageMetadata page,MultiTargetParentScope scope)
+    {
+        if(table.IsRongyu!=1||scope.Logical||!scope.Global||
+            !CrossTableStorageColumns.DeclaresStoredTextKey(catalog,table,scope.Target))return null;
+        var path=RedundantSharedParents.Compile(catalog,table.Id,page.Id).GetValueOrDefault(scope.Target.Id);
+        if(path?.Levels.LastOrDefault() is not {TextKey:true} level||level.TableId!=scope.Parent.Id)
+            throw new InvalidOperationException("全局物理文本父缺少实际发布级联层位。");
+        return level;
     }
 
     /// <summary>物理外键必须直接绑定父表，控件与附加页面声明冲突时拒绝发布。</summary>
@@ -531,7 +549,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 var same=parent.Target.LogicalType=="string"?"BINARY CAST("+key+" AS CHAR)=BINARY ("+target+")":key+"="+target;
                 predicate="EXISTS (SELECT 1 FROM "+Q(parent.Parent.TableName)+" "+alias+" WHERE "+same+" AND "+key+">0 AND "+Scope(parent.Parent,alias)+PublishedJoinLock+")";
             }
-            else if(parent.Global&&!parent.Logical)predicate=PhysicalGlobalParentPredicate(parent,target);
+            else if(parent.Global&&!parent.Logical&&!textPath)predicate=PhysicalGlobalParentPredicate(parent,target);
             if(MultiParentOwner is not {} binding)return predicate;
             var (owner,source,additional)=binding;
             cascadeCacheOwnerFields.Add(source.ColumnName);

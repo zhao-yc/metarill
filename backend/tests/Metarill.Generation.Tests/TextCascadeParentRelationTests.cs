@@ -982,14 +982,25 @@ public sealed class TextCascadeParentRelationTests
     [Theory]
     [InlineData("OnlyNew","list")]
     [InlineData("OverWriteByFirstColumn","edit")]
-    public async Task Sparse_source_stored_target_share_text_parent(string import,string export)
+    [InlineData("OnlyNew","list",true,false)]
+    [InlineData("OnlyNew","list",true,true)]
+    [InlineData("OverWriteByFirstColumn","edit",true,true)]
+    public async Task Sparse_source_stored_target_share_text_parent(string import,string export,bool global=false,bool extraPage=false)
     {
         var catalog=Catalog(0,import,export);
+        if(global)
+        {
+            ConfigureGlobalTextAncestor(catalog);
+            AddSecondTextAncestor(catalog);
+        }
+        if(extraPage)AddUnrelatedGlobalParentPage(catalog);
         ScopeTarget(catalog,"81");
         ScopeTarget(catalog,"82");
+        if(global)AddStoredDictionaryAccountScopes(catalog,"81","82");
         var model=GenerationModel.Create(catalog,"Example.SparseStoredTextParent");
         var table=model.Tables.Single(item=>item.Source.Id=="2");
         var page=Assert.Single(table.Pages);
+        if(global)AssertMixedStoredGlobalPath(model,table,page,"81");
         var relations=RelationCompilation.ForPage(model,page,true,forExcel:true);
         Assert.Equal(2,relations.Count);
         Assert.All(relations,relation=>
@@ -1036,6 +1047,25 @@ public sealed class TextCascadeParentRelationTests
             foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
+    /// <summary>冗余字典父字段显式指向另一全局页面时，不能借级联页面的权限。</summary>
+    [Theory]
+    [InlineData("81")]
+    [InlineData("84")]
+    public void Sparse_source_stored_dictionary_rejects_conflicting_global_parent_page(string targetId)
+    {
+        var catalog=Catalog(0,"OnlyNew","list");
+        ConfigureGlobalTextAncestor(catalog);
+        AddSecondTextAncestor(catalog);
+        AddUnrelatedGlobalParentPage(catalog);
+        ScopeTarget(catalog,targetId);
+        AddStoredDictionaryAccountScopes(catalog,targetId);
+        catalog.ConfigColumns.Single(column=>column.Id==targetId+"04")
+            .Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("303");
+        var model=GenerationModel.Create(catalog,"Example.SparseStoredParentConflict");
+        Assert.Contains(GenerationCapabilityAudit.Collect(model),gap=>
+            gap.Reason.Contains("声明页面与实际级联发布页冲突",StringComparison.Ordinal));
     }
 
     /// <summary>目标页使用实体主键时，发布名称计划也拒绝把来源文本业务键当成同一身份。</summary>
@@ -1315,9 +1345,18 @@ public sealed class TextCascadeParentRelationTests
     [Theory]
     [InlineData("OnlyNew","list")]
     [InlineData("OverWriteByFirstColumn","edit")]
-    public async Task Sparse_source_stored_multi_targets_share_text_parent(string import,string export)
+    [InlineData("OnlyNew","list",true,false)]
+    [InlineData("OnlyNew","list",true,true)]
+    [InlineData("OverWriteByFirstColumn","edit",true,true)]
+    public async Task Sparse_source_stored_multi_targets_share_text_parent(string import,string export,bool global=false,bool extraPage=false)
     {
         var catalog=Catalog(0,import,export);
+        if(global)
+        {
+            ConfigureGlobalTextAncestor(catalog);
+            AddSecondTextAncestor(catalog);
+        }
+        if(extraPage)AddUnrelatedGlobalParentPage(catalog);
         ScopeTarget(catalog,"83");
         ScopeTarget(catalog,"84");
         foreach(var id in new[]{"704","706"})
@@ -1326,9 +1365,11 @@ public sealed class TextCascadeParentRelationTests
                 .Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
             catalog.ConfigColumns.Single(column=>column.Id==id).Extra["filterControlKind"]=JsonSerializer.SerializeToElement("CheckBox");
         }
+        if(global)AddStoredDictionaryAccountScopes(catalog,"83","84");
         var model=GenerationModel.Create(catalog,"Example.SparseStoredMultiTextParent");
         var table=model.Tables.Single(item=>item.Source.Id=="2");
         var page=Assert.Single(table.Pages);
+        if(global)AssertMixedStoredGlobalPath(model,table,page,"83");
         var multi=MultiSelectCompilation.Resolve(model,table,page,table.Columns.Single(column=>column.Source.Id=="704"));
         var checkbox=DatabaseCheckboxCompilation.Resolve(model,table,page,table.Columns.Single(column=>column.Source.Id=="706"));
         Assert.True(multi.Definition is {LogicalSourceParent:true,SharedTextParent:not null,UsesTargetPageScope:true},multi.Reason);
@@ -2781,6 +2822,29 @@ public sealed class TextCascadeParentRelationTests
         catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql+=" AND store_id=@current_store_id";
     }
 
+    /// <summary>冗余字典保存全局父名称时，持久行须能证明实际门店归属。</summary>
+    private static void AddStoredDictionaryAccountScopes(MetadataCatalog catalog,params string[] tables)
+    {
+        foreach(var id in tables)
+        {
+            catalog.ConfigColumns.Add(new(){Id=id+"store",ConfigTableId=id,ColumnName="store_id",LogicalType="int64",YzProjectId=catalog.YzProjectId});
+            catalog.ConfigPages.Single(page=>page.ConfigTableId==id).WhereSql+=" AND store_id=@current_store_id";
+        }
+    }
+    /// <summary>全局混合存储必须从已发布的两条来源路径及同一字典页找到实际文本父。</summary>
+    private static void AssertMixedStoredGlobalPath(GenerationModel model,TableModel table,PageModel page,string targetId)
+    {
+        var target=model.Tables.Single(item=>item.Source.Id==targetId);
+        var targetPage=Assert.Single(target.Pages);
+        var targetScope=Assert.Single(targetPage.Scopes,scope=>scope.Source=="parent");
+        var current=CrossTableWriteCompilation.Resolve(model,target,targetPage,target.Columns.Single(field=>field.Source.Id==targetId+"06"));
+        Assert.True(current.Definition is not null,current.Reason);
+        var path=Assert.Single(SharedRedundantParentCompilation.ForColumn(model,target,targetPage,targetScope.Column));
+        Assert.Equal("301",path.Level.Page.Source.Id);
+        Assert.True(path.Level.TextKey);
+        Assert.NotNull(NonRedundantCrossParentCompilation.CommonTextParent(model,table,page,target,targetPage,
+            allowStoredTarget:true,allowCompoundSource:true));
+    }
     /// <summary>同一全局父表还可发布不提供级联名称的独立列表页。</summary>
     private static void AddUnrelatedGlobalParentPage(MetadataCatalog catalog)
     {

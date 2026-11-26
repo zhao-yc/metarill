@@ -266,14 +266,14 @@ public static partial class MySqlNonRedundantReadCompiler
             var logicalSource=sourceBinding?.LogicalPages.Count>0;
             // 目标只在实际来源路径与物理字典页都证明同一个文本祖先时才能复用来源的可见性。
             var sharedStoredTextParent=target.IsRongyu==1&&!global&&selectedScope is not null&&
-                pageParent is {Logical:false,Global:false}&&sourceBinding is {LogicalPages.Count:>0}&&
+                pageParent is {Logical:false}&&sourceBinding is {LogicalPages.Count:>0}&&
                 UsesSharedStoredTextParent(table,sourceBinding,target,selectedScope,pageParent);
             var sharedSparseTextParent=table.IsRongyu==1&&target.IsRongyu==0&&!global&&
                 !GlobalCrossTableTarget.Declared(table)&&selectedScope is not null&&pageParent is {Logical:true,Global:false}&&
                 sourceBinding is {LogicalPages.Count:0}&&UsesSharedSparseTextParent(target,selectedScope,pageParent,table,sourceBinding);
             var storedTextPath=selectedScope is not null&&sourceBinding is not null&&pageParent is not null
                 ?StoredTextCacheParent(table,sourceBinding,target,selectedScope,pageParent):null;
-            if(pageParent is {Global:true}&&sourceBinding is {AdditionalColumns.Count:>0})
+            if(pageParent is {Global:true}&&sourceBinding is {AdditionalColumns.Count:>0}&&!sharedStoredTextParent)
                 RequireCompoundGlobalSourceParent(catalog,target.Id,selectedScope!.Id,sourceBinding);
             var sourceParentSql=sourceBinding is {LogicalPages.Count:>0} or {AdditionalColumns.Count:>0}
                 ?SingleSourceParentValue(table,owner,sourceBinding):null;

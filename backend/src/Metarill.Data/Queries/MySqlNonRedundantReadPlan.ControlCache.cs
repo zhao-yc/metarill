@@ -150,7 +150,9 @@ public static partial class MySqlNonRedundantReadCompiler
             else
             {
                 parent=relation.ControlKind=="SelectPage"
-                    ?ProjectScopedSingleRelationTarget.PhysicalSelectionParent(catalog,target,page)
+                    ?ProjectScopedSingleRelationTarget.PhysicalSelectionParent(catalog,target,page)??
+                        (MultiTargetParentScope.Compile(catalog,target,pageCondition) is {Global:true,Logical:false} storedGlobal&&
+                         CrossTableStorageColumns.DeclaresStoredTextKey(catalog,target,storedGlobal.Target)?storedGlobal:null)
                     :MultiTargetParentScope.CompileListPage(catalog,target,terms);
             }
             // 已保存的名称按来源行授权，候选和写入的精确匹配仍通过实际目标页处理。
@@ -166,6 +168,8 @@ public static partial class MySqlNonRedundantReadCompiler
             // 两端确实共享已发布文本祖先时，固定常量或来源表单条件才允许读取联接副本。
             var sharedTextParent=parent is not null&&parentSource is {LogicalPages.Count:>0}&&!global&&
                 UsesSharedStoredTextParent(source,parentSource,target,page,parent);
+            if(!global&&parent is {Global:true}&&CrossTableStorageColumns.DeclaresStoredTextKey(catalog,target,parent.Target)&&!sharedTextParent)
+                throw new InvalidOperationException("冗余字典的全局文本父必须沿同一实际发布路径读取。");
             if (terms.Any(term=>!GlobalPhysicalRelationValue.IsScalar(storage[target.Id],target,Column(target,term.Field))&&
                 !(sharedTextParent&&term.Values.All(value=>value.Kind!=FixedConditionValueKind.Variable||
                     control.Terms.Contains(term)&&value.Text.StartsWith("formParameters.",StringComparison.Ordinal))&&
@@ -232,8 +236,23 @@ public static partial class MySqlNonRedundantReadCompiler
 
         /// <summary>从实际发布元数据复核两端路径，只有完全相同的文本祖先可跳过主键联接。</summary>
         private bool UsesSharedStoredTextParent(TableMetadata source,MultiSourceParent sourceParent,TableMetadata target,
-            PageMetadata targetPage,MultiTargetParentScope targetParent)=>
-            UsesSharedStoredTextParent(source,sourceParent,target,[targetPage],targetParent.Target,targetParent.AdditionalTargets.Count>0);
+            PageMetadata targetPage,MultiTargetParentScope targetParent)
+        {
+            // 每个稀疏字段都须从本页还原同一真实文本祖先，不能只证明代表列。
+            var fields=sourceParent.AdditionalColumns.Prepend(sourceParent.Column);
+            var matches=fields.Select(field=>UsesSharedStoredTextParent(source,new(field,sourceParent.LogicalPages),target,
+                [targetPage],targetParent.Target,targetParent.AdditionalTargets.Count>0)).ToArray();
+            if(matches.Any(match=>match)&&matches.Any(match=>!match))
+                throw new InvalidOperationException("非冗余复合来源父必须逐条使用相同发布文本父路径。");
+            if(!matches.All(match=>match))return false;
+            if(targetParent.Global)
+            {
+                var level=PublishedStoredTextParent(catalog,target,targetPage,targetParent)??
+                    throw new InvalidOperationException("全局物理文本父缺少实际发布级联层位。");
+                _=PublishedPhysicalMultiParent(catalog,targetParent,level.PageId);
+            }
+            return true;
+        }
 
         /// <summary>稀疏目标的每个文本父层位必须与所有冗余来源页的持久文本键一致。</summary>
         private bool UsesSharedSparseTextParent(TableMetadata sparse,PageMetadata sparsePage,MultiTargetParentScope scope,

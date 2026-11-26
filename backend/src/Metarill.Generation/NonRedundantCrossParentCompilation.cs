@@ -39,7 +39,7 @@ internal static class NonRedundantCrossParentCompilation
             return null;
         var sourceFields=sourcePage.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column)
             .DistinctBy(column=>column.Source.Id).ToArray();
-        if(sourceFields.Length==0||sourceFields.Length>1&&(!allowCompoundSource||target.Source.IsRongyu!=0))
+        if(sourceFields.Length==0||sourceFields.Length>1&&!allowCompoundSource)
             return null;
         // 每条来源逻辑路径都须使用相同的发布父页、层次和文本业务键。
         var paths=sourceFields.Select(column=>column.Type=="string?"&&Find(model,source,sourcePage,column) is {} path

@@ -177,7 +177,7 @@ internal static class MultiSelectCompilation
             var compoundLogical=!functionForm&&sourceScopes.Length>1&&sourceParents.Length==1&&
                 sourceScopes.Any(column=>NonRedundantCrossParentCompilation.Managed(model,table,page,column));
             MultiTargetParentScope? scopedParent=null;
-            if((scoped||compoundLogical)&&targetPage.Scopes.Any(scope=>scope.Source=="parent"))
+            if((scoped||compoundLogical&&sharedTextParent is null)&&targetPage.Scopes.Any(scope=>scope.Source=="parent"))
             {
                 var syntax=FixedConditionPlan.Compile(targetPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
                 // 功能表没有业务行写校验，父字段仍须沿实际多选页的精确权限和发布范围证明。
@@ -195,7 +195,7 @@ internal static class MultiSelectCompilation
                 targetPage.Scopes.Where(scope => scope.Source == "parent").Select(scope => scope.Column==sharedTextParent&&target.Source.IsRongyu==1
                     ?SharedRedundantParentCompilation.ForColumn(model,target,targetPage,scope.Column).Single().Level.Target:Parent(scope.Column))
                     .DistinctBy(parent => parent.Source.Id).ToArray();
-            if (scopedParent?.Global!=true&&targetParents.Any(parent => !parent.Columns.Any(column => column.Source.ColumnName == "yz_project_id"))) return Gap("目标父表未声明项目归属。");
+            if (scopedParent?.Global!=true&&sharedTextParent is null&&targetParents.Any(parent => !parent.Columns.Any(column => column.Source.ColumnName == "yz_project_id"))) return Gap("目标父表未声明项目归属。");
             if(scopedParent?.Global==true)_=Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(model.Catalog,target.Source.Id,targetPage.Source.Id);
             // 来源父参数进入固定字典时，存在性校验必须使用同一实际整数业务键。
             var targetAlternateKey=scopedParent is {Logical:true}?scopedParent.LogicalAlternateKey(model.Catalog,target.Source):null;

@@ -298,7 +298,10 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
     private static string ParentValidation(GenerationModel model, TableModel table, PageModel page)
     {
         var sharedRedundant=SharedRedundantParentCompilation.Enabled(model,table,page);
-        var multiGlobal=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page);
+        // 已发布的级联父在下方逐条验证，避免额外生成按表主键解释的全局父计划。
+        var allParentsUseTextCascades=sharedRedundant&&page.Scopes.Where(scope=>scope.Source=="parent")
+            .All(scope=>SharedRedundantParentCompilation.IsText(model,table,page,scope.Column));
+        var multiGlobal=allParentsUseTextCascades?null:MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page);
         var buttonParent=page.Scopes.Any(scope=>scope.Source=="parent")&&BusinessRecordButtons(model,page).Count>0;
         var projectSelectionParent=ProjectScopedSingleRelationTarget.PhysicalSelectionParent(model.Catalog,table.Source,page.Source);
         var supportsReadOnlyParent=multiGlobal is not null||projectSelectionParent is not null||FixedPageQueryCompilation.HasStoredGlobalSelectionParent(model.Catalog,table,page)||

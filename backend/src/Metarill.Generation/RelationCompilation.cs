@@ -340,7 +340,7 @@ internal static class RelationCompilation
             var mixedStoredTextParent=sharedTextParent is not null&&owner.Source.IsRongyu==0&&target.Source.IsRongyu==1;
             var fixedSourceParent = functionForm && targetParents.Length == 1
                 ? FunctionTableSelectionCompilation.ResolveParentField(page, source, targetParents[0].Source)
-                : mixedStoredTextParent ? sourceKeys.Single()
+                : mixedStoredTextParent ? sourceKeys.MinBy(column=>column.Source.Id,StringComparer.Ordinal)
                 : sourceBinding is null ? null : owner.Columns.Single(column => column.Source.Id == sourceBinding.Column.Id);
             ColumnModel? functionParentBusinessKey = null;
             if (functionForm && source.Source.ControlKind == "List" && targetParents is [var functionParent] &&
