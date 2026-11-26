@@ -787,9 +787,19 @@ public sealed class NonRedundantGeneratedReadTests
         VerifyGlobalListBusinessParent(sourceStorage,0,globalParent,projectScope,textProject:projectScope,
             literal:true,accountScope:!projectScope,joinedControl:true);
 
+    /// <summary>字典页面自身的联接条件可与已发布物理父和项目或账号范围共用。</summary>
+    [Theory]
+    [InlineData(0,false,false)]
+    [InlineData(0,true,true)]
+    [InlineData(1,false,true)]
+    [InlineData(1,true,false)]
+    public Task Global_list_page_join_keeps_physical_parent(int sourceStorage,bool globalParent,bool projectScope)=>
+        VerifyGlobalListBusinessParent(sourceStorage,0,globalParent,projectScope,textProject:projectScope,
+            literal:true,accountScope:!projectScope,joinedControl:true,conditionOnPage:true);
+
     /// <summary>校验原下拉、生成的字典读写和名称维护是否共用实际父记录。</summary>
     private static async Task VerifyGlobalListBusinessParent(int sourceStorage,int targetStorage,
-        bool globalParent,bool projectScope,bool textProject,bool literal,bool accountScope=false,bool joinedControl=false)
+        bool globalParent,bool projectScope,bool textProject,bool literal,bool accountScope=false,bool joinedControl=false,bool conditionOnPage=false)
     {
         const string ns="Example.GlobalListProjectParent";
         var catalog=NonRedundantApplicationFixture.Catalog("mt_list_project_parent");
@@ -858,7 +868,10 @@ public sealed class NonRedundantGeneratedReadTests
             ]);
             catalog.ConfigMenus.Add(new(){Id="8501",ConfigPageId="501",YzProjectId=project,YzAdminTypeId="5",
                 Kind="GENERATED_PAGE",Name="地区"});
-            foreign.ControlDetail="""{"pageId":"201","tableId":"2","nameField":"name","whereSql":"area_name <> '隐藏地区'"}""";
+            const string condition="area_name <> '隐藏地区'";
+            foreign.ControlDetail=JsonSerializer.Serialize(new{pageId="201",tableId="2",nameField="name",
+                whereSql=conditionOnPage?"":condition});
+            if(conditionOnPage)published.WhereSql+=" AND "+condition;
         }
         foreign.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("201");
         var sourcePage=catalog.ConfigPages.Single(item=>item.Id=="101");
@@ -910,6 +923,7 @@ public sealed class NonRedundantGeneratedReadTests
             Assert.Contains("group_id",from);
             if(literal)Assert.Contains("amount",from);
             if(accountScope)Assert.Contains("store_id",from);
+            if(conditionOnPage)Assert.Contains("mt_list_project_parent_area",from);
         }
         else
         {
@@ -929,6 +943,13 @@ public sealed class NonRedundantGeneratedReadTests
             Assert.Contains("b.group_id",name);
             if(literal)Assert.Contains("amount",name);
             if(accountScope)Assert.Contains("b.store_id",name);
+            if(conditionOnPage)
+            {
+                Assert.Contains("mt_list_project_parent_area",cache.MixedTargets);
+                var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                    cacheRead.GetType().GetProperty("Constants",hidden)!.GetValue(cacheRead));
+                Assert.Contains(constants,pair=>Equals(pair.Value,"隐藏地区")&&name.Contains(pair.Key,StringComparison.Ordinal));
+            }
         }
 
         var root=Path.Combine(Path.GetTempPath(),"metarill-list-project-parent",Guid.NewGuid().ToString("N"));
@@ -944,6 +965,7 @@ public sealed class NonRedundantGeneratedReadTests
             var dictionary=await File.ReadAllTextAsync(Path.Combine(generated,"Services/MtListProjectParentPartyService.g.cs"));
             if(targetStorage==0)Assert.Contains("CompileGlobalSingleParentPage",dictionary);
             if(globalParent)Assert.Contains("ValidateParents201Async",dictionary);
+            if(conditionOnPage)Assert.Contains("CrossConditionPlan201",dictionary);
             var detail=await File.ReadAllTextAsync(Path.Combine(generated,
                 "frontend/pages/yzp/mt_list_project_parent_order-detail-104.vue"));
             Assert.Contains("<zxz-uni-data-select",detail);

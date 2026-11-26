@@ -32,11 +32,15 @@ public sealed class GlobalDerivedTargetGenerationTests
     }
     /// <summary>全局字典的已发布联接字段也可用于原下拉附加条件。</summary>
     [Theory]
-    [InlineData(0,false)]
-    [InlineData(1,false)]
-    [InlineData(0,true)]
-    [InlineData(1,true)]
-    public async Task Global_list_condition_uses_a_published_joined_field(int sourceStorage,bool projectScope)
+    [InlineData(0,false,false)]
+    [InlineData(1,false,false)]
+    [InlineData(0,true,false)]
+    [InlineData(1,true,false)]
+    [InlineData(0,false,true)]
+    [InlineData(1,false,true)]
+    [InlineData(0,true,true)]
+    [InlineData(1,true,true)]
+    public async Task Global_list_condition_uses_a_published_joined_field(int sourceStorage,bool projectScope,bool conditionOnPage)
     {
         const string ns="Example.GlobalJoinedListCondition";
         var catalog=Catalog(sourceStorage,"int64","int64");
@@ -52,15 +56,21 @@ public sealed class GlobalDerivedTargetGenerationTests
                 ColumnName="yz_project_id",LogicalType=sourceStorage==0?"int64":"string"});
             catalog.ConfigPages.Single(page=>page.Id=="10").WhereSql+=" AND yz_project_id=@current_yz_project_id";
         }
-        var selector=catalog.ConfigColumns.Single(column=>column.Id=="34");
-        selector.ControlDetail=JsonSerializer.Serialize(new{tableId="1",pageId="10",
-            nameField="global_target_name",whereSql="terminal_segment <> 17"});
+        const string clause="terminal_segment <> 17";
+        if(conditionOnPage)catalog.ConfigPages.Single(page=>page.Id=="10").WhereSql+=" AND "+clause;
+        else
+        {
+            var selector=catalog.ConfigColumns.Single(column=>column.Id=="34");
+            selector.ControlDetail=JsonSerializer.Serialize(new{tableId="1",pageId="10",
+                nameField="global_target_name",whereSql=clause});
+        }
         var model=GenerationModel.Create(catalog,ns);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         var table=model.Tables.Single(item=>item.Source.Id=="3");
         var relation=Assert.Single(RelationCompilation.ForPage(model,Assert.Single(table.Pages),true,forExcel:true),
             item=>item.SourceColumn.Source.Id=="34");
-        Assert.Contains("terminal_segment",relation.Conditions!.JoinedFields);
+        if(conditionOnPage)Assert.Contains("terminal_segment",relation.TargetPage.Condition!.JoinedFields);
+        else Assert.Contains("terminal_segment",relation.Conditions!.JoinedFields);
 
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-list-joined-condition");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
@@ -73,10 +83,10 @@ public sealed class GlobalDerivedTargetGenerationTests
             const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.NonPublic;
             const string cacheName="global_source_global_target_name";
             var actor=new RuntimeActor(9,"全局联接范围",false,"100","9");
-            object Plan(string member)
+            object Plan(string member,Type? owner=null)
             {
                 var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
-                    service.GetField(member,hidden|System.Reflection.BindingFlags.Static)!.GetValue(null));
+                    (owner??service).GetField(member,hidden|System.Reflection.BindingFlags.Static)!.GetValue(null));
                 return plan.GetType().GetProperty("MySql",hidden|System.Reflection.BindingFlags.Instance)!
                     .GetValue(plan.BindAccount(actor))!;
             }
@@ -97,7 +107,16 @@ public sealed class GlobalDerivedTargetGenerationTests
             Assert.Equal(projectScope,scope.Contains("b.`yz_project_id`="+projectMarker,StringComparison.Ordinal));
 
             var code=await File.ReadAllTextAsync(Path.Combine(generated,"Services/CachedConsumerService.g.cs"));
-            Assert.Contains("OptionsCondition30_34.BindVariables",code);
+            if(conditionOnPage)
+            {
+                Assert.Contains(Constants(options),pair=>Equals(pair.Value,17)&&scope.Contains(pair.Key,StringComparison.Ordinal));
+                var dictionary=assembly.GetType(ns+".Generated.Services.GlobalSourceService",true)!;
+                var writePlan=Plan("CrossConditionPlan10",dictionary);
+                Assert.Contains(".`segment`",Expression(writePlan,"terminal_segment"));
+                var dictCode=await File.ReadAllTextAsync(Path.Combine(generated,"Services/GlobalSourceService.g.cs"));
+                Assert.Contains("CrossConditionPlan10",dictCode);
+            }
+            else Assert.Contains("OptionsCondition30_34.BindVariables",code);
             Assert.Contains("ImportRelation30_34Async",code);
             Assert.Contains("currentRead:true",code);
             Assert.NotNull(service.GetMethod("Import30Async"));

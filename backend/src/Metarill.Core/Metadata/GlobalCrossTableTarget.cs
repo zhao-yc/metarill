@@ -118,7 +118,26 @@ public static class GlobalCrossTableTarget
 
     /// <summary>全局下拉条件只解析实际发布页上的联接标量，逐段核对非凭据终点与来源页。</summary>
     public static IReadOnlySet<string> ListJoinedConditionFields(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
-        IReadOnlyCollection<string> conditionFields)
+        IReadOnlyCollection<string> conditionFields)=>PublishedJoinedFields(catalog,table,page,conditionFields,null);
+
+    /// <summary>字典页的联接条件只能使用已发布的常量。保留单值路径的同一递归证明栈。</summary>
+    public static IReadOnlySet<string> PageJoinedConditionFields(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
+        =>PageJoinedConditionFields(catalog,table,page,null);
+
+    internal static IReadOnlySet<string> PageJoinedConditionFields(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
+        ISet<string>? resolving)
+    {
+        if(!Declared(table)||table.IsRongyu!=0||string.IsNullOrWhiteSpace(page.WhereSql))
+            return new HashSet<string>(StringComparer.Ordinal);
+        var columns=ConditionColumns(catalog,table,allowLogical:true);
+        var syntax=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
+        var variableFields=syntax.Terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable))
+            .Select(term=>term.Field).ToHashSet(StringComparer.Ordinal);
+        return PublishedJoinedFields(catalog,table,page,syntax.Fields.Where(field=>!variableFields.Contains(field)).ToArray(),resolving);
+    }
+
+    private static IReadOnlySet<string> PublishedJoinedFields(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
+        IReadOnlyCollection<string> conditionFields,ISet<string>? resolving)
     {
         if(conditionFields.Count==0||!Declared(table)||table is not {IsRongyu:0,IsView:0,IsFunctionTable:0}||
             page.ConfigTableId!=table.Id||table.YzProjectId!=catalog.YzProjectId||page.YzProjectId!=catalog.YzProjectId||
@@ -129,8 +148,9 @@ public static class GlobalCrossTableTarget
             conditionFields.Contains(column.ColumnName)&&storage.Kind(column)==MetadataFieldStorage.Join).ToArray();
         if(joined.Length==0)return new HashSet<string>(StringComparer.Ordinal);
         RequirePublishedSinglePage(catalog,table,page);
+        resolving??=new HashSet<string>(StringComparer.Ordinal);
         foreach(var field in joined)
-            if(!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,storage,table,field,page))
+            if(!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,storage,table,field,resolving,page,out _))
                 throw new NotSupportedException("全局下拉条件需要实际发布的非凭据单值联接。");
         return joined.Select(column=>column.ColumnName).ToHashSet(StringComparer.Ordinal);
     }
@@ -193,13 +213,28 @@ public static class GlobalCrossTableTarget
 
     /// <summary>验证原单选实际发布页及真实项目 ID，供生成、查询和维护复用。</summary>
     public static void RequireProjectSingleCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowListPage=false)
+        =>RequireProjectSingleCandidate(catalog,table,page,allowListPage,PageJoinedConditionFields(catalog,table,page));
+
+    internal static void RequireProjectSingleCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
+        bool allowListPage,IReadOnlySet<string> joinedFields)
     {
         var condition=FixedConditionPlan.Compile(page.WhereSql,ConditionColumns(catalog,table,allowLogical:false)
             .Select(column=>column.ColumnName));
         if(!IsProjectSinglePage(table,page,condition,allowListPage))
             throw new NotSupportedException("全局单值候选必须使用实际发布的项目条件。");
         RequirePublishedSinglePage(catalog,table,page);
-        RequireTarget(catalog,table,page,true,allowAccount:true,allowStoredProject:true);
+        RequireTarget(catalog,table,page,true,allowAccount:true,allowStoredProject:true,joinedFields:joinedFields);
+    }
+
+    /// <summary>单值固定页的常量联接、原账号范围及真实项目列使用已发布的同一计划。</summary>
+    public static void RequireJoinedSingleCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
+        =>RequireJoinedSingleCandidate(catalog,table,page,PageJoinedConditionFields(catalog,table,page));
+
+    internal static void RequireJoinedSingleCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
+        IReadOnlySet<string> joinedFields)
+    {
+        if(joinedFields.Count==0)throw new NotSupportedException("固定单值字典缺少已发布的联接条件。");
+        RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:true,allowSelfTree:true,joinedFields:joinedFields);
     }
 
     /// <summary>项目范围必须来自本目录的实际表、页面和发布后台。</summary>
@@ -253,8 +288,12 @@ public static class GlobalCrossTableTarget
 
     private static bool IsBusinessPage(PageMetadata page)=>page.Extra.GetValueOrDefault("type").ToString() is "" or "0";
 
+    internal static MultiTargetParentScope? SingleParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
+        IReadOnlySet<string> joinedFields)
+        =>SingleParent(catalog,table,page,allowLogical:true,allowSelectionParentOnly:true,joinedFields:joinedFields);
+
     private static MultiTargetParentScope? SingleParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
-        bool allowLogical,bool allowExactSingle=false,bool allowSelectionParentOnly=false)
+        bool allowLogical,bool allowExactSingle=false,bool allowSelectionParentOnly=false,IReadOnlySet<string>? joinedFields=null)
     {
         // 冗余目标只接受原单选或明确配置物理父键的业务字典页。
         var selectionPage=allowSelectionParentOnly&&page.Extra.GetValueOrDefault("type").ToString()=="1";
@@ -290,7 +329,8 @@ public static class GlobalCrossTableTarget
         if(listParent)RequirePublishedSinglePage(catalog,table,page);
         RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:cross||tree,allowMultiParent:true,
             allowSelfTree:tree,allowExactSingle:allowExactSingle,allowStoredSingleParent:storedSelection,
-            allowPhysicalMultiParent:fixedParentPage);
+            allowPhysicalMultiParent:fixedParentPage,
+            joinedFields:joinedFields??(allowLogical?PageJoinedConditionFields(catalog,table,page):null));
         return parent;
     }
 
@@ -303,7 +343,7 @@ public static class GlobalCrossTableTarget
         condition.Variables.Count>0&&condition.Variables.All(MultiTargetParentScope.IsParameter);
 
     /// <summary>只按明确用途开放R0，逻辑成员须在实际级联计划中进一步证明。</summary>
-    private static void RequireTarget(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowR0,bool allowAccount=false,bool allowLogical=false,bool allowMultiParent=false,bool allowSelfTree=false,bool allowExactSingle=false,bool allowStoredProject=false,bool allowStoredSingleParent=false,bool allowPhysicalMultiParent=false,bool checkboxParent=false,MultiTargetParentScope? publishedPhysicalParent=null)
+    private static void RequireTarget(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowR0,bool allowAccount=false,bool allowLogical=false,bool allowMultiParent=false,bool allowSelfTree=false,bool allowExactSingle=false,bool allowStoredProject=false,bool allowStoredSingleParent=false,bool allowPhysicalMultiParent=false,bool checkboxParent=false,MultiTargetParentScope? publishedPhysicalParent=null,IReadOnlySet<string>? joinedFields=null)
     {
         if(!Declared(table)||(table.IsRongyu!=1&&!(allowR0&&table.IsRongyu==0))||table.IsView!=0||table.IsFunctionTable!=0)throw new NotSupportedException("全局跨表目标要求显式声明的普通R0或R1实体。");
         if(table.IsRongyu==0)GlobalDerivedRelationSource.RequireTable(catalog,table);
@@ -311,7 +351,7 @@ public static class GlobalCrossTableTarget
         var columns=ConditionColumns(catalog,table,allowLogical);
         var storage=MetadataStoragePolicy.ForTable(catalog,table);
         var allowed=columns.Where(column=>storage.IsPhysical(column)&&column.IsVirtualColumn==0||
-            LogicalConditionField(table,columns,column,allowLogical,allowSelfTree)).Select(column=>column.ColumnName);
+            LogicalConditionField(table,columns,column,allowLogical,allowSelfTree)||joinedFields?.Contains(column.ColumnName)==true).Select(column=>column.ColumnName);
         var condition=FixedConditionPlan.Compile(page.WhereSql,allowed);
         // 只有显式通过父范围证明的用途才解析父参数，同时保留原账号和逻辑字段校验。
         var projectParentScope=allowPhysicalMultiParent&&(GlobalMultipleRelationTarget.IsProjectParentPage(table,page,condition,

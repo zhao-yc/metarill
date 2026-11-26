@@ -182,12 +182,15 @@ internal static class DerivedRelationNamesCompilation
             fixedParent?.HasTarget(scope.Column.Source.Id,logicalOnly:true)!=true))
             throw new InvalidOperationException("派生单选名称的目标身份与父字段必须为物理标量。");
         // 物理父范围已经由候选证明；名称继续通过下面的固定投影。
-        var globalProject=FixedPageConditionCompilation.HasGlobalProjectSingleScope(target,page);
+        var globalJoin=target.IsGlobal&&FixedPageConditionCompilation.HasJoinedFields(page);
+        var globalProject=FixedPageConditionCompilation.HasGlobalProjectSingleScope(target,page)||globalJoin&&
+            GlobalCrossTableTarget.IsProjectSinglePage(model.Catalog,target.Source,page.Source);
         if(globalExact)GlobalCrossTableTarget.RequireExactSingleCandidate(model.Catalog,target.Source,page.Source);
         else if(globalProject)GlobalCrossTableTarget.RequireProjectSingleCandidate(model.Catalog,target.Source,page.Source);
         else if (target.IsGlobal&&fixedParent is null)
         {
-            if(FixedPageConditionCompilation.HasSelfTreeFields(page))
+            if(globalJoin)GlobalCrossTableTarget.RequireJoinedSingleCandidate(model.Catalog,target.Source,page.Source);
+            else if(FixedPageConditionCompilation.HasSelfTreeFields(page))
                 GlobalCrossTableTarget.RequireScopedSelfTreeName(model.Catalog,target.Source,page.Source,name.Source);
             else if(FixedPageConditionCompilation.HasCrossFields(page)||HasGlobalAccountScope(target,page))
                 GlobalCrossTableTarget.RequireCrossTableCandidate(model.Catalog,target.Source,page.Source,name.Source);

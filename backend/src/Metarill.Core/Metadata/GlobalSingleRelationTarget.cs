@@ -23,7 +23,8 @@ public sealed record GlobalSingleRelationPlan(PageMetadata Page,ColumnMetadata N
     public MultiTargetParentScope? AccountParent=>ScopedAccount?PhysicalParent:null;
     /// <summary>已发布单选使用实际物理父键，名称读取不依赖账号条件是否存在。</summary>
     public bool ScopedPhysicalSelectionParent=>PhysicalParent is not null&&Page.Extra.GetValueOrDefault("type").ToString()=="1";
-    public bool ScopedLogicalPage=>ScopedSelfTree||ScopedCrossTable;
+    public bool ScopedJoinedPage { get; internal init; }
+    public bool ScopedLogicalPage=>ScopedSelfTree||ScopedCrossTable||ScopedJoinedPage;
     /// <summary>候选、名称联接和回填均须执行该页的实际范围。</summary>
     public bool RequiresScopedPage=>ScopedLogicalPage||ScopedAccount||FixedSelectionPage||ScopedPhysicalSelectionParent;
 
@@ -233,6 +234,8 @@ public static class GlobalSingleRelationTarget
             !catalog.ConfigColumns.Any(column=>column.ConfigTableId==owner.Id&&column.ColumnName=="yz_project_id"));
         var scopedSelfTree=allowsLogical&&condition.Fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field));
         var scopedCrossTable=allowsLogical&&condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(target,expanded,field));
+        var joinedFields=allowsLogical?GlobalCrossTableTarget.PageJoinedConditionFields(catalog,target,page,resolving):
+            new HashSet<string>(StringComparer.Ordinal);
         // 冗余消费者已通过物理来源证明，固定到同一发布页后由回填计划核对所有入口的持久归属。
         var boundStoredList=owner.IsRongyu==0?sourcePage is not null:
             cacheControl&&pageId.Length>0;
@@ -243,7 +246,7 @@ public static class GlobalSingleRelationTarget
         var listProjectParent=listParent&&GlobalCrossTableTarget.IsProjectListParentPage(target,page,condition);
         var projectListPage=foreign.ControlKind=="List"&&pageId.Length>0&&
             (GlobalCrossTableTarget.IsProjectSinglePage(target,page,condition,allowListPage:true)||listProjectParent);
-        var fixedListPage=projectListPage||listParent;
+        var fixedListPage=projectListPage||listParent||foreign.ControlKind=="List"&&joinedFields.Count>0;
         var usesListPageScope=alternateListPage||pageOnlyList||storedListAccount||fixedListPage;
         // 原弹窗直达显式发布的 type=1 单选页，账号条件与真实单值关系和名称副本共用。
         var storedSelectionAccount=allowsLogical&&target.IsRongyu==1&&foreign.ControlKind=="SelectPage"&&
@@ -256,7 +259,7 @@ public static class GlobalSingleRelationTarget
         var exactSingle=GlobalCrossTableTarget.DeclaresExactSingle(target,page)&&
             (foreign.ControlKind=="List"||page.Extra.GetValueOrDefault("type").ToString()=="1");
         var fixedParent=exactSingle?GlobalCrossTableTarget.ExactSingleParent(catalog,target,page,resolving):
-            allowsLogical?GlobalCrossTableTarget.SingleParent(catalog,target,page):null;
+            allowsLogical?GlobalCrossTableTarget.SingleParent(catalog,target,page,joinedFields):null;
         var sourceParent=sourcePage is not null&&usesListPageScope
             ?fixedParent?.SingleSource(catalog,owner,foreign,sourcePage)
             :fixedParent?.SingleSource(catalog,owner,foreign);
@@ -264,12 +267,13 @@ public static class GlobalSingleRelationTarget
             GlobalCrossTableTarget.IsProjectSinglePage(target,page,condition);
         if(projectParent)RequireProjectParentPage(catalog,target,page);
         else if(projectSelectionPage&&!listParent)
-            GlobalCrossTableTarget.RequireProjectSingleCandidate(catalog,target,page,allowListPage:projectListPage);
+            GlobalCrossTableTarget.RequireProjectSingleCandidate(catalog,target,page,projectListPage,joinedFields);
         else if(listParent&&fixedParent is not {Logical:false})
             throw new NotSupportedException("原下拉字典的父范围必须绑定实际物理父记录。");
         else if(!exactSingle&&fixedParent is null)
         {
-            if(scopedSelfTree)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,target,page);
+            if(joinedFields.Count>0)GlobalCrossTableTarget.RequireJoinedSingleCandidate(catalog,target,page,joinedFields);
+            else if(scopedSelfTree)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,target,page);
             else if(scopedCrossTable)GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,target,page);
             else if(scopedAccount)GlobalCrossTableTarget.RequireAccountCandidate(catalog,target,page);
             else GlobalCrossTableTarget.RequireSingle(catalog,target,page);
@@ -299,7 +303,7 @@ public static class GlobalSingleRelationTarget
         foreach(var field in condition.Fields)
         {
             var column=expanded.Single(item=>item.ColumnName==field);
-            if(Scalar(column))continue;
+            if(Scalar(column)||joinedFields.Contains(field))continue;
             if(!ExactDataManageValues.IsSensitiveField(field)&&
                 (scopedSelfTree&&CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field)||
                     scopedCrossTable&&CrossTableStorageColumns.IsLogicalPathField(target,expanded,field)))continue;
@@ -339,7 +343,7 @@ public static class GlobalSingleRelationTarget
             }
         }
         var plan=new GlobalSingleRelationPlan(page,name){ScopedSelfTree=scopedSelfTree,ScopedCrossTable=scopedCrossTable,
-            ScopedAccount=scopedAccount,FixedSelectionPage=fixedSelectionPage,ProjectSelectionPage=projectSelectionPage,
+            ScopedAccount=scopedAccount,ScopedJoinedPage=joinedFields.Count>0,FixedSelectionPage=fixedSelectionPage,ProjectSelectionPage=projectSelectionPage,
             Parent=fixedParent,SourceParent=sourceParent,
             CacheControl=control,NestedCacheScope=nestedScope,
             AlternateListPage=alternateListPage,PageOnlyList=pageOnlyList,StoredListAccount=storedListAccount,FixedListPage=fixedListPage};

@@ -145,7 +145,9 @@ internal static partial class NonRedundantReadCompilation
             GlobalCrossTableTarget.StoredProjectMultiParent(model.Catalog,table.Source,page.Source,
                 NonRedundantReads.IsPublishedCheckboxTarget(model.Catalog,table.Source,page.Source.Id)) is null)
         {
-            if(GlobalAccountParentScope(table,page))
+            if(FixedPageConditionCompilation.HasJoinedFields(page))
+                GlobalCrossTableTarget.RequireJoinedSingleCandidate(model.Catalog,table.Source,page.Source);
+            else if(GlobalAccountParentScope(table,page))
                 GlobalCrossTableTarget.RequireMultiCandidate(model.Catalog,table.Source,page.Source,
                     NonRedundantReads.IsPublishedCheckboxTarget(model.Catalog,table.Source,page.Source.Id));
             else if(FixedPageConditionCompilation.HasSelfTreeFields(page))

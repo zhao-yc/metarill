@@ -80,7 +80,9 @@ public static partial class MySqlNonRedundantReadCompiler
         IReadOnlyList<string> conditionFields,IReadOnlySet<string> crossFields,IReadOnlySet<string> selfTreeFields,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)
     {
-        var joinedFields=ProjectScopedSingleRelationTarget.JoinedConditionFields(catalog,table,page,conditionFields)
+        var global=GlobalCrossTableTarget.Declared(table);
+        var joinedFields=(global?GlobalCrossTableTarget.PageJoinedConditionFields(catalog,table,page)
+                .Where(conditionFields.Contains):ProjectScopedSingleRelationTarget.JoinedConditionFields(catalog,table,page,conditionFields))
             .ToFrozenSet(StringComparer.OrdinalIgnoreCase);
         if(!catalog.ConfigPages.Contains(page)||page.ConfigTableId!=table.Id||
             table.IsRongyu!=0||(crossFields.Count==0&&selfTreeFields.Count==0&&joinedFields.Count==0)||
@@ -95,7 +97,10 @@ public static partial class MySqlNonRedundantReadCompiler
         var plan=CompileRelationScope(catalog,table.Id,outputs,bindings,
             conditionFields.Concat(dependencies).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
             deferCascadeNames:selfTreeFields.Count>0,singleTargets:singleTargets,conditionJoins:joinedFields,
-            conditionSourcePage:joinedFields.Count>0?page:null);
+            conditionSourcePage:joinedFields.Count>0?page:null,globalPageCondition:global&&joinedFields.Count>0,
+            projectPageCondition:global&&joinedFields.Count>0&&
+                (GlobalCrossTableTarget.IsProjectSinglePage(catalog,table,page,allowListPage:true)||
+                    GlobalCrossTableTarget.IsProjectListParentPage(catalog,table,page)));
         foreach(var field in joinedFields)
         {
             plan.RequireScalarLabelOrigin(field);
@@ -331,6 +336,16 @@ public static partial class MySqlNonRedundantReadCompiler
         if(page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)
             throw new UnauthorizedAccessException("多值目标页不属于已发布项目。");
         var table=catalog.ConfigTables.Single(item=>item.Id==tableId);
+        // 全局单选 Excel 沿实际发布页的联接条件编译当前读，复用分页及回显的同一候选范围。
+        if(importPageType=="1"&&page.Extra.GetValueOrDefault("type").ToString()=="1"&&
+            !GlobalCrossTableTarget.DeclaresExactSingle(table,page)&&
+            GlobalCrossTableTarget.PageJoinedConditionFields(catalog,table,page).Count>0)
+        {
+            var single=CompileCrossPageCandidate(catalog,tableId,pageId,outputs,dependencies,
+                listFields:importFields is {Count:>0}?importFields:null,singleTargets:singleTargets);
+            single.RequireScalarLabelOrigin(field);
+            return single;
+        }
         if(importPageType=="2"&&!exactMultiSelection&&(importFields?.Count??0)==0&&
             StoredIdentityMultiPage(catalog,table,page,storedExactCheckbox))
             return new Builder(catalog,tableId,candidatePage:page,multiLabel:true,cascadeLabelField:field,

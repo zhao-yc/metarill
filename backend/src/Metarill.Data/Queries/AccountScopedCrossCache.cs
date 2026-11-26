@@ -41,10 +41,10 @@ public sealed class AccountScopedCrossCache
     internal static AccountScopedCrossCache CompileRecursive(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage,
         ColumnMetadata? multiParent=null,bool globalTreeSource=false,IReadOnlySet<string>? selfTreeFields=null,
         bool globalSingleSource=false,bool separateExactScope=false,IReadOnlySet<string>? additionalParents=null,
-        IReadOnlySet<string>? joinedFields=null)=>
+        IReadOnlySet<string>? joinedFields=null,bool globalMultiProject=false)=>
         Compile(catalog,source,target,targetPage,recursive:true,multiParent:multiParent,globalTreeSource:globalTreeSource,
             selfTreeFields:selfTreeFields,globalSingleSource:globalSingleSource,separateExactScope:separateExactScope,
-            additionalParents:additionalParents,joinedFields:joinedFields);
+            additionalParents:additionalParents,joinedFields:joinedFields,globalMulti:globalMultiProject);
 
     private static AccountScopedCrossCache Compile(MetadataCatalog catalog, TableMetadata source, TableMetadata target,
         PageMetadata targetPage,bool recursive,ColumnMetadata? multiParent=null,bool globalTreeSource=false,

@@ -190,6 +190,8 @@ public static partial class MySqlNonRedundantReadCompiler
             ??throw new InvalidOperationException("全局候选页必须属于固定目标表。");
         var table=catalog.ConfigTables.Single(item=>item.Id==tableId);
         var pageType=page.Extra.GetValueOrDefault("type").ToString();
+        if(!exactSingleCandidate&&GlobalCrossTableTarget.PageJoinedConditionFields(catalog,table,page).Count>0)
+            return CompileCrossPageCandidate(catalog,tableId,pageId,outputs,dependencies??[],singleTargets:singleTargets);
         if(table.IsRongyu==0&&!exactSingleCandidate&&pageType!="2"&&GlobalCrossTableTarget.SingleParent(catalog,table,page) is not null)
             return CompileCrossPageCandidate(catalog,tableId,pageId,outputs,dependencies??[],accountParentPageType:pageType,singleTargets:singleTargets);
         // 冗余单值候选绑定实际发布页的项目和账号条件，回显及 Excel 共用该范围。
@@ -249,7 +251,7 @@ public static partial class MySqlNonRedundantReadCompiler
         IReadOnlyList<NonRedundantCrossTableScope> crossTables, IReadOnlyList<string>? dependencies, bool deferCascadeNames, bool scopedPhysicalCandidate = false,
         IReadOnlyList<RedundantSharedParentPlan>? candidateParents=null,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,
         IReadOnlyList<NonRedundantMultiTargetScope>? multiTargets=null,IReadOnlyList<string>? storedConditionCaches=null,
-        IReadOnlySet<string>? conditionJoins=null,PageMetadata? conditionSourcePage=null)
+        IReadOnlySet<string>? conditionJoins=null,PageMetadata? conditionSourcePage=null,bool globalPageCondition=false,bool projectPageCondition=false)
     {
         ArgumentNullException.ThrowIfNull(crossTables);
         ArgumentNullException.ThrowIfNull(catalog); ArgumentNullException.ThrowIfNull(outputNames);
@@ -264,6 +266,7 @@ public static partial class MySqlNonRedundantReadCompiler
             StoredConditionCaches=(storedConditionCaches??[]).ToFrozenSet(StringComparer.Ordinal),
             ControlConditionJoins=conditionJoins??FrozenSet<string>.Empty,
             ConditionSourcePage=conditionSourcePage,
+            GlobalCrossCandidate=globalPageCondition,MultiCandidateProjectScoped=projectPageCondition,
             LockPublishedJoinScopes=conditionJoins is {Count:>0}||singleTargets is {Count:>0}
         };
         return builder.Compile(outputNames,dependencies??[]);
@@ -523,9 +526,16 @@ public static partial class MySqlNonRedundantReadCompiler
                             _=GlobalCrossTableTarget.ExactPageParent(catalog,root,page);
                             continue;
                         }
+                        var parent=GlobalCrossTableTarget.SingleParent(catalog,root,page);
+                        if(GlobalCrossTableTarget.PageJoinedConditionFields(catalog,root,page).Count>0)
+                        {
+                            // 单值联接条件沿发布页的真实父范围证明，无父页单独校验。
+                            if(parent is null)GlobalCrossTableTarget.RequireJoinedSingleCandidate(catalog,root,page);
+                            continue;
+                        }
                         // 页面投影由生成服务另外附加自己的父筛选；任意单值读取仍须用无父参数的候选。
                         var multiPage=page.Extra.GetValueOrDefault("type").ToString()=="2"||IsScopedMultiTarget(catalog,root,page.Id)||
-                            GlobalCrossTableTarget.SingleParent(catalog,root,page) is not null;
+                            parent is not null;
                         var checkbox=multiPage&&IsPublishedCheckboxTarget(catalog,root,page.Id);
                         if(deferCascadeNames)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,root,page,
                             allowMultiParent:crossTables.Count>0||multiPage,checkbox:checkbox);
@@ -942,7 +952,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(CrossNamePage(ownerAlias) is not null)
                     crossNameTargetPage=proof.Page;
                 scopedSingle=proof.ScopedLogicalPage;
-                scopedCrossTable=proof.ScopedCrossTable;
+                scopedCrossTable=proof.ScopedCrossTable||proof.ScopedJoinedPage;
                 scopedAccount=proof.ScopedAccount;
                 scopedProject=proof.ProjectSelectionPage;
                 accountParent=proof.Parent;
