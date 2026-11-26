@@ -916,8 +916,12 @@ public sealed class ExactDataManageGenerationTests
     [InlineData(1,0,true,false,false,true,true,4,true)]
     [InlineData(0,0,false,false,false,true,true,3,true)]
     [InlineData(1,0,true,true,false,true,true,4,true)]
+    [InlineData(0,0,true,false,false,false,true,3,false,true)]
+    [InlineData(1,0,true,false,false,false,true,3,false,true)]
+    [InlineData(0,0,true,true,false,false,true,4,false,true)]
+    [InlineData(1,0,true,true,false,false,true,4,true,true)]
     public async Task Single_exact_scope_uses_physical_or_joined_match(int sourceMode,int targetMode,bool joined,bool parent,bool hidden,
-        bool selection=false,bool importCondition=false,int globalTarget=0,bool joinedPage=false)
+        bool selection=false,bool importCondition=false,int globalTarget=0,bool joinedPage=false,bool joinedControl=false)
     {
         const string ns="Example.ListExactMatch";
         var catalog=RedundantMultiNameCacheTests.Published(RelationOptionsContractTests.Catalog());
@@ -958,6 +962,7 @@ public sealed class ExactDataManageGenerationTests
         }
         if(globalTarget is 2 or 3&&!selection)targetPage.Extra["type"]=JsonSerializer.SerializeToElement(0);
         if(globalTarget!=0&&parent&&importCondition)where+=" AND parent_name <> '排除导入'";
+        if(joinedControl)where+=" AND parent_name <> '控件排除'";
         sourceField.ControlDetail=JsonSerializer.Serialize(new{tableId="3",pageId="301",nameField="name",whereSql=where});
         catalog.YzAdminTypes.Single().Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("realName");
         targetPage.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement(match);
@@ -988,6 +993,16 @@ public sealed class ExactDataManageGenerationTests
             ]);
         }
         if(joinedPage)targetPage.WhereSql+=" AND parent_name <> '页面排除'";
+        if(joinedControl&&sourceMode==1)
+        {
+            catalog.ConfigColumns.AddRange([
+                new(){Id="27",ConfigTableId="2",ColumnName="target_name",LogicalType="string",YzProjectId=catalog.YzProjectId,
+                    Extra={["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("target.name")}},
+                new(){Id="28",ConfigTableId="2",ColumnName="store_id",LogicalType="int64",YzProjectId=catalog.YzProjectId}
+            ]);
+            catalog.ConfigPageColumns.Add(new(){Id="20127",ConfigPageId="201",ConfigColumnId="27",YzProjectId=catalog.YzProjectId,IsShow=1});
+            sourcePage.WhereSql+=" AND store_id=@current_store_id";
+        }
         if(hidden)
         {
             catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="25");
@@ -1029,6 +1044,44 @@ public sealed class ExactDataManageGenerationTests
             var mysql=typeof(NonRedundantReadPlan).GetProperty("MySql",internals)!.GetValue(plan.BindAccount(actor))!;
             var sql=Assert.IsType<string>(mysql.GetType().GetMethod("Expression",internals)!.Invoke(mysql,[match]));
             Assert.Equal(!joined,sql=="b.`rank_no`");
+            if(joinedControl)
+            {
+                Assert.Contains("NonRedundantCrossTableScopeSql.ApplyCondition(query,session,DerivedOptionsPlan201_25.BindAccount(actor)",serviceText);
+                var joinedConditions=Assert.IsAssignableFrom<IReadOnlySet<string>>(mysql.GetType()
+                    .GetProperty("ControlConditionJoins",internals)!.GetValue(mysql));
+                Assert.Contains("parent_name",joinedConditions);
+                object SavedNameRead()
+                {
+                    if(sourceMode==0)
+                    {
+                        var read=Assert.IsType<NonRedundantReadPlan>(type.GetField("ReadPlan201",plans)!.GetValue(null));
+                        return typeof(NonRedundantReadPlan).GetProperty("MySql",internals)!.GetValue(read.BindAccount(actor))!;
+                    }
+                    var maintenance=assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!
+                        .GetProperty("Catalog")!.GetValue(null)!;
+                    var cachePlans=Assert.IsAssignableFrom<System.Collections.IDictionary>(maintenance.GetType()
+                        .GetProperty("Plans",internals)!.GetValue(maintenance));
+                    var sourcePlan=cachePlans["2"]!;
+                    return sourcePlan.GetType().GetProperty("Read")!.GetValue(sourcePlan)!;
+                }
+                var saved=SavedNameRead();
+                var nameSql=Assert.IsType<string>(saved.GetType().GetMethod("Expression",internals)!.Invoke(saved,["target_name"]));
+                var from=Assert.IsType<string>(saved.GetType().GetProperty("From",internals)!.GetValue(saved));
+                var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                    saved.GetType().GetProperty("Constants",internals)!.GetValue(saved));
+                var savedSql=from+nameSql;
+                Assert.Contains(constants,pair=>Equals(pair.Value,"控件排除")&&savedSql.Contains(pair.Key,StringComparison.Ordinal));
+                if(joinedPage)Assert.Contains(constants,pair=>Equals(pair.Value,"页面排除")&&savedSql.Contains(pair.Key,StringComparison.Ordinal));
+                if(sourceMode==1)
+                {
+                    var reverse=Assert.IsAssignableFrom<System.Collections.IEnumerable>(saved.GetType()
+                        .GetProperty("Reverse",internals)!.GetValue(saved));
+                    Assert.Contains(reverse.Cast<object>(),item=>
+                        Equals("relation_parent",item.GetType().GetProperty("TargetTable")!.GetValue(item))&&
+                        Assert.IsAssignableFrom<IReadOnlyDictionary<string,IReadOnlySet<string>>>(item.GetType()
+                            .GetProperty("Outputs")!.GetValue(item)).TryGetValue("target_name",out var fields)&&fields.Contains("name"));
+                }
+            }
             if(globalTarget!=0)
             {
                 Assert.Contains("CompileGlobalExactSingleCandidate(\"3\",\"301\"",serviceText);
@@ -1056,9 +1109,6 @@ public sealed class ExactDataManageGenerationTests
                     var conditionScope=typeof(NonRedundantReadPlan).GetProperty("MySql",internals)!.GetValue(conditionRead.BindAccount(actor))!;
                     var conditionSql=Assert.IsType<string>(conditionScope.GetType().GetMethod("Expression",internals)!.Invoke(conditionScope,["parent_name"]));
                     Assert.Contains(".`name`",conditionSql);
-                    var app=Path.Combine(directory,"app");
-                    Assert.True(new ApplicationPackager().Create(catalog,app,ns,NonRedundantApplicationFixture.Root()).FrontendIncluded);
-                    foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(app,operation);
                 }
                 if(joined)
                 {
@@ -1080,6 +1130,12 @@ public sealed class ExactDataManageGenerationTests
                     }
                     Assert.Throws<NotSupportedException>(()=>NonRedundantReads.CompileGlobalExactSingleMatch(catalog,target.Id,targetPage.Id,"id"));
                 }
+            }
+            if(joinedPage||joinedControl)
+            {
+                var app=Path.Combine(directory,"app");
+                Assert.True(new ApplicationPackager().Create(catalog,app,ns,NonRedundantApplicationFixture.Root()).FrontendIncluded);
+                foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(app,operation);
             }
             if(parent)return;
             using var session=new DatabaseSession(new(){Provider="mysql",ExpectedDatabase="metarill_business_test",

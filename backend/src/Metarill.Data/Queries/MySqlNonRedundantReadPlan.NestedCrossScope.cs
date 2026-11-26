@@ -76,7 +76,8 @@ public static partial class MySqlNonRedundantReadCompiler
         IReadOnlySet<string> listJoins=FrozenSet<string>.Empty;
         if(listFields is not null&&!exactCheckboxParent)
         {
-            if(global&&!globalExactSingle&&!exactSingleParent&&(!projectSingle||projectSingleControlKind=="List"))
+            // 精确权限与控件的固定联接分别执行，公开候选和写前计划需要同一字段证明。
+            if(global&&!exactSingleParent&&(!projectSingle||projectSingleControlKind=="List"))
                 listJoins=GlobalCrossTableTarget.ListJoinedConditionFields(catalog,table,page,listFields);
             else if(!global&&(projectSingle&&projectSingleControlKind=="List"||projectParent is {Logical:true,Global:false}))
                 listJoins=ProjectScopedSingleRelationTarget.JoinedConditionFields(catalog,table,page,listFields);
@@ -127,15 +128,16 @@ public static partial class MySqlNonRedundantReadCompiler
         var additional=parent?.AdditionalTargets.Select(scope=>scope.Target.ColumnName).ToHashSet(StringComparer.Ordinal);
         var condition=CascadeScopeCondition(table,storage,columns,syntax,parent?.Target,treeNames,additional,pageJoins);
         // 私有匹配和 Excel 条件只扩充投影；不把路径有效性强加给有无限定范围的账号。
-        var match=exactParent||globalExactSingle?Metarill.Core.Security.ExactDataManageValues.Field(exactField):"";
-        var exactCross=globalExactSingle&&CrossTableStorageColumns.IsLogicalPathField(table,columns,match);
+        var projectExactMatch=exactParent||globalExactSingle&&!projectSingle;
+        var match=projectExactMatch?Metarill.Core.Security.ExactDataManageValues.Field(exactField):"";
+        var exactCross=globalExactSingle&&projectExactMatch&&CrossTableStorageColumns.IsLogicalPathField(table,columns,match);
         var pageScopes=globalExactSingle&&(exactCross||listCrosses.Length>0)
             ?logical.Count==0?[]:CrossMembershipBindings(catalog,table,page,logical)
             :null;
         logical.UnionWith(listCrosses);
         if(exactCross)logical.Add(match);
         var projectionTrees=treeNames.Concat(listTrees).ToHashSet(StringComparer.Ordinal);
-        if(exactSingleParent||globalExactSingle)
+        if(exactSingleParent||globalExactSingle&&projectExactMatch)
         {
             // 隐藏的精确叶名也要按实际发布的树求值，并验证页面覆盖。
             projectionTrees.UnionWith(SelfTreeConditionFields(catalog,table,page,columns,[match]));
@@ -173,7 +175,7 @@ public static partial class MySqlNonRedundantReadCompiler
         try
         {
             plan=builder.Compile(outputs,dependencies.Concat(syntax.Fields).Concat(listFields??[])
-                .Concat(exactParent||globalExactSingle ? new[] { match } : [])
+                .Concat(projectExactMatch ? new[] { match } : [])
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
         }
         finally
@@ -766,9 +768,11 @@ public static partial class MySqlNonRedundantReadCompiler
                 RequireCompoundGlobalSourceParent(catalog,target.Id,page.Id,publishedSource);
 
             var prefix=ConditionParameterPrefix("mt_"+aliasPrefix+alias+"_page");
+            // 已保存名称由来源页授权。实际目标页仍须通过全局精确页的发布证明和固定条件。
             var plan=CompileCrossPageCandidate(catalog,target.Id,page.Id,["id"],[],rootAlias:prefix,aliasPrefix:prefix+"_",
                 activeSelfTreeScopes:ActiveSelfTreeScopes,listFields:control?.Fields.ToArray(),projectSingle:true,
                 projectSingleControlKind:relation.ControlKind,singleTargets:binding.NestedTargets,
+                globalExactSingle:global&&GlobalCrossTableTarget.DeclaresExactSingle(target,page),
                 lockPublishedJoinScopes:LockPublishedJoinScopes,activeSinglePages:ActiveSinglePages);
             plan.CopyParametersTo(crossConstants);
             foreach(var reference in plan.PhysicalReferences)

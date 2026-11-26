@@ -49,6 +49,7 @@ public static partial class MySqlNonRedundantReadCompiler
         }
 
         private readonly HashSet<string> singleControlJoinAliases=new(StringComparer.Ordinal);
+        private int singleControlCacheScopeCount;
 
         /// <summary>控件条件附加到物理联接后的可见性，记录变为不可见时仍可反查并清空副本。</summary>
         private string SingleControlCacheCondition(TableMetadata table,string owner,TableMetadata target,string alias,
@@ -70,7 +71,8 @@ public static partial class MySqlNonRedundantReadCompiler
             if(condition.Fields.Any(field=>!Logical(field)&&!GlobalPhysicalRelationValue.IsScalar(storage[target.Id],target,Column(target,field))&&
                 !(sharedTextParent&&ProjectScopedSingleRelationTarget.IsStoredConditionCache(catalog,target,Column(target,field)))))
                 throw new InvalidOperationException("名称副本控件条件缺少非凭据物理字段或固定逻辑层位。");
-            var prefix=ConditionParameterPrefix("mt_single_control_"+alias);
+            // 页面条件和控件条件可能沿同一别名重复读取字典，各次参数分别绑定。
+            var prefix=ConditionParameterPrefix("mt_single_control_"+alias+"_"+singleControlCacheScopeCount++);
             var account=condition.Terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
                 AccountConditionVariables.IsSupported(value.Text))).ToArray();
             var project=condition.Terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
