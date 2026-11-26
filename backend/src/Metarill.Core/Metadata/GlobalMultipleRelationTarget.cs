@@ -69,14 +69,20 @@ public static class GlobalMultipleRelationTarget
             IsProjectScope(term)||term.Values.Where(value=>value.Kind==FixedConditionValueKind.Variable)
                 .All(value=>AccountConditionVariables.IsSupported(value.Text)));
 
+    /// <summary>无父级的冗余精确多选只接受固定条件、当前项目和已发布账号等值。</summary>
+    public static bool IsStoredExactMultiAccountPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition)=>
+        table.IsRongyu==1&&page.ConfigTableId==table.Id&&GlobalCrossTableTarget.DeclaresExactMulti(table,page)&&
+        condition.Terms.Any(IsAccountScope)&&condition.Terms.All(term=>IsFixedOrProject(term)||IsAccountScope(term));
+
     /// <summary>全局业务数组可使用实际发布的冗余或非冗余字典页，候选范围为固定物理常量或无条件。</summary>
     public static bool IsStoredStaticPage(TableMetadata table,PageMetadata page,FixedConditionPlan? condition,bool checkbox=false)=>
         table.IsRongyu is 0 or 1&&IsPublishedMultiPage(table,page,checkbox)&&(condition?.Variables.Count??0)==0;
 
-    /// <summary>当前项目等值可叠加物理常量，非冗余字典也可叠加已声明账号等值。</summary>
+    /// <summary>当前项目与固定条件可叠加实际发布的账号等值，冗余精确多选须同时证明账号范围。</summary>
     public static bool IsProjectPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox=false,bool allowExact=false)=>
-        table.IsRongyu is 0 or 1&&IsPublishedMultiPage(table,page,checkbox,allowExact)&&condition.Terms.Any(IsProjectScope)&&condition.Terms.All(term=>
-            IsFixedOrProject(term)||table.IsRongyu==0&&IsAccountScope(term));
+        table.IsRongyu is 0 or 1&&IsPublishedMultiPage(table,page,checkbox,allowExact)&&condition.Terms.Any(IsProjectScope)&&
+        (condition.Terms.All(term=>IsFixedOrProject(term)||table.IsRongyu==0&&IsAccountScope(term))||
+            allowExact&&!checkbox&&IsStoredExactMultiAccountPage(table,page,condition));
 
     /// <summary>已发布的非冗余多值页可同时声明真实项目和父键，物理字段和父归属由调用方证明。</summary>
     public static bool IsProjectParentPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox=false,bool allowExact=false)=>

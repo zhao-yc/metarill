@@ -251,6 +251,18 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             projectScoped:projectScoped,exact:true,alternateDictionary:alternateDictionary,
             shortName:alternateDictionary?"short_caption":null,dictionaryProjectColumn:dictionaryProjectColumn);
 
+    /// <summary>精确角色筛选与门店或商户条件相交，所有原多选入口沿实际发布页绑定两种范围。</summary>
+    [Theory]
+    [InlineData("int64","store_id",false,true,false)]
+    [InlineData("string","merchant_id",true,true,false)]
+    [InlineData("int64","merchant_id",false,false,false)]
+    [InlineData("string","store_id",false,true,true)]
+    public Task Global_business_multiselect_uses_exact_stored_account_dictionary(string projectType,string accountField,
+        bool projectScoped,bool dictionaryProjectColumn,bool alternateDictionary)=>
+        VerifyPublishedGlobalMultiselect(0,1,false,projectType,globalSource:true,projectScoped:projectScoped,
+            accountField:accountField,exact:true,alternateDictionary:alternateDictionary,
+            shortName:alternateDictionary?"short_caption":null,dictionaryProjectColumn:dictionaryProjectColumn);
+
     /// <summary>实际来源页可独立选择已发布的简称，原名称数组及精确选择范围保持。</summary>
     [Theory]
     [InlineData(false,false,false)]
@@ -376,7 +388,12 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             // 页面未配置项目条件时，行项目隔离仍须从业务表归属和有效多选关系自动生成。
             foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="3"))
                 page.WhereSql="";
-            if(accountField is not null)ConfigureDictionaryAccountScope(catalog,accountField);
+            if(accountField is not null)
+            {
+                ConfigureDictionaryAccountScope(catalog,accountField);
+                if(exact&&targetStorage==1&&alternateDictionary)
+                    catalog.ConfigPages.Single(page=>page.Id=="14").WhereSql+=" AND "+accountField+"=@current_"+accountField;
+            }
             Assert.Empty(GenerationCapabilityAudit.Collect(GenerationModel.Create(catalog,application)));
         }
         if(derivedName&&!unfiltered)
@@ -483,6 +500,16 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                     {
                         Assert.Contains("scope_code",list);
                         Assert.Contains("scope_code",selected);
+                        if(accountField is not null)
+                        {
+                            Assert.Contains("`"+accountField+"`",list);
+                            Assert.Contains("`"+accountField+"`",selected);
+                            var missing=DictionaryActor(catalog,null);
+                            var restricted=NonRedundantGeneratedReadTests.CreateDictionarySql(assembly,application,"GlobalSource",
+                                session,new StoredExactDictionaryAuthorization(missing));
+                            var error=Assert.Throws<TargetInvocationException>(()=>restricted("Query10",[new PageRequest(),missing]));
+                            Assert.IsType<UnauthorizedAccessException>(error.InnerException);
+                        }
                         Assert.Equal(projectScoped,sql("Scope10",[actor,null]).Contains("yz_project_id",StringComparison.Ordinal));
                         Assert.NotNull(auth);
                         Assert.Contains(("10","list"),auth.Resolutions);
@@ -492,6 +519,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                             var alternate=sql("Query14",[new PageRequest{SelectedIds=["9007199254740993"]},actor]);
                             Assert.Contains("`alternate_scope_code`",alternate);
                             Assert.DoesNotContain("`scope_code`",alternate);
+                            if(accountField is not null)Assert.Contains("`"+accountField+"`",alternate);
                             Assert.Contains("""new("alternate_scope_code", FixedReadComparison.In,""",serviceCode);
                             Assert.Contains(("14","list"),auth.Resolutions);
                         }
@@ -501,6 +529,17 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 Assert.True(FixedPageQueryCompilation.TryProveSelection(model.Catalog,plan,new("10","caption","选择",dictionary.WhereSql,""),out _));
                 Assert.Equal(projectScoped,FixedPageQueryCompilation.TryProveSelection(model.Catalog,plan,new("10","caption","选择",
                     "yz_project_id=@current_yz_project_id",""),out _));
+                if(exact&&targetStorage==1&&accountField is not null)
+                {
+                    // 已认证变量只允许该用途的物理列，不能转作任意字典字段的条件。
+                    var original=dictionary.WhereSql;
+                    try
+                    {
+                        dictionary.WhereSql=original+" AND status=@current_"+accountField;
+                        Assert.Throws<NotSupportedException>(()=>GlobalCrossTableTarget.ExactPageParent(catalog,target.Source,dictionary));
+                    }
+                    finally{dictionary.WhereSql=original;}
+                }
                 var full=Path.Combine(directory,"application");
                 var package=new ApplicationPackager().Create(catalog,full,application,NonRedundantApplicationFixture.Root());
                 Assert.Equal(ApplicationPackageMode.FullApplication,package.Mode);
@@ -585,6 +624,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                     {
                         var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
                             service.GetField(field,BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
+                        plan=BindDictionaryAccount(plan,catalog,accountField);
                         var actual=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan)!;
                         var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
                             actual.GetType().GetProperty("Constants",hidden)!.GetValue(actual));
@@ -609,6 +649,8 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 Assert.Contains(labelSql,predicates[names]);
                 var lookup=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service.GetField("MultiDerivedPlan31_34",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
                 Assert.Contains(shortName,lookup.OutputTypes.Keys);
+                if(accountField is not null)
+                    _=BindDictionaryAccount(lookup,catalog,accountField);
                 Assert.Contains("new(\""+shortName+"\",FixedReadComparison.Equal",serviceCode);
                 var detail=await File.ReadAllTextAsync(Path.Combine(output,"frontend/pages/yzp/cached_consumer-detail-31.vue"));
                 Assert.Contains(shortName=="short_caption"?"selected-name-field=\"shortCaption\"":"selected-name-field=\"globalTargetName\"",detail);

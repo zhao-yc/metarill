@@ -428,13 +428,14 @@ public static partial class MySqlNonRedundantReadCompiler
             {
                 if (exactSingleCandidate)
                 {
-                    _=GlobalCrossTableTarget.ExactPageParent(catalog,root,candidatePage);
-                    // 无父级的冗余精确字典仍须执行页面显式发布的项目条件。
-                    if(physicalCandidate&&GlobalCrossTableTarget.DeclaresExactMulti(root,candidatePage))
+                    var exactParent=GlobalCrossTableTarget.ExactPageParent(catalog,root,candidatePage);
+                    // 原多选的项目和账号条件在候选、联接名称及当前锁读中共用实际字典页。
+                    if(physicalCandidate&&exactParent is null&&GlobalCrossTableTarget.DeclaresExactMulti(root,candidatePage))
                     {
                         var syntax=FixedConditionPlan.Compile(candidatePage.WhereSql,
                             catalog.ConfigColumns.Where(column=>column.ConfigTableId==root.Id).Select(column=>column.ColumnName));
                         explicitProjectCandidate=GlobalMultipleRelationTarget.IsProjectPage(root,candidatePage,syntax,allowExact:true);
+                        this.accountPhysicalCandidate|=GlobalMultipleRelationTarget.IsStoredExactMultiAccountPage(root,candidatePage,syntax);
                     }
                 }
                 else if(publishedGlobalCandidate&&IsNonRedundantProjectMultiPage(catalog,root,candidatePage,checkbox:multiLabel))

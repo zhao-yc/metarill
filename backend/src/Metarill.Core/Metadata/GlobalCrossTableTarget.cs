@@ -69,7 +69,8 @@ public static class GlobalCrossTableTarget
             var tree=fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(table,columns,field));
             var logical=tree||fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field));
             var projectMulti=DeclaresExactMulti(table,page)&&GlobalMultipleRelationTarget.IsProjectPage(table,page,condition,allowExact:true);
-            RequireTarget(catalog,table,page,true,allowAccount:table.IsRongyu==0,allowLogical:logical,
+            var storedMultiAccount=GlobalMultipleRelationTarget.IsStoredExactMultiAccountPage(table,page,condition);
+            RequireTarget(catalog,table,page,true,allowAccount:table.IsRongyu==0||storedMultiAccount,allowLogical:logical,
                 allowSelfTree:tree,allowExactSingle:true,allowStoredProject:projectMulti,joinedFields:joinedFields);
         }
         var value=page.Extra["exactDataManageMatchField"];
