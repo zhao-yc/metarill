@@ -1337,11 +1337,10 @@ public static partial class MySqlNonRedundantReadCompiler
                     return ScopedCrossField(table,owner,bindings,field,cacheOwner);
                 }
                 // 同一可见路径既负责页面条件，也负责恢复可能没有实际落库的逻辑父键。
-                if(sourceParent is null&&multiParent is not null&&level.LogicalFields.Contains(multiParent.ColumnName))
-                {
-                    selectedMultiParentSql=Projection(multiParent.ColumnName);
-                    selectedMultiParentText=HasTextParentPath(ScopedCrossPaths(owner,bindings.Keys),multiParent.ColumnName);
-                }
+                var selectedParentField=sourceParent is null&&multiParent is not null&&level.LogicalFields.Contains(multiParent.ColumnName)
+                    ?multiParent.ColumnName:null;
+                if(selectedParentField is not null)
+                    selectedMultiParentSql=Projection(selectedParentField);
                 if(additionalParents is not null&&!compareAdditionalParents)
                     foreach(var field in additionalParents.Where(level.LogicalFields.Contains))
                         additionalMultiParentSql[field]=Projection(field);
@@ -1376,7 +1375,10 @@ public static partial class MySqlNonRedundantReadCompiler
                 }
 
                 // 空选择允许原 IS NULL；已存但不可见或无法恢复的节点不能冒充空值放宽候选。
-                var paths=ScopedCrossPaths(owner,bindings.Keys);
+                var paths=ScopedCrossPaths(owner,bindings.Keys).ToArray();
+                // 其它独立层位和固定条件都展开后，才能按完整路径判断主父键类型。
+                if(selectedParentField is not null)
+                    selectedMultiParentText=HasTextParentPath(paths,selectedParentField);
                 return "("+string.Join(" AND ",new[]{predicate}.Concat(ValidScopedPaths(paths))
                     .Where(part=>part.Length>0))+")";
             }

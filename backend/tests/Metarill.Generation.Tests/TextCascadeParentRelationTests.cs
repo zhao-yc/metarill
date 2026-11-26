@@ -1796,8 +1796,17 @@ public sealed class TextCascadeParentRelationTests
         VerifyMultiJoinedPage(sourceStorage,"string",import,export,buildPackage:true,joinedPageCondition:true,
             separateConditionPath:true,physicalLabel:true,parentType:"logical-int");
 
+    /// <summary>两个独立级联层位共用实际 bigint 国家键，字典须同时保留两个范围和固定联接。</summary>
+    [Theory]
+    [InlineData(0,"OnlyNew","list")]
+    [InlineData(1,"OverWriteByFirstColumn","edit")]
+    public Task Multi_compound_logical_parent_keeps_joined_dictionary_scope(
+        int sourceStorage,string import,string export)=>
+        VerifyMultiJoinedPage(sourceStorage,"string",import,export,buildPackage:true,joinedPageCondition:true,
+            separateConditionPath:true,physicalLabel:true,parentType:"logical-int",compoundParent:true);
+
     private static async Task VerifyMultiJoinedPage(int sourceStorage,string kind,string import,string export,bool buildPackage,
-        bool joinedPageCondition,bool separateConditionPath,bool physicalLabel,string parentType="logical")
+        bool joinedPageCondition,bool separateConditionPath,bool physicalLabel,string parentType="logical",bool compoundParent=false)
     {
         var catalog=Catalog(sourceStorage,import,export);
         PublishTextParentJoinedLabels(catalog,kind,["83","84"]);
@@ -1810,6 +1819,27 @@ public sealed class TextCascadeParentRelationTests
             {
                 column.LogicalType="int64";
                 column.ColumnLength="";
+            }
+        }
+        if(compoundParent)
+        {
+            // 字典另用一条稀疏链指向同一父表，保留各自路径的业务键类型。
+            foreach(var id in new[]{"83","84"})
+            {
+                var leaves=catalog.ConfigColumns.Where(column=>column.ConfigTableId==id&&
+                    column.ColumnName is "country_id" or "area_id" or "place_id").ToArray();
+                var detail=System.Text.Json.Nodes.JsonNode.Parse(leaves.Single(column=>column.ControlKind=="CascadeTree").ControlDetail)!;
+                foreach(var level in detail["levels"]!.AsArray())
+                    level!["columnPrefix"]="other_"+level["columnPrefix"]!.GetValue<string>();
+                foreach(var column in leaves)
+                    catalog.ConfigColumns.Add(new(){Id=column.Id+"2",ConfigTableId=id,YzProjectId=catalog.YzProjectId,
+                        ColumnName="other_"+column.ColumnName,LogicalType=column.LogicalType,ColumnLength=column.ColumnLength,
+                        LinkConfigTableId=column.LinkConfigTableId,ControlKind=column.ControlKind,
+                        ControlDetail=column.ControlKind=="CascadeTree"?detail.ToJsonString():""});
+                var pageId=id+"0";
+                catalog.ConfigPages.Single(page=>page.Id==pageId).WhereSql+=" AND other_country_id=@parentId";
+                catalog.ConfigPageColumns.Add(new(){Id="f"+id+"062",ConfigPageId=pageId,ConfigColumnId=id+"062",
+                    YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=1});
             }
         }
         if(!logicalParent)
@@ -1911,7 +1941,7 @@ public sealed class TextCascadeParentRelationTests
                 generated=Path.Combine(directory,"backend/generated");
                 var published=await PublishedReadCatalog(directory);
                 AssertNamePlan(Metarill.Data.Queries.NonRedundantReads.CompileScopedMultiLabel(published,"83","830","name",["id","name"],[]),"多选停用");
-                AssertNamePlan(sourceStorage==0
+                AssertNamePlan(sourceStorage==0||compoundParent
                     ?Metarill.Data.Queries.NonRedundantReads.CompileScopedCheckboxLabel(published,"84","840","name",["id","name"],[],false)
                     :Metarill.Data.Queries.NonRedundantReads.CompileScopedMultiLabel(published,"84","840","name",["id","name"],[]),"复选停用");
             }
@@ -1962,6 +1992,16 @@ public sealed class TextCascadeParentRelationTests
             if(!logicalParent)
                 Assert.Equal(parentType=="none"?null:"owner_country_id",
                     mysql.GetType().GetProperty("RequiredMultiParent",flags)!.GetValue(mysql));
+            if(compoundParent)
+            {
+                var expressions=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(
+                    mysql.GetType().GetProperty("Expressions",flags)!.GetValue(mysql));
+                var firstParent=expressions["country_id"];
+                var secondParent=expressions["other_country_id"];
+                Assert.NotEqual(firstParent,secondParent);
+                Assert.Contains(firstParent,scope);
+                Assert.Contains(secondParent,scope);
+            }
             if(joinedPageCondition)
             {
                 Assert.DoesNotContain("region_label",scope);
