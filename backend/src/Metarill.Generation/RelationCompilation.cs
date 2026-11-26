@@ -22,8 +22,10 @@ internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target
     internal bool ExcelOnly { get; init; }
     internal bool CompoundGlobalSource { get; init; }
     internal bool FunctionForm { get; init; }
-    /// <summary>复合全局父的物理文本键使用规范主键比较，避免排序规则放宽附加范围。</summary>
-    internal bool FunctionCompoundGlobalParent=>FunctionForm&&FixedParent is {Global:true,Logical:false,AdditionalTargets.Count:>0};
+    internal string? ControlParentPageId { get; init; }
+    /// <summary>控件独立父键和复合全局父的物理文本都按规范主键比较。</summary>
+    internal bool CanonicalFunctionGlobalParent=>FunctionForm&&FixedParent is {Global:true,Logical:false} parent&&
+        (ControlParentPageId is not null||parent.AdditionalTargets.Count>0);
     internal bool ExcelTargetExact { get; init; }
     internal ColumnModel? SharedTextParent { get; init; }
     internal bool MixedStoredTextParent=>SharedTextParent is not null&&LogicalSourceParent&&Target.Source.IsRongyu==1;
@@ -171,8 +173,20 @@ internal static class RelationCompilation
             var (scopes, conditions) = RelationConditionsCompilation.Compile(model,owner,page,target,where,
                 allowLogicalList:selection is null,allowLogicalListJoin:textParent is not null||
                     projectListPage&&target.Source.IsRongyu==0||globalList);
-            if(functionForm&&source.Source.ControlKind=="List"&&fixedParent is {Global:true,Logical:false} pageParent)
-                fixedParent=FunctionTableSelectionCompilation.ApplyListParentScopes(model,target,targetPage,pageParent,scopes);
+            string? controlParentPageId=null;
+            if(functionForm&&source.Source.ControlKind=="List")
+            {
+                if(fixedParent is {Global:true,Logical:false} pageParent)
+                    fixedParent=FunctionTableSelectionCompilation.ApplyListParentScopes(model,target,targetPage,pageParent,scopes);
+                else if(fixedParent is null&&!target.IsGlobal&&scopes.Any(scope=>scope.Source=="parent"&&
+                    ForeignValidationRenderer.Target(model,scope.Column)?.IsGlobal==true))
+                {
+                    var fields=scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column.Source.Id).ToArray();
+                    var controlParent=NonRedundantReads.ResolveControlGlobalParent(model.Catalog,target.Source.Id,targetPage.Source.Id,fields);
+                    fixedParent=controlParent.Scope;
+                    controlParentPageId=controlParent.Page.Id;
+                }
+            }
             if(globalList&&conditions is {JoinedFields.Count:>0}&&
                 !conditions.JoinedFields.SetEquals(GlobalCrossTableTarget.ListJoinedConditionFields(model.Catalog,
                     target.Source,targetPage.Source,conditions.JoinedFields)))
@@ -331,6 +345,7 @@ internal static class RelationCompilation
                 CanonicalProjectParent = canonicalProjectParent,
                 IndependentOrder = independentOrder,
                 FunctionForm = functionForm,
+                ControlParentPageId = controlParentPageId,
                 ImportCondition = selection?.ImportCondition,
                 ExcelOnly = excelOnly,
                 CompoundGlobalSource = fixedParent is {Global:true}&&sourceBinding is {AdditionalColumns.Count:>0},

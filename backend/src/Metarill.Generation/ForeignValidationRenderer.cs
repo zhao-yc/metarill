@@ -44,6 +44,7 @@ internal static class ForeignValidationRenderer
     /// <summary>调用 Service 规则后的实体值必须仍指向当前项目有效记录。</summary>
     public static string Render(GenerationModel model, TableModel table, PageModel page)
     {
+        var controlParentPlans=new StringBuilder();
         var mergeParent=GlobalCachedParentCompilation.ForAppendRecheck(model,table,page);
         var result = new StringBuilder().AppendLine("    /// <summary>不接受跨项目或已删除的关联；省略字段不触发覆盖或清空。</summary>")
             .AppendLine($"    private async Task ValidateRelations{page.Source.Id}Async({table.EntityType} entity, RuntimeActor actor, bool creating, ISet<string> submitted, CancellationToken cancellationToken{(ImportRenderer.RelationOperationAware(model,table,page)?", RecordMutationOperation? cascadeOperation = null":"")}{SharedCrossTableRenderer.Signature(model,table,page)}{(GlobalCachedParentCompilation.HasCombinedCandidate(model,table,page)?", string? lockedParentId = null":"")}{(mergeParent is not null?", Metarill.Data.Queries.MySqlExactParentCandidate.ImportRecheck? parentRecheck = null, int? mergedCandidate = null":"")}{(GlobalCachedParentCompilation.CanDeferAppendCandidate(model,table,page)?", bool deferParentCandidate = false":"")}{(NonRedundantCrossParentCompilation.UsesRelationParent(model,table,page)?", string? logicalRelationParentId = null":"")})")
@@ -96,11 +97,25 @@ internal static class ForeignValidationRenderer
                 continue;
             }
             if(column.Source.ControlKind is not("List" or "SelectPage")&&
-                MultiGlobalParentCompilation.IsFunctionListParentField(model,table,page,column))
+                MultiGlobalParentCompilation.FunctionListParentBinding(model,table,page,column) is {} functionList)
             {
-                // 字段虽未暴露给表单写入，默认值和手写钩子提交时仍须验证实际父页。
-                var key=column.Type=="string?"?$"entity.{column.Property}":$"entity.{column.Property}?.ToString(CultureInfo.InvariantCulture)";
-                result.AppendLine($"        if ((creating || submitted.Contains({Literal(column.Source.ColumnName)})) && entity.{column.Property} is not null) await ValidateParents{page.Source.Id}Async({key},actor,cancellationToken);");
+                // 隐藏字段的默认值和手写钩子提交仍要校验实际父页。
+                var trigger=$"(creating || submitted.Contains({Literal(column.Source.ColumnName)})) && entity.{column.Property} is not null";
+                if(functionList.ControlParentPageId is null)
+                {
+                    var key=column.Type=="string?"?$"entity.{column.Property}":$"entity.{column.Property}?.ToString(CultureInfo.InvariantCulture)";
+                    result.AppendLine($"        if ({trigger}) await ValidateParents{page.Source.Id}Async({key},actor,cancellationToken);");
+                }
+                else
+                {
+                    var plan="ControlGlobalParent"+page.Source.Id+"_"+column.Source.Id;
+                    controlParentPlans.Append(MultiGlobalParentCompilation.Declaration(model,functionList,plan));
+                    result.AppendLine($"        if ({trigger})").AppendLine("        {")
+                        .AppendLine($"            var controlParentKey={IdExpression(column)};");
+                    if(column.Type=="string?")
+                        result.AppendLine($"            if(entity.{column.Property}!=controlParentKey.ToString(CultureInfo.InvariantCulture)) throw new ArgumentException(\"关联父键必须是规范正整数。\");");
+                    result.AppendLine(MultiGlobalParentCompilation.Check(plan,"controlParentKey","true")).AppendLine("        }");
+                }
                 continue;
             }
             if(column.Source.ControlKind is not("List" or "SelectPage")&&
@@ -218,7 +233,7 @@ internal static class ForeignValidationRenderer
             }
             result.AppendLine("        }");
         }
-        return result.AppendLine("    }").ToString();
+        return controlParentPlans.Append(result.AppendLine("    }").ToString()).ToString();
     }
     /// <summary>关联主键只支持显式整数或整数文本。</summary>
     private static string IdExpression(ColumnModel column) => column.Type == "string?" ? $"long.Parse(entity.{column.Property}, CultureInfo.InvariantCulture)" : $"entity.{column.Property}.Value";

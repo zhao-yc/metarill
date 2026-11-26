@@ -748,12 +748,19 @@ public sealed class FunctionTableGenerationTests : IDisposable
     [InlineData("projectStoredExactCompoundSplit")]
     [InlineData("projectExactCompoundSplitText")]
     [InlineData("projectStoredExactCompoundSplitText")]
+    [InlineData("projectExactCompoundControl")]
+    [InlineData("projectStoredExactCompoundControl")]
+    [InlineData("projectExactCompoundControlSingle")]
+    [InlineData("projectStoredExactCompoundControlSingle")]
     public async Task Function_original_list_uses_one_candidate_scope(string scenario)
     {
         var ordinary=scenario.EndsWith("Ordinary",StringComparison.Ordinal);
         var textParent=scenario.EndsWith("SplitText",StringComparison.Ordinal);
         var split=textParent||scenario.EndsWith("Split",StringComparison.Ordinal);
-        var variant=ordinary?scenario[..^8]:textParent?scenario[..^9]:split?scenario[..^5]:scenario;
+        var singleControl=scenario.EndsWith("ControlSingle",StringComparison.Ordinal);
+        var controlOnly=singleControl||scenario.EndsWith("Control",StringComparison.Ordinal);
+        var variant=ordinary?scenario[..^8]:textParent?scenario[..^9]:split?scenario[..^5]:
+            singleControl?scenario[..^13]:controlOnly?scenario[..^7]:scenario;
         var catalog = WithFunctionList(Catalog(), variant=="treeExact"?"logical":variant);
         var compound=variant.EndsWith("ExactCompound",StringComparison.Ordinal);
         if(ordinary)
@@ -774,14 +781,26 @@ public sealed class FunctionTableGenerationTests : IDisposable
             var field=catalog.ConfigColumns.Single(column=>column.Id=="39");
             field.ControlDetail="""{"pageId":"103","nameField":"name","whereSql":"status=1 AND other_scope_id=@parentId"}""";
         }
-        if(compound)
+        if(controlOnly)
+        {
+            // 字典可独立按账号和角色浏览，父参数只由这个下拉控件传入。
+            var targetPage=catalog.ConfigPages.Single(page=>page.Id=="103");
+            targetPage.WhereSql=targetPage.WhereSql.Replace("scope_id=@parent_id AND ","",StringComparison.Ordinal)
+                .Replace(" AND other_scope_id=@parentId","",StringComparison.Ordinal);
+            var targetField=catalog.ConfigColumns.Single(column=>column.Id=="39");
+            if(singleControl)catalog.ConfigColumns.RemoveAll(column=>column.Id=="708");
+            else catalog.ConfigColumns.Single(column=>column.Id=="708").LogicalType="string";
+            targetField.ControlDetail=JsonSerializer.Serialize(new {pageId="103",nameField="name",whereSql=singleControl
+                ?"status=1 AND scope_id=@parent_id":"status=1 AND scope_id=@parent_id AND other_scope_id=@parentId"});
+        }
+        if(compound&&!singleControl)
         {
             var secondParent=catalog.ConfigColumns.Single(column=>column.Id=="708");
             var original=secondParent.Extra["linkConfigPageId"];
             try
             {
                 secondParent.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("801");
-                var error=split
+                var error=split||controlOnly
                     ?Assert.Throws<InvalidOperationException>(()=>
                         new ApplicationPackager().Create(catalog,output,"Example.FunctionForm",SourceRoot()))
                     :Assert.Throws<InvalidOperationException>(()=>
@@ -815,10 +834,16 @@ public sealed class FunctionTableGenerationTests : IDisposable
         Assert.False(File.Exists(Path.Combine(generated, "Entities/SummaryForm.g.cs")));
         if(compound)
         {
-            Assert.Contains("CompileMultiGlobalParent",service);
+            Assert.Contains(controlOnly?"CompileControlGlobalParent":"CompileMultiGlobalParent",service);
             Assert.Contains("""new("scope_id",FixedReadComparison.Equal,""",service);
-            Assert.Contains(textParent?"""FixedReadFilter.ForTextParent("other_scope_id",targetParentId!)""":
+            if(!singleControl)Assert.Contains(textParent||controlOnly?"""FixedReadFilter.ForTextParent("other_scope_id",targetParentId!)""":
                 """new("other_scope_id",FixedReadComparison.Equal,""",service);
+        }
+        if(controlOnly)
+        {
+            Assert.Contains("OptionsPageCondition102_39.BindAccount(actor)",service);
+            var dictionary=await File.ReadAllTextAsync(Path.Combine(generated,"Services/FunctionOptionService.g.cs"));
+            Assert.DoesNotContain("PageMultiGlobalParent103",dictionary);
         }
         await VerifyVueAsync(output, "GeneratedFunctionListProbe.mjs", compound?"global":scenario);
         await BuildFullAsync(output);

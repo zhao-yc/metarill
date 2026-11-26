@@ -21,7 +21,7 @@ internal static class DerivedRelationNamesRenderer
         var projectTargets=DerivedRelationNamesCompilation.ProjectCandidateTargets(model,relation,exact);
         var bindParent=validateCurrent||projectTargets.Count>0?".BindAccount(actor)":"";
         var globalExact=DerivedRelationNamesCompilation.IsGlobalExactSingle(relation);
-        var embeddedParent=DerivedRelationNamesCompilation.EmbedsParentScope(relation.Target,relation.FixedParent);
+        var embeddedParent=DerivedRelationNamesCompilation.EmbedsParentScope(relation);
         var embedsPageScope=globalExact||embeddedParent||DerivedRelationNamesCompilation.UsesGlobalPrimaryKeyDisplay(relation)||
             relation.Target.IsGlobal&&(logical||globalAccount||relation.FunctionForm||
                 NonRedundantReadCompilation.GlobalSingleParentPage(relation.Target,relation.TargetPage)||
@@ -92,7 +92,7 @@ internal static class DerivedRelationNamesRenderer
             .Select(scope=>scope.Source=="parent"&&scope.Column==storedBusinessParent
                 ?$"        filters.Add(FixedReadFilter.ForTextParent({Literal(scope.Column.Source.ColumnName)},targetParentId!,businessKey:true));"
                 :(relation.CompoundProjectSource||relation.CompoundProjectTarget||relation.CanonicalProjectParent||
-                relation.FixedGlobalSelection||relation.FunctionCompoundGlobalParent)&&
+                relation.FixedGlobalSelection||relation.CanonicalFunctionGlobalParent)&&
                 scope.Source=="parent"&&scope.Column.Type=="string?"&&
                 relation.FixedParent?.HasTarget(scope.Column.Source.Id,logicalOnly:true)!=true
                 ?$"        filters.Add(FixedReadFilter.ForTextParent({Literal(scope.Column.Source.ColumnName)},targetParentId!));"
@@ -207,7 +207,7 @@ internal static class DerivedRelationNamesRenderer
             _ = DerivedRelationNamesCompilation.CompileLogicalPage(model, relation.Target, relation.TargetPage,
                 outputs, dependencies, condition, targets, exact);
             planStart = DerivedRelationNamesCompilation.LogicalPagePlanStart(model, relation.Target, relation.TargetPage, condition, exact);
-            if (DerivedRelationNamesCompilation.EmbedsParentScope(relation.Target, relation.FixedParent))
+            if (DerivedRelationNamesCompilation.EmbedsParentScope(relation))
                 additional = NonRedundantCrossTableCompilation.BindingArgument(exact.CrossPlans ?? [], "bindings") +
                     ",listFields:" + Columns(fields);
         }

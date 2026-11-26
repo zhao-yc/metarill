@@ -1050,7 +1050,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             var fixedGlobalParent=relation.FixedParent is {Global:true} globalParent?globalParent:null;
             var targetParentPlan="OptionsGlobalParent"+suffix;
             if(fixedGlobalParent is not null)
-                result.Append(MultiGlobalParentCompilation.Declaration(model,relation.TargetPage,targetParentPlan));
+                result.Append(MultiGlobalParentCompilation.Declaration(model,relation,targetParentPlan));
             string? logicalPlan=null;
             if(DerivedRelationNamesCompilation.UsesLogicalPage(relation))
             {
@@ -1103,7 +1103,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 .DistinctBy(scope=>scope.Column.Source.Id).ToArray();
             // 目标复合父键本身就要求规范 ID，独立表单和仅单列的来源也使用相同的比较。
             var canonicalParent=relation.CompoundProjectSource||relation.CompoundProjectTarget||relation.CanonicalProjectParent||
-                relation.FunctionCompoundGlobalParent||
+                relation.CanonicalFunctionGlobalParent||
                 relation.ScopedStoredSingle&&!relation.Target.IsGlobal&&targetParentScopes.Length>1||
                 relation.FixedGlobalSelection&&targetParentScopes.Any(scope=>scope.Column.Type=="string?");
             if(relation.SharedTextParent is not null)
@@ -1162,7 +1162,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                     result.AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "targetParentId!")});");
             }
             // 固定候选包含已发布逻辑父层位，附加搜索继续复用同一相关查询。
-            if((relation.Target.IsGlobal||DerivedRelationNamesCompilation.EmbedsParentScope(relation.Target,relation.FixedParent))&&logicalPlan is not null)
+            if((relation.Target.IsGlobal||DerivedRelationNamesCompilation.EmbedsParentScope(relation))&&logicalPlan is not null)
             {
                 if(relation.Conditions?.HasLogicalFields!=true)
                 {

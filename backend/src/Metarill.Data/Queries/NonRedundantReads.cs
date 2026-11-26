@@ -399,6 +399,15 @@ public static class NonRedundantReads
     public static NonRedundantReadPlan CompileMultiGlobalParent(MetadataCatalog metadata,string tableId,string pageId)=>
         new(MySqlNonRedundantReadCompiler.CompileMultiGlobalParent(metadata,tableId,pageId));
 
+    /// <summary>控件独有的全局父字段不改变实际字典页的查询条件。</summary>
+    public static NonRedundantReadPlan CompileControlGlobalParent(MetadataCatalog metadata,string tableId,string pageId,
+        IReadOnlyList<string> fieldIds)=>new(MySqlNonRedundantReadCompiler.CompileControlGlobalParent(metadata,tableId,pageId,fieldIds));
+
+    /// <summary>返回固定的控件父范围和发布页，生成目录仅保留相关页面。</summary>
+    public static (MultiTargetParentScope Scope,PageMetadata Page) ResolveControlGlobalParent(
+        MetadataCatalog metadata,string tableId,string pageId,IReadOnlyList<string> fieldIds)=>
+        MySqlNonRedundantReadCompiler.ResolveControlGlobalParent(metadata,tableId,pageId,fieldIds);
+
     /// <summary>比较实际全局父的页面身份，目标页不同时仍可复用已证明的同一父范围。</summary>
     public static string MultiGlobalParentPageId(MetadataCatalog metadata,string tableId,string pageId)=>
         MySqlNonRedundantReadCompiler.PublishedMultiGlobalParent(metadata,tableId,pageId).Page.Id;

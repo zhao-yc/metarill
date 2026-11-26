@@ -14,6 +14,15 @@ internal static class MultiGlobalParentCompilation
         return $"    private static readonly Metarill.Data.Queries.NonRedundantReadPlan {name}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileMultiGlobalParent({Literal(target.Source.ConfigTableId)},{Literal(target.Source.Id)});\n";
     }
 
+    /// <summary>控件独立范围仅下发已验证的字典和物理字段标识，宿主可重新核对父页。</summary>
+    internal static string Declaration(GenerationModel model,RelationModel relation,string name)
+    {
+        if(relation.ControlParentPageId is null)return Declaration(model,relation.TargetPage,name);
+        var parent=relation.FixedParent!;
+        var fields=string.Join(",",parent.AdditionalTargets.Prepend(parent).Select(scope=>Literal(scope.Target.Id)));
+        return $"    private static readonly Metarill.Data.Queries.NonRedundantReadPlan {name}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileControlGlobalParent({Literal(relation.Target.Source.Id)},{Literal(relation.TargetPage.Source.Id)},[{fields}]);\n";
+    }
+
     internal static string Check(string plan,string key,string currentRead)=>
         $"        if((await new Metarill.Data.Queries.NonRedundantReader(session).KeyRowsAsync({plan}.BindAccount(actor),[],[{key}],cancellationToken,actor.ProjectId,currentRead:{currentRead})).Count!=1)throw new InvalidOperationException(\"全局父记录不存在、已删除或不在固定父范围。\");";
 
@@ -141,18 +150,23 @@ internal static class MultiGlobalParentCompilation
     }
 
     /// <summary>功能表 List 的附加只读父键也属于当前字典页范围，不能替代普通写入关联校验。</summary>
-    internal static bool IsFunctionListParentField(GenerationModel model,TableModel table,PageModel page,ColumnModel field)
+    internal static RelationModel? FunctionListParentBinding(GenerationModel model,TableModel table,PageModel page,ColumnModel field)
     {
-        if(page.Writable.Any(column=>column.Source.Id==field.Source.Id)||PhysicalSingleTarget(model,table,page) is null)
-            return false;
+        if(string.IsNullOrEmpty(field.Source.LinkConfigTableId)||
+            !model.Tables.Any(parent=>parent.IsGlobal&&parent.Source.Id==field.Source.LinkConfigTableId)||
+            page.Writable.Any(column=>column.Source.Id==field.Source.Id))
+            return null;
 
-        return model.Tables.Where(owner=>owner.Source.IsFunctionTable==1).SelectMany(owner=>owner.Pages)
-            .Any(form=>form.Readable.Concat(form.Writable).DistinctBy(column=>column.Source.Id)
-                .Where(column=>column.Source.ControlKind=="List"&&
-                    ProjectSinglePage(model,form,column,table)?.Source.Id==page.Source.Id)
-                .Any(column=>RelationCompilation.ForPage(model,form,scopeSourceId:column.Source.Id)
-                    .Any(option=>option.TargetPage.Source.Id==page.Source.Id&&option.FixedParent is {Global:true} parent&&
-                        parent.HasTarget(field.Source.Id))));
+        foreach(var form in model.Tables.Where(owner=>owner.Source.IsFunctionTable==1).SelectMany(owner=>owner.Pages))
+        foreach(var column in form.Readable.Concat(form.Writable).DistinctBy(column=>column.Source.Id)
+            .Where(column=>column.Source.ControlKind=="List"&&ProjectSinglePage(model,form,column,table)?.Source.Id==page.Source.Id))
+        {
+            var relation=RelationCompilation.ForPage(model,form,scopeSourceId:column.Source.Id)
+                .FirstOrDefault(option=>option.TargetPage.Source.Id==page.Source.Id&&option.FixedParent is {Global:true} parent&&
+                    parent.HasTarget(field.Source.Id));
+            if(relation is not null)return relation;
+        }
+        return null;
     }
 
     /// <summary>按目标页证明的实际全局父键，原多值引用保持已有同页校验。</summary>

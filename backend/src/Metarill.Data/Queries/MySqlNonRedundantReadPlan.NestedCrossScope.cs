@@ -255,6 +255,46 @@ public static partial class MySqlNonRedundantReadCompiler
         return CompileMultiParentPage(catalog,parent,published,"b","r",null,false);
     }
 
+    /// <summary>无父参数的字典页按原权限读取，控件单独从固定物理字段证明实际全局父页。</summary>
+    internal static MySqlNonRedundantReadPlan CompileControlGlobalParent(MetadataCatalog catalog,string tableId,string pageId,
+        IReadOnlyList<string> fieldIds)
+    {
+        MetadataValidation.Validate(catalog);
+        if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("固定全局父页要求已发布的MySQL读取计划。");
+        var (scope,published)=ResolveControlGlobalParent(catalog,tableId,pageId,fieldIds);
+        return CompileMultiParentPage(catalog,scope.Parent,published,"b","r",null,false);
+    }
+
+    /// <summary>筛选字段来自已发布字典，每个物理外键都必须绑定同一个真实全局父页。</summary>
+    internal static (MultiTargetParentScope Scope,PageMetadata Page) ResolveControlGlobalParent(
+        MetadataCatalog catalog,string tableId,string pageId,IReadOnlyList<string> fieldIds)
+    {
+        var table=catalog.ConfigTables.Single(item=>item.Id==tableId);
+        var page=catalog.ConfigPages.Single(item=>item.Id==pageId&&item.ConfigTableId==tableId);
+        if(table.IsFunctionTable!=0||table.IsView!=0||table.IsRongyu is not (0 or 1)||
+            table.YzProjectId.Length>0&&table.YzProjectId!=catalog.YzProjectId||
+            page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId||fieldIds.Count==0)
+            throw new InvalidOperationException("List 的附加父字段须属于当前项目的实际字典页。");
+
+        var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==tableId).ToArray();
+        var declared=columns.Select(column=>column.ColumnName);
+        var scopes=fieldIds.Distinct(StringComparer.Ordinal).Select(id=>
+        {
+            var column=columns.Single(field=>field.Id==id);
+            return MultiTargetParentScope.Compile(catalog,table,
+                FixedConditionPlan.Compile(column.ColumnName+"=@parentId",declared))??
+                throw new InvalidOperationException("List 的附加父字段缺少固定发布关系。");
+        }).ToArray();
+        var primary=scopes[0];
+        if(scopes.Any(scope=>scope is not {Global:true,Logical:false}||scope.Parent.Id!=primary.Parent.Id))
+            throw new InvalidOperationException("List 的父字段必须绑定同一个实际发布父页。");
+
+        var published=PublishedPhysicalMultiParent(catalog,primary);
+        if(scopes.Skip(1).Any(scope=>PublishedPhysicalMultiParent(catalog,scope).Id!=published.Id))
+            throw new InvalidOperationException("List 的父字段必须绑定同一个实际发布父页。");
+        return (primary with{AdditionalTargets=scopes[1..]},published);
+    }
+
     /// <summary>同一父页供请求点查和关联范围使用，维护从实际来源行读取账号归属。</summary>
     private static MySqlNonRedundantReadPlan CompileMultiParentPage(MetadataCatalog catalog,TableMetadata parent,
         PageMetadata published,string alias,string prefix,CascadeCacheOwner? owner,bool trackReverse)

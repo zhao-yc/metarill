@@ -35,9 +35,13 @@ internal static class DerivedRelationNamesCompilation
     internal static bool EmbedsParentScope(TableModel target,MultiTargetParentScope? parent)=>
         parent is {Logical:true} or {AdditionalTargets.Count:>0}||!target.IsGlobal&&parent is {Global:true};
 
+    /// <summary>控件独立父字段由候选过滤器承接，字典页读计划只嵌入自己的父参数。</summary>
+    internal static bool EmbedsParentScope(RelationModel relation)=>
+        relation.ControlParentPageId is null&&EmbedsParentScope(relation.Target,relation.FixedParent);
+
     /// <summary>普通候选的逻辑条件来自发布页、父级或原控件查询。</summary>
     internal static bool UsesLogicalPage(RelationModel relation)=>
-        EmbedsParentScope(relation.Target,relation.FixedParent)||FixedPageConditionCompilation.HasLogicalFields(relation.TargetPage)||
+        EmbedsParentScope(relation)||FixedPageConditionCompilation.HasLogicalFields(relation.TargetPage)||
         relation.Conditions?.HasLogicalFields==true||UsesSelfTreeExact(relation);
 
     /// <summary>全局非冗余目标及冗余单选的账号范围来自实际发布页，生成目录须保留该页范围。</summary>
