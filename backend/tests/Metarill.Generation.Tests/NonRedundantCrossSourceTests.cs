@@ -136,11 +136,11 @@ public sealed class NonRedundantCrossSourceTests
                 });
                 var matching=new Dictionary<string,object?>{["CompanyGroup"]=7};
                 var different=new Dictionary<string,object?>{["CompanyGroup"]=3};
-                await runtime.VerifyStoredCross("25",11,matching,["company_group"]);
+                await runtime.VerifyStoredRelation("VerifyStoredCross201_25Async",11,matching,["company_group"]);
                 var mismatch=await Assert.ThrowsAsync<InvalidOperationException>(()=>
-                    runtime.VerifyStoredCross("25",11,different,["company_group"]));
+                    runtime.VerifyStoredRelation("VerifyStoredCross201_25Async",11,different,["company_group"]));
                 Assert.Contains("派生名称依赖字段",mismatch.Message);
-                await runtime.VerifyStoredCross("25",11,different,["company_id"]);
+                await runtime.VerifyStoredRelation("VerifyStoredCross201_25Async",11,different,["company_id"]);
                 Assert.Equal(1,runtime.Transport.Rollbacks);
                 Assert.Equal(2,runtime.Transport.Commits);
             }

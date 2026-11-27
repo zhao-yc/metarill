@@ -1,6 +1,8 @@
+using Metarill.Data.Queries;
+
 namespace Metarill.Generation;
 
-internal sealed record CascadeTreeWriteModel(CascadeTreeReadModel Read,ColumnModel Name);
+internal sealed record CascadeTreeWriteModel(CascadeTreeReadModel Read,ColumnModel Name,IReadOnlyList<ColumnModel> NameDependencies);
 internal sealed record CascadeTreeWriteResult(CascadeTreeWriteModel? Definition,string? Reason);
 
 /// <summary>自关联级联持久化合同；辅助名称只由服务生成，不接受调用者赋值。</summary>
@@ -40,6 +42,15 @@ internal static class CascadeTreeWriteCompilation
             var path=name.Source.Extra.TryGetValue("columnFullName",out var value)?value.ToString():"";
             if(path.Length>0&&path!=source.Source.ColumnName[..^3]+"."+plan.Name.Source.ColumnName&&path!=source.Source.ColumnName+"."+plan.Name.Source.ColumnName)return Gap("非冗余叶子名称与明确selfTree来源冲突。");
         }
-        return new(new(plan,name),null);
+        // 同表书签的名称可能取决于它自己的业务列；按真实树页冻结写后重验字段。
+        IReadOnlyList<ColumnModel> dependencies=[];
+        if(plan.DerivedName&&plan.Target.Source.Id==table.Source.Id&&plan.Parent.Source.Id!=source.Source.Id)
+        {
+            var fields=NonRedundantReads.CompileSourceDependencies(model.Catalog,table.Source.Id,
+                plan.Name.Source.ColumnName,plan.TargetPage.Source.Id);
+            dependencies=fields.Select(field=>table.Columns.Single(column=>column.Source.ColumnName==field))
+                .Where(column=>column.CanVerifyStoredScalar).ToArray();
+        }
+        return new(new(plan,name,dependencies),null);
     }
 }

@@ -127,6 +127,93 @@ public sealed class CascadeTreeSameRowTests
         finally{if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
+    /// <summary>书签引用本表时真实生成的写后校验会比较已提交的字典分组。</summary>
+    [Fact]
+    public async Task Same_table_bookmark_checks_submitted_dictionary_dependencies_after_write()
+    {
+        const string ns="Example.SameDictionary";
+        var catalog=RedundantMultiNameCacheTests.Published(Catalog("same_dictionary","string","int64"));
+        catalog.ConfigTables.Single().IsRongyu=0;
+        catalog.ConfigColumns.Single(column=>column.Id=="1").Id="10001";
+        foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigColumnId=="1"))
+            field.ConfigColumnId="10001";
+        var bookmark=catalog.ConfigColumns.Single(column=>column.Id=="6");
+        bookmark.ControlDetail="""{"sourceMode":"selfTree","selfTree":{"table":"same_dictionary_node","parentField":"parent_id","nameField":"display_label"}}""";
+        catalog.ConfigTables.Add(new(){Id="90",TableName="same_dictionary_company",IsRongyu=1,
+            YzProjectId=catalog.YzProjectId,Extra=new(){["scopeKind"]=JsonSerializer.SerializeToElement("global")}});
+        catalog.ConfigColumns.AddRange([
+            new(){Id="901",ConfigTableId="90",ColumnName="id",LogicalType="int64",IsDbNotNull=1,YzProjectId=catalog.YzProjectId},
+            new(){Id="902",ConfigTableId="90",ColumnName="name",LogicalType="string",YzProjectId=catalog.YzProjectId},
+            new(){Id="903",ConfigTableId="90",ColumnName="segment",LogicalType="int32",YzProjectId=catalog.YzProjectId},
+            new(){Id="904",ConfigTableId="90",ColumnName="store_id",LogicalType="int64",YzProjectId=catalog.YzProjectId},
+            new(){Id="905",ConfigTableId="90",ColumnName="status",LogicalType="int32",YzProjectId=catalog.YzProjectId},
+            new(){Id="11",ConfigTableId="1",ColumnName="company_id",LogicalType="int64",ControlKind="List",
+                LinkConfigTableId="90",YzProjectId=catalog.YzProjectId,
+                ControlDetail="""{"tableId":"90","pageId":"9010","nameField":"name"}"""},
+            new(){Id="12",ConfigTableId="1",ColumnName="company_group",LogicalType="int32",YzProjectId=catalog.YzProjectId},
+            new(){Id="13",ConfigTableId="1",ColumnName="display_label",LogicalType="string",YzProjectId=catalog.YzProjectId,
+                Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
+                    ["columnFullName"]=JsonSerializer.SerializeToElement("company.name")}}
+        ]);
+        var admin=catalog.ConfigPages.Single(page=>page.Id=="202").YzAdminTypeId;
+        foreach(var (id,condition) in new[]{("9010","status=17"),("9020","status=3 AND store_id=@current_store_id")})
+        {
+            catalog.ConfigPages.Add(new(){Id=id,ConfigTableId="90",YzProjectId=catalog.YzProjectId,
+                YzAdminTypeId=admin,WhereSql=condition});
+            catalog.ConfigPageColumns.Add(new(){Id=id+"_902",ConfigPageId=id,ConfigColumnId="902",
+                YzProjectId=catalog.YzProjectId,IsShow=1});
+        }
+        foreach(var pageId in new[]{"201","202"})
+        foreach(var columnId in new[]{"11","12"})
+            catalog.ConfigPageColumns.Add(new(){Id=pageId+"_"+columnId,ConfigPageId=pageId,ConfigColumnId=columnId,
+                YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=1});
+        catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="202"&&field.ConfigColumnId=="11")
+            .Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"pageId":"9020","whereSql":"segment=@formParameters.companyGroup"}""");
+        catalog.ConfigPageColumns.Add(new(){Id="202_13",ConfigPageId="202",ConfigColumnId="13",
+            YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=0});
+
+        var model=GenerationModel.Create(catalog,ns);
+        var source=model.Tables.Single(table=>table.Source.Id=="1");
+        _=NonRedundantReadCompilation.ForPage(model,source,source.Pages.Single(page=>page.Source.Id=="201"));
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-same-dictionary");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var actor=new Metarill.Core.Security.RuntimeActor(8,"字典维护",false,catalog.YzProjectId,admin)
+                {StoreId=9007199254741000L};
+            const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.NonPublic;
+            var service=assembly.GetType(ns+".Generated.Services.SameDictionaryNodeService",true)!;
+            var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                service.GetField("DerivedCascadePlan201_6",hidden|System.Reflection.BindingFlags.Static)!.GetValue(null));
+            var bound=plan.BindAccount(actor);
+            const System.Reflection.BindingFlags instance=hidden|System.Reflection.BindingFlags.Instance;
+            var sql=bound.GetType().GetProperty("MySql",instance)!.GetValue(bound)!;
+            var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                sql.GetType().GetProperty("Constants",instance)!.GetValue(sql));
+            Assert.DoesNotContain(17,constants.Values);
+            Assert.Contains(3,constants.Values);
+            Assert.Contains(actor.StoreId!.Value,constants.Values);
+            using var runtime=new SharedExcelReadTransport(assembly,ns,"SameDictionaryNode",actor:actor);
+            runtime.Add("SameDictionaryNode",new Dictionary<string,object?>
+                {["Id"]=11L,["YzProjectId"]=long.Parse(actor.ProjectId,CultureInfo.InvariantCulture),["CompanyGroup"]=7});
+            const string method="ValidateStoredCascade201_6Async";
+            var matching=new Dictionary<string,object?>{["CompanyGroup"]=7};
+            var different=new Dictionary<string,object?>{["CompanyGroup"]=3};
+            await runtime.VerifyStoredRelation(method,11,matching,["company_group"]);
+            var mismatch=await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                runtime.VerifyStoredRelation(method,11,different,["company_group"]));
+            Assert.Contains("派生名称依赖字段",mismatch.Message);
+            await runtime.VerifyStoredRelation(method,11,different,["company_id"]);
+            Assert.Equal(3,runtime.Reads.Count(item=>item=="lock:SameDictionaryNode"));
+            Assert.Equal(1,runtime.Transport.Rollbacks);
+            Assert.Equal(2,runtime.Transport.Commits);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>来源201/203不含父字段，202为唯一树读取页；作用域使用真实数据库字符比较及金额舍入。</summary>
     internal static MetadataCatalog Catalog(string prefix="same",string sourceType="string",string parentType="int64")
     {

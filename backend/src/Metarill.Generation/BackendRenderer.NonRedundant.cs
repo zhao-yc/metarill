@@ -197,11 +197,10 @@ internal static partial class BackendRenderer
             nestedTables.UnionWith(model.Tables.Where(table=>references.Contains(table.Source.TableName)).Select(table=>table.Source.Id));
         }
         var recursiveCandidates=nestedTables.Count>0;
-        // 规则私有投影还需要实际发布的树页和祖先范围，即使叶名没有配置为列表筛选项。
+        // 派生叶名及规则私有投影都要保留实际树页，宿主静态初始化才能重新证明范围。
         var selfTreeNamePages=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>
                 NonRedundantReadCompilation.SelfTreeNameQueries(model,table,page,RuleSelfTreeFields(table,RuleRecordFields(model,table,page)))))
-            .Concat(model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>CascadeTreeReadCompilation.ForService(model,table,page)))
-                .Where(tree=>tree.Target.IsGlobal))
+            .Concat(selfTrees.Where(tree=>tree.Target.IsGlobal||tree.DerivedName))
             .Concat(model.Tables.Where(table=>table.IsGlobal&&table.Source.IsRongyu==0)
                 .SelectMany(table=>table.Pages.SelectMany(page=>CascadeTreeReadCompilation.ForService(model,table,page))))
             .Select(tree=>tree.TargetPage.Source.Id).ToHashSet(StringComparer.Ordinal);

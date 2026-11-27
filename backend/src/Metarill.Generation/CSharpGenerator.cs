@@ -174,6 +174,9 @@ internal sealed record ColumnModel(ColumnMetadata Source, string Property, strin
     /// <summary>物理布尔常量沿原选择控件使用数字 0／1 传输。</summary>
     internal bool IsBooleanConstant => Type == "bool?" && Source.ControlKind is "ConstList" or "ConstDownList";
     public string BoundaryType => IsJsonArray ? "JsonElement?" : Type;
+    /// <summary>名称路径读回只逐值核对普通业务标量，系统字段沿各自的写入规则。</summary>
+    internal bool CanVerifyStoredScalar => !IsSystem&&!IsJsonArray&&Type is
+        ("string?" or "long?" or "int?" or "decimal?" or "double?" or "bool?" or "DateTime?" or "TimeSpan?");
     /// <summary>原年月控件可绑定文本或日期。只有日期字段按原日期格式回显。</summary>
     internal bool IsMonthDate => Type == "DateTime?" && Source.ControlKind is "month" or "Month";
     public bool IsSystem => Source.ColumnName is "id" or "delete_no" or "insert_time" or "update_time" or "insert_manager_id" or "update_manager_id" or "insert_manager_name" or "update_manager_name" or "insert_manager_real_name" or "update_manager_real_name" or "insert_user_name" or "update_user_name" or "yz_project_id" or "yz_project_name";

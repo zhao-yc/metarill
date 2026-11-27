@@ -10,6 +10,7 @@ internal static class CascadeTreeMergedWriteRenderer
     private static IEnumerable<string> Dependencies(TableModel table,CascadeTreeWriteModel plan)=>new[]{plan.Read.Parent,plan.Read.Name}
         .Concat(plan.Read.Key.IsId?[]:new[]{plan.Read.Key})
         .Concat(plan.Read.TargetPage.Scopes.Select(scope=>scope.Column))
+        .Concat(plan.NameDependencies)
         .Concat(table.Columns.Where(column=>column.Source.ColumnName is "yz_project_id" or "delete_no"))
         .Concat(plan.Read.TargetPage.Condition is{} condition?condition.Syntax.Fields.Select(field=>table.Columns.Single(column=>column.Source.ColumnName==field)):[])
         .Select(column=>column.Source.ColumnName).Distinct(StringComparer.Ordinal);
@@ -27,6 +28,8 @@ internal static class CascadeTreeMergedWriteRenderer
         var clearIdentity=source.Type=="string?"?$"entity.{source.Property}=entity.{source.Property} is null?null:{Literal(string.Empty)};":"";
         var storedEmptyName=source.Type=="string?"?$"stored.{source.Property} is null?null:{Literal(string.Empty)}":"null";
         var identity=string.Concat(table.Columns.Where(column=>column.Source.ColumnName=="yz_project_id").Select(column=>$"||stored.{column.Property}!=entity.{column.Property}"));
+        var verifyNameFields=string.Concat(plan.NameDependencies.Select(column=>
+            $"        if((creating||submitted.Contains({Literal(column.Source.ColumnName)}))&&stored.{column.Property}!=entity.{column.Property})throw new InvalidOperationException(\"自树派生名称依赖字段在存储后发生变化，未提交。\");\n"));
         var nodeKey=CascadeTreeTopologyRenderer.NodeKey(plan.Read,"entity");
         var storedNodeKey=CascadeTreeTopologyRenderer.NodeKey(plan.Read,"stored");
         var keyProperty=plan.Read.Key.Property;
@@ -65,7 +68,7 @@ internal static class CascadeTreeMergedWriteRenderer
         var refresh=creating||submitted.Contains({{Literal(source.Source.ColumnName)}})||submitted.Contains({{Literal(name.Source.ColumnName)}});
         var stored=await session.Select<{{table.EntityType}}>().Where(row=>row.Id==entity.Id).ForUpdate().FirstAsync(cancellationToken);
         if(stored is null||stored.{{source.Property}}!=entity.{{source.Property}}{{identity}}||(creating||submitted.Contains({{Literal(parent.Source.ColumnName)}}))&&stored.{{parent.Property}}!=entity.{{parent.Property}})throw new InvalidOperationException("级联关联ID或归属在存储后发生变化，未提交。");
-        // 改父必须验证完整分支，不能把后代推过64层，也不能因书签为空漏掉约束。
+{{verifyNameFields}}        // 改父必须验证完整分支，不能把后代推过64层，也不能因书签为空漏掉约束。
         if(creating||{{CascadeTreeTopologyRenderer.ParentOrKeyChanged(plan.Read)}})_ = await CascadeTopology{{suffix}}(actor).FilterIdsAsync({{storedNodeKey}},false,cancellationToken);
         var text=Convert.ToString(stored.{{source.Property}},CultureInfo.InvariantCulture);string? actualName;
         if(string.IsNullOrWhiteSpace(text))actualName={{storedEmptyName}};

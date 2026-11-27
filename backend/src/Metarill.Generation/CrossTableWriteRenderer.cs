@@ -54,8 +54,7 @@ internal static class CrossTableWriteRenderer
             var keys=sourceLevels.SelectMany(level=>new[]{level.Parent,level.AlternateKey}).OfType<ColumnModel>().ToArray();
             var nameDependencies=sourceLevels.SelectMany(level=>level.NameDependencies??[])
                 .Select(field=>table.Columns.Single(column=>column.Source.ColumnName==field))
-                .Where(column=>!column.IsSystem&&!column.IsJsonArray&&column.Type is
-                    ("string?" or "long?" or "int?" or "decimal?" or "double?" or "bool?" or "DateTime?" or "TimeSpan?"));
+                .Where(column=>column.CanVerifyStoredScalar);
             var structure=keys.Concat(nameDependencies).DistinctBy(column=>column.Source.Id).ToArray();
             var projection=string.Join(",",check.Concat(structure).DistinctBy(column=>column.Source.Id).Select(column=>column.Property+"=row."+column.Property));
             output.AppendLine("    /// <summary>读取实际存储的受管字段，数据库截断或触发器改写时在观察者前整笔回滚，不补写修复。</summary>")

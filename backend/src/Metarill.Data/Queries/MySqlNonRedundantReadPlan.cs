@@ -729,9 +729,13 @@ public static partial class MySqlNonRedundantReadCompiler
                     {
                         if(target.IsRongyu!=0)throw new NotSupportedException("自树派生名称要求R0目标。");
                         var globalTarget=GlobalCrossTableTarget.Declared(target);
-                        var targetPage=globalTarget&&SelfTreeLabel(catalog,tree) is {Scoped:false} fixedTree?fixedTree.Page:null;
+                        var published=globalTarget||catalog.ConfigPages.Any(page=>page.ConfigTableId==target.Id)
+                            ?SelfTreeLabel(catalog,tree):null;
+                        var targetPage=globalTarget&&published is {Scoped:false}?published.Page:null;
+                        // 占位输出也从实际树页证明派生终点，不能回退到表级字典。
                         var nested=new Builder(catalog,target.Id,matching:!globalTarget,candidatePage:targetPage,
-                            globalCandidate:globalTarget&&target.IsRongyu==0&&targetPage is not null).Compile([value.ColumnName],[]);
+                            globalCandidate:globalTarget&&targetPage is not null)
+                            {CrossNameSourcePage=published?.Page}.Compile([value.ColumnName],[]);
                         if(nested.Types[value.ColumnName]!=value.LogicalType||nested.MultiProjections.Count>0||nested.Crosses.Count>0||!nested.Origins.TryGetValue(value.ColumnName,out var terminal)||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(terminal.Column))throw new NotSupportedException("自树名称必须落到同类型的非凭据标量。");
                     }
                     // 明确交由生成服务的固定图投影，SQL阶段不读取未经完整祖先范围证明的叶子名称。
