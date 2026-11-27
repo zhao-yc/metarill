@@ -1374,7 +1374,7 @@ internal sealed class SharedExcelReadTransport:IDisposable
         });
 
     /// <summary>实际执行生成的写后读取及比较，内存中分别模拟请求实体和数据库行。</summary>
-    internal Task VerifyStoredRelation(string method,long recordId,IReadOnlyDictionary<string,object?> fields,string[] submitted)=>
+    internal Task VerifyStoredRelation(string method,long recordId,IReadOnlyDictionary<string,object?> fields,string[] submitted,bool creating=false)=>
         Session.InTransactionAsync(async()=>
         {
             var entityType=assembly.GetType(rootNamespace+".Generated.Entities."+sourceEntity,true)!;
@@ -1385,7 +1385,7 @@ internal sealed class SharedExcelReadTransport:IDisposable
                 CultureInfo.InvariantCulture));
             foreach(var (field,value) in fields)entityType.GetProperty(field)!.SetValue(entity,value);
             var verify=serviceType.GetMethod(method,BindingFlags.Instance|BindingFlags.NonPublic)!;
-            await (Task)verify.Invoke(service,[entity,actor,new HashSet<string>(submitted,StringComparer.Ordinal),false,CancellationToken.None,true])!;
+            await (Task)verify.Invoke(service,[entity,actor,new HashSet<string>(submitted,StringComparer.Ordinal),creating,CancellationToken.None,true])!;
             return true;
         });
 

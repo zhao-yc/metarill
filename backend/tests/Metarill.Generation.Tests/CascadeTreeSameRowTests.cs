@@ -214,6 +214,108 @@ public sealed class CascadeTreeSameRowTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
+    /// <summary>写后拓扑必须复核本次父键，另一个有效父节点不能替代本次选择。</summary>
+    [Theory]
+    [InlineData(false,1)]
+    [InlineData(true,0)]
+    public async Task Direct_parent_readback_rejects_rewritten_key_or_cache(bool textKey,int redundant)
+    {
+        const string ns="Example.DirectParentReadback";
+        const string entity="ParentReadbackNode", method="VerifyDirectParentForTestAsync";
+        var catalog=RedundantMultiNameCacheTests.Published(Catalog("parent_readback",textKey?"string":"int64",textKey?"string":"int64"));
+        catalog.ConfigTables.Single().IsRongyu=redundant;
+        catalog.ConfigColumns.Single(column=>column.Id=="1").Id="10001";
+        foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigColumnId=="1"))
+            field.ConfigColumnId="10001";
+        var parent=catalog.ConfigColumns.Single(column=>column.Id=="5");
+        parent.ControlKind="CascadeTree";
+        parent.ControlDetail=JsonSerializer.Serialize(new{sourceMode="selfTree",selfTree=new
+            {table="parent_readback_node",parentField="parent_id",nameField="name",idField=textKey?"node_key":"id"}});
+        catalog.ConfigColumns.Single(column=>column.Id=="6").ControlDetail=parent.ControlDetail;
+        if(textKey)
+        {
+            catalog.ConfigColumns.Add(new(){Id="10",ConfigTableId="1",ColumnName="node_key",LogicalType="string",
+                YzProjectId=catalog.YzProjectId,ColumnLength="48",IsDbNotNull=1});
+            catalog.ConfigIndexes.Add(JsonSerializer.SerializeToElement(new{id="701",configTableId="1",
+                indexName="uq_tree_node_key",isUnique=1,isEnabled=1}));
+            catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id="702",configIndexId="701",configColumnId="2",sortNo=1}));
+            catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id="703",configIndexId="701",configColumnId="10",sortNo=2}));
+        }
+        var model=GenerationModel.Create(catalog,ns);
+        var table=Assert.Single(model.Tables);
+        var page=table.Pages.Single(candidate=>candidate.Source.Id=="202");
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-parent-readback");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated=Path.Combine(directory,"generated");
+            new CSharpGenerator().Generate(catalog,generated,ns);
+            // 在受控存储上直接运行正式生成的写后调用，替身不复制校验逻辑。
+            await File.WriteAllTextAsync(Path.Combine(generated,"Services/ParentReadbackProbe.cs"),$$"""
+                using Metarill.Core.Security;
+                using {{ns}}.Generated.Entities;
+                namespace {{ns}}.Generated.Services;
+                public partial class {{entity}}Service
+                {
+                    private async Task {{method}}({{entity}} entity,RuntimeActor actor,ISet<string> submitted,
+                        bool creating,CancellationToken cancellationToken,bool requireTargetList)
+                    {
+                        if(creating)
+                        {
+                {{CascadeTreeTopologyRenderer.After(model,table,page,true)}}
+                        }
+                        else
+                        {
+                {{CascadeTreeTopologyRenderer.After(model,table,page,false)}}
+                        }
+                    }
+                }
+                """);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var actor=new Metarill.Core.Security.RuntimeActor(8,"父节点校验",false,catalog.YzProjectId,page.Source.YzAdminTypeId);
+            using var runtime=new SharedExcelReadTransport(assembly,ns,entity,actor:actor,pageId:"202",mysqlDialect:true);
+            var project=long.Parse(actor.ProjectId,CultureInfo.InvariantCulture);
+            object first=textKey?"Root-A":1L;
+            object second=textKey?"Root-B":2L;
+            Seed(1,"可根甲","Root-A");
+            Seed(2,"可根乙","Root-B");
+            Seed(11,"可当前","Child-11",second);
+            var mismatch=await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                runtime.VerifyStoredRelation(method,11,Expected(first,"可根甲"),["parent_id"]));
+            Assert.Contains("自树父节点在存储后发生变化",mismatch.Message);
+            var creation=await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                runtime.VerifyStoredRelation(method,11,Expected(first,"可根甲"),[],creating:true));
+            Assert.Contains("自树父节点在存储后发生变化",creation.Message);
+            await runtime.VerifyStoredRelation(method,11,Expected(second,"可根乙"),["parent_id"]);
+            if(redundant==1)
+            {
+                var cache=await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    runtime.VerifyStoredRelation(method,11,Expected(second,"被改写"),["parent_id"]));
+                Assert.Contains("自树父节点名称在存储后发生变化",cache.Message);
+            }
+            else
+                await runtime.VerifyStoredRelation(method,11,Expected(first,"可根甲"),["node_key"]);
+            Assert.Equal(redundant==1?3:2,runtime.Transport.Rollbacks);
+            Assert.Equal(redundant==1?1:2,runtime.Transport.Commits);
+
+            Dictionary<string,object?> Expected(object parentId,string parentName)
+            {
+                var fields=new Dictionary<string,object?>{["ParentId"]=parentId,["ParentName"]=parentName};
+                if(textKey)fields["NodeKey"]="Child-11";
+                return fields;
+            }
+            void Seed(long id,string name,string key,object? parentId=null)
+            {
+                var fields=new Dictionary<string,object?>{["Id"]=id,["YzProjectId"]=project,["Name"]=name,
+                    ["Status"]=1,["Amount"]=1m,["Code"]="é",["ParentId"]=parentId,
+                    ["ParentName"]=parentId is null?null:"可根乙"};
+                if(textKey)fields["NodeKey"]=key;
+                runtime.Add(entity,fields);
+            }
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>来源201/203不含父字段，202为唯一树读取页；作用域使用真实数据库字符比较及金额舍入。</summary>
     internal static MetadataCatalog Catalog(string prefix="same",string sourceType="string",string parentType="int64")
     {

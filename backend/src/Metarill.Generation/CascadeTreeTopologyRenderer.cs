@@ -42,16 +42,26 @@ internal static class CascadeTreeTopologyRenderer
                 var changed=ParentOrKeyChanged(read);
                 var suffix=page.Source.Id+"_"+read.Source.Source.Id;
                 var trigger=creating.ToString().ToLowerInvariant()+"||"+changed;
-                if(read.Key.IsId)return $"        if({trigger})_ = await CascadeTopology{suffix}(actor).FilterIdsAsync(entity.Id,false,cancellationToken);\n";
-
-                // 只读回刚写入的真实主键，避免数据库触发器改变业务键后错误验证另一节点。
+                var parent=read.Parent.Property;
                 var key=read.Key.Property;
+                var storedName=table.Source.IsRongyu==1?plan.Name.Property:null;
+                var projection=string.Join(",",new[]{parent,key,storedName}.OfType<string>()
+                    .Distinct(StringComparer.Ordinal).Select(property=>property+"=row."+property));
+                var verifyParent=creating?"true":"submitted.Contains("+JsonSerializer.Serialize(read.Parent.Source.ColumnName)+")";
+                var verifyName=storedName is null?"":
+                    $"            if(({verifyParent})&&directTree.{storedName}!=entity.{storedName})throw new InvalidOperationException(\"自树父节点名称在存储后发生变化，未提交。\");\n";
+                var verifyKey=read.Key.IsId?"":
+                    $"            var storedKey=directTree.{key};\n            if(storedKey is null||storedKey!=entity.{key})throw new InvalidOperationException(\"自树业务键在存储后发生变化，未提交。\");\n";
+                var topologyKey=read.Key.IsId?"entity.Id":read.TextKey?"storedKey":"storedKey.Value";
+
+                // 先比较本次提交与真实存储，再验证完整分支。控制名只在冗余来源落库。
                 return $$"""
         if({{trigger}})
         {
-            var storedKey=await CascadeScope{{suffix}}(actor,false,false,true).Where(row=>row.Id==entity.Id).ForUpdate().FirstAsync(row=>row.{{key}},cancellationToken);
-            if(storedKey is null||storedKey!=entity.{{key}})throw new InvalidOperationException("自树业务键在存储后发生变化，未提交。");
-            _ = await CascadeTopology{{suffix}}(actor).FilterIdsAsync(storedKey{{(read.TextKey?"":".Value")}},false,cancellationToken);
+            var directTree=await CascadeScope{{suffix}}(actor,false,false,true).Where(row=>row.Id==entity.Id).ForUpdate().FirstAsync(row=>new {{table.EntityType}}{{{projection}}},cancellationToken);
+            if(directTree is null)throw new InvalidOperationException("自树节点在存储后不存在或归属已变化，未提交。");
+            if(({{verifyParent}})&&directTree.{{parent}}!=entity.{{parent}})throw new InvalidOperationException("自树父节点在存储后发生变化，未提交。");
+{{verifyName}}{{verifyKey}}            _ = await CascadeTopology{{suffix}}(actor).FilterIdsAsync({{topologyKey}},false,cancellationToken);
         }
 
 """;
