@@ -118,8 +118,27 @@ public sealed partial class ConfigurationMutationObserver(SqlRowStore store,Meta
         if((await store.ReadAsync("config_column",new Dictionary<string,object?>{{"config_table_id",tableId},{"column_name",column}},token)).Count!=1)throw new InvalidOperationException("同表字段名不能重复。");
         var originalType=SqlRowStore.Text(row,"logical_type");
         var cascade = SqlRowStore.Text(row, "control_kind") == "CascadeTree";
-        var type=Metarill.Core.Metadata.MetadataColumnTypePolicy.Resolve(column,originalType,SqlRowStore.Text(row,"column_type"),context.IsCreate,
-            context.SubmittedFields.ContainsKey("logical_type"),context.SubmittedFields.ContainsKey("column_type"),allowTextCascadeLeaf:cascade);
+        var physicalType = SqlRowStore.Text(row, "column_type");
+        var type = MetadataColumnTypePolicy.Resolve(column, originalType, physicalType, context.IsCreate,
+            context.SubmittedFields.ContainsKey("logical_type"), context.SubmittedFields.ContainsKey("column_type"), allowTextCascadeLeaf: cascade);
+        var normalization = new Dictionary<string, object?>();
+        if (string.Equals(physicalType, "decimal", StringComparison.OrdinalIgnoreCase))
+        {
+            int? StoredNumber(string key) => row.GetValueOrDefault(key) is { } value ? Convert.ToInt32(value) : null;
+            var length = SqlRowStore.Text(row, "column_length");
+            var precision = StoredNumber("precision");
+            var scale = StoredNumber("scale");
+            var shape = DecimalColumnShape.FromSubmission(physicalType, length, precision, scale, context.IsCreate,
+                context.SubmittedFields.ContainsKey("column_length"), context.SubmittedFields.ContainsKey("precision"),
+                context.SubmittedFields.ContainsKey("scale"));
+            if (shape is { } decimalShape)
+            {
+                type = MetadataColumnTypePolicy.Resolve(column, "decimal", physicalType, context.IsCreate, true, false);
+                if (length != decimalShape.ColumnLength) normalization["column_length"] = decimalShape.ColumnLength;
+                if (precision != decimalShape.Precision) normalization["precision"] = decimalShape.Precision;
+                if (scale != decimalShape.Scale) normalization["scale"] = decimalShape.Scale;
+            }
+        }
         await ValidateCascadeColumnAsync(context, project, tables[0], row, type, cascade, token);
         if (ConfigurationSelectionRules.Applies(SqlRowStore.Text(row, "control_kind")) &&
             (context.IsCreate || context.SubmittedFields.Keys.Any(key => key is "control_kind" or "control_detail" or "link_config_page_id")))
@@ -144,8 +163,9 @@ public sealed partial class ConfigurationMutationObserver(SqlRowStore store,Meta
                 configuration, null, token);
         }
         // 无关配置编辑不能从空物理类型重推逻辑类型，也不追加无效果的类型写入。
-        if(!string.Equals(type,originalType,StringComparison.Ordinal))
-            await store.UpdateAsync("config_column",context.RecordId,new Dictionary<string,object?>{{"logical_type",type}},token);
+        if (!string.Equals(type, originalType, StringComparison.Ordinal)) normalization["logical_type"] = type;
+        if (normalization.Count > 0 && await store.UpdateAsync("config_column", context.RecordId, normalization, token) != 1)
+            throw new InvalidOperationException("同步字段类型与精度失败。");
         await SynchronizeColumnValuesAsync(row,references,context.SubmittedFields.Keys.ToHashSet(StringComparer.Ordinal),token);
     }
 

@@ -38,6 +38,8 @@ public sealed class SchemaImportDraftTests
         Assert.True(draft.ColumnsAndIndexesRepresentable, string.Join(";", draft.Issues.Select(issue => issue.Message)));
         var column = Assert.Single(draft.LogicalMetadata.ConfigColumns, column => column.ColumnName == "value");
         Assert.Equal(logical, column.LogicalType); Assert.StartsWith("draft_table_", column.ConfigTableId); Assert.StartsWith("draft_", column.Id);
+        if (logical == "decimal")
+            Assert.Equal(type["decimal(".Length..^1], column.ColumnLength);
         Assert.Empty(draft.LogicalMetadata.ConfigPages); Assert.Empty(draft.LogicalMetadata.ConfigMenus); Assert.True(draft.UsesDraftIdentifiers);
         Assert.Equal(before, System.Text.Json.JsonSerializer.Serialize(input));
     }

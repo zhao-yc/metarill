@@ -628,6 +628,80 @@ public sealed partial class ConfigurationMaterializedValueTests
     }
 
 
+    [Theory]
+    [InlineData("19, 4",19,4)]
+    [InlineData("12",12,0)]
+    public async Task Original_decimal_length_changes_the_physical_shape_after_save(string length,int precision,int scale)
+    {
+        using var f=new Fixture();
+        var field=f.Get("config_column",20);
+        field["precision"]=18;
+        field["scale"]=2;
+        // 原详情提交整个对象，隐藏的逻辑类型、精度与小数位可能还是上次的值。
+        var patch=new Dictionary<string,object?>{{"column_type","decimal"},{"column_length",length},
+            {"logical_type","string"},{"precision",18},{"scale",2}};
+        await f.Session.InTransactionAsync(async()=>
+        {
+            Assert.Equal(1,await f.Store.UpdateAsync("config_column",20,patch));
+            await f.Observer.BeforeCommitAsync(f.Context("config_column",20,patch));
+            return true;
+        });
+        var saved=MetadataRepository.DecodeRow<Metarill.Core.Metadata.ColumnMetadata>(f.Get("config_column",20));
+        Assert.Equal("decimal",saved.LogicalType);
+        Assert.Equal(length,saved.ColumnLength);
+        Assert.Equal(precision,saved.Precision);
+        Assert.Equal(scale,saved.Scale);
+        Assert.Equal($"decimal({precision},{scale})",Metarill.Data.Schema.MySqlSchemaPlanner.CompileColumn(saved).StoreType);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("8,9")]
+    [InlineData("too long")]
+    public async Task Invalid_explicit_decimal_length_leaves_prior_configuration_untouched(string length)
+    {
+        using var f=new Fixture();
+        var column=f.Get("config_column",20);
+        column["column_type"]="decimal";
+        column["logical_type"]="decimal";
+        column["column_length"]="12,3";
+        column["precision"]=12;
+        column["scale"]=3;
+        var before=f.Snapshot();
+        var patch=new Dictionary<string,object?>{{"column_length",length}};
+        await Assert.ThrowsAsync<BusinessRuleException>(()=>f.Session.InTransactionAsync(async()=>
+        {
+            Assert.Equal(1,await f.Store.UpdateAsync("config_column",20,patch));
+            await f.Observer.BeforeCommitAsync(f.Context("config_column",20,patch));
+            return true;
+        }));
+        Assert.Equal(before,f.Snapshot());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Explicit_numeric_decimal_shape_keeps_original_length_field_consistent(bool legacyBlank)
+    {
+        using var f=new Fixture();
+        var column=f.Get("config_column",20);
+        column["column_type"]="decimal";
+        column["logical_type"]="decimal";
+        column["column_length"]=legacyBlank?"":"12,3";
+        column["precision"]=12;
+        column["scale"]=3;
+        var patch=new Dictionary<string,object?>{{"precision",20},{"scale",5}};
+        if(legacyBlank) patch["column_length"]="";
+        await f.Session.InTransactionAsync(async()=>
+        {
+            Assert.Equal(1,await f.Store.UpdateAsync("config_column",20,patch));
+            await f.Observer.BeforeCommitAsync(f.Context("config_column",20,patch));
+            return true;
+        });
+        Assert.Equal("20,5",SqlRowStore.Text(f.Get("config_column",20),"column_length"));
+    }
+
+
     [Fact]
     public async Task Real_sort_workbench_and_copy_page_use_current_target_values()
     {

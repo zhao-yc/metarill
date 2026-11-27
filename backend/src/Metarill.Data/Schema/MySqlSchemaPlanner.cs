@@ -205,7 +205,7 @@ public static class MySqlSchemaPlanner
     }
     private static string DecimalType(int precision, int scale)
     {
-        if (precision is < 1 or > 65 || scale is < 0 or > 30 || scale > precision) throw new InvalidOperationException("小数精度或小数位数无效。");
+        if (!DecimalColumnShape.IsValid(precision, scale)) throw new InvalidOperationException("小数精度或小数位数无效。");
         return $"decimal({precision},{scale})";
     }
     /// <summary>原时间类型保留默认六位；只有已明确声明的类型精度才能改变新建物理结构。</summary>

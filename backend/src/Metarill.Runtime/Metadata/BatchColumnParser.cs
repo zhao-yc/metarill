@@ -118,9 +118,13 @@ internal static class BatchColumnParser
         }
         if(row.ColumnType=="decimal")
         {
-            var match=Regex.Match(row.ColumnLength,@"\A([1-9][0-9]?)(?:,([0-9]{1,2}))?\z");
-            if(!match.Success)Error(row,"columnLength","INVALID_LENGTH","小数长度须为精度或精度,小数位");
-            else{row.Precision=int.Parse(match.Groups[1].Value,CultureInfo.InvariantCulture);row.Scale=match.Groups[2].Success?int.Parse(match.Groups[2].Value,CultureInfo.InvariantCulture):0;if(row.Precision>65||row.Scale>30||row.Scale>row.Precision)Error(row,"columnLength","INVALID_LENGTH","小数精度为1至65，小数位为0至30且不大于精度");}
+            if (!DecimalColumnShape.TryParseLength(row.ColumnLength, out var decimalShape))
+                Error(row, "columnLength", "INVALID_LENGTH", "小数长度须为 1 至 65 位精度及可选小数位。小数位不得超过 30 或精度。");
+            else
+            {
+                row.Precision = decimalShape.Precision;
+                row.Scale = decimalShape.Scale;
+            }
         }
         else if (row.ColumnType is "nvarchar" or "varchar")
         {
