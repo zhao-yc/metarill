@@ -8,6 +8,7 @@ public sealed class CrossTableExcelRow(IReadOnlySet<string>? textKeys)
 {
     public CrossTableExcelRow():this(null){}
     private readonly List<(string Header,Dictionary<string,JsonElement> Values,bool Clear)> cells=[];
+    private readonly HashSet<string> auxiliaryTail=new(StringComparer.Ordinal);
     /// <summary>只接生成计划给出的ID槽；克隆单元格结果，避免JsonDocument释放或外部改写。</summary>
     public void Add(string header,IReadOnlyDictionary<string,JsonElement> values,bool clear) =>
         Add(header, values, clear, null);
@@ -31,6 +32,14 @@ public sealed class CrossTableExcelRow(IReadOnlySet<string>? textKeys)
         }
         cells.Add((header,copy,clear));
     }
+    /// <summary>显式辅助列可表示部分路径，尾部空槽只补没有其它单元格声明的位置。</summary>
+    public void AddAuxiliary(string header,IReadOnlyDictionary<string,JsonElement> values,bool clear,
+        IReadOnlyDictionary<string,JsonElement>? fixedPath,IReadOnlyList<string> tail)
+    {
+        Add(header,values,clear,fixedPath);
+        auxiliaryTail.UnionWith(tail);
+    }
+
     /// <summary>非空路径必须彼此及显式ID一致；空单元格仅填未声明的槽，保持旧清空合同。</summary>
     public Dictionary<string,JsonElement> Merge(IReadOnlyDictionary<string,JsonElement> declared)
     {
@@ -44,6 +53,7 @@ public sealed class CrossTableExcelRow(IReadOnlySet<string>? textKeys)
             if(declared.TryGetValue(group.Key,out var explicitValue)&&Key(group.Key,explicitValue,first.Header)!=key)throw Invalid(first.Header);
             merged[group.Key]=first.Value;
         }
+        foreach(var field in auxiliaryTail)merged.TryAdd(field,JsonSerializer.SerializeToElement<object?>(null));
         return merged;
     }
     /// <summary>仅比较ID含义；数字和字符串保持整数精度，null/空串均表示未选择。</summary>

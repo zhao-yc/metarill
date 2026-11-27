@@ -49,8 +49,14 @@ public sealed partial class {{page.Name}}ImportRequest
         var columns = Columns(page);
         var relations = RelationCompilation.ForPage(model, page, forExcel: true)
             .Where(relation => columns.Contains(relation.SourceColumn)).ToDictionary(relation => relation.SourceColumn);
-        var crosses=columns.Where(column=>column.Source.ControlKind=="CascadeTree").Select(column=>CrossTableWriteCompilation.Resolve(model,table,page,column).Definition).OfType<CrossTableWriteModel>().ToArray();
+        var plans=CrossTableWriteCompilation.ForService(model,table,page);
+        var auxiliaries=CrossTableExcelRenderer.Auxiliaries(table,plans,columns).ToDictionary(auxiliary=>auxiliary.Column.Source.Id);
+        // 共享上级的其它分支也可能承载不可覆盖的固定父参数。
+        var crosses=plans.Where(plan=>columns.Any(column=>column.Source.Id==plan.Read.Source.Source.Id)||
+            plan.Levels.Any(level=>auxiliaries.ContainsKey(level.Id.Source.Id))).ToArray();
         var hasCross=crosses.Length>0;
+        var hiddenSlots=CrossTableExcelRenderer.HiddenImportSlots(model,table,page);
+        var hiddenArgument=hiddenSlots.Count==0?"":", crossImportValues: values";
         var fixedParents=FixedSharedCrossParents(model,table,page,crosses);
         var fixedCrossReader=fixedParents.Count==0?RedundantFixedCrossBatchReader(model,table,page,crosses):FixedCrossBatchReader(page,fixedParents);
         var hasFixedCross=fixedCrossReader.Length>0;
@@ -66,6 +72,7 @@ public sealed partial class {{page.Name}}ImportRequest
         if (overwriteKey?.IsJsonArray == true) throw new InvalidOperationException("覆盖匹配字段不能为数组。");
         var crossOverwrite=overwrite&&(hasCross||CrossTableExcelRenderer.HasFixedPath(page));
         var logicalMatch=NonRedundantImportMatchRenderer.Resolve(model,table,page,dependency);
+        var logicalContext=logicalMatch is { Context.Count:>0 };
         // 缺失的首列不能由父参数或同一行的其它路径补成覆盖匹配键。
         var requireExplicitKey=crossOverwrite||logicalMatch?.Key.Source.ControlKind=="CascadeTree";
         // 原追加入口显式固定 MySQL 可重复读，只有单一全局物理名称副本可能使用合并写回。
@@ -87,7 +94,7 @@ public sealed partial class {{page.Name}}ImportRequest
             .Append(fixedCrossReader)
             .AppendLine("        var rowNumber = 0;")
             .AppendLine("        foreach (var row in request.RequestJson.EnumerateArray())").AppendLine("        {").AppendLine("            rowNumber++;").AppendLine("            try").AppendLine("            {");
-        if (contextual && overwrite) result.AppendLine($"                {(logicalMatch is null?table.EntityType:"ImportExistingContext"+page.Source.Id)}? importExisting = null;");
+        if (contextual && overwrite) result.AppendLine($"                {(logicalContext?"ImportExistingContext"+page.Source.Id:table.EntityType)}? importExisting = null;");
         // 覆盖先匹配并锁定原对象，再解析其余列；旧父与默认值只作候选上下文，不作为提交字段。
         var parsed = contextual && overwrite ? "keyValues" : "values";
         var initialContext = contextual ? ", null, " + (overwrite ? "true" : "false") : "";
@@ -95,7 +102,7 @@ public sealed partial class {{page.Name}}ImportRequest
         if (overwriteKey is { } first)
         {
             var missingKey = requireExplicitKey
-                ? $"!row.TryGetProperty({Literal(Header(first))}, out _) || "
+                ? $"!row.TryGetProperty({Literal(Header(first))}, out var keyCell) || keyCell.ValueKind == JsonValueKind.Null || keyCell.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(keyCell.GetString()) || "
                 : "";
             var blankKey = requireExplicitKey && first.Type == "string?"
                 ? " || matchValue.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(matchValue.GetString())"
@@ -109,7 +116,9 @@ public sealed partial class {{page.Name}}ImportRequest
             else
             {
                 var query=$"Scope{page.Source.Id}(actor, request.ParentId{ExactDataManageCompilation.Argument(page,"\"import\"")}{NonRedundantCrossParentCompilation.LockArgument(model,table,page)})";
-                query=crossOverwrite&&CrossTableWriteCompilation.Resolve(model,table,page,first).Definition is {} firstPath&&firstPath.Levels[^1].Read.TextKey
+                var textKey=CrossTableWriteCompilation.Resolve(model,table,page,first).Definition?.Levels[^1].Read.TextKey==true||
+                    auxiliaries.TryGetValue(first.Source.Id,out var firstAuxiliary)&&firstAuxiliary.Plan.Levels[firstAuxiliary.Index].Read.TextKey;
+                query=crossOverwrite&&textKey
                     ?$"global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent({query},session,{Literal(first.Source.ColumnName)},key!,businessKey:true)"
                     :$"{query}.Where(entity => entity.{first.Property} == key)";
                 result.AppendLine($"                var existing = await {query}.ForUpdate().Limit(2).ToListAsync({OverwriteMatchProjection(table,page,dependency)}, cancellationToken);")
@@ -121,7 +130,7 @@ public sealed partial class {{page.Name}}ImportRequest
             }
             if(contextual)
             {
-                if(logicalMatch is null)result.AppendLine("                if (existing.Count == 1) importExisting = existing[0];");
+                if(!logicalContext)result.AppendLine("                if (existing.Count == 1) importExisting = existing[0];");
                 else result.Append(NonRedundantImportMatchRenderer.Context(page));
                 result.AppendLine($"                var values = await ParseImport{page.Source.Id}Async(row, request.ParentId, actor, importExisting, false{fixedCrossParameter}, cancellationToken);");
                 // 旧联动值可以补足省略的其它列，但不能将覆盖匹配键换成另一条同名候选。
@@ -131,13 +140,13 @@ public sealed partial class {{page.Name}}ImportRequest
             result.AppendLine("                if (existing.Count == 1)").AppendLine("                {")
                 .AppendLine("                    values[\"id\"] = JsonSerializer.SerializeToElement(existing[0].Id);")
                 .AppendLine($"                    var update = ReadRow<{page.Name}UpdateRequest>(values);")
-                .AppendLine($"                    await Update{page.Source.Id}{(fileImport?"Core":"")}Async(update, request.ParentId, actor{(fileImport?", RecordMutationOperation.Import":"")}, cancellationToken);")
+                .AppendLine($"                    await Update{page.Source.Id}{(fileImport?"Core":"")}Async(update, request.ParentId, actor{(fileImport?", RecordMutationOperation.Import":"")}, cancellationToken{hiddenArgument});")
                 .AppendLine("                    continue;").AppendLine("                }");
         }
         result.AppendLine($"                var create = ReadRow<{page.Name}CreateRequest>(values);")
             .AppendLine(mergeParent
                 ?$"                await Create{page.Source.Id}WithParentRecheckAsync(create, request.ParentId, actor, parentRecheck, cancellationToken{(packedAppend?", canPackRows ? QueuePackedRow : null, canPackRows ? FlushPackedRowsAsync : null, reuseInitialParentLock: canPackRows && !sharedParentLocked && rowNumber == 1":"")});"
-                :$"                await Create{page.Source.Id}{(fileImport?"Core":"")}Async(create, request.ParentId, actor{(fileImport?", RecordMutationOperation.Import":"")}, cancellationToken);")
+                :$"                await Create{page.Source.Id}{(fileImport?"Core":"")}Async(create, request.ParentId, actor{(fileImport?", RecordMutationOperation.Import":"")}, cancellationToken{hiddenArgument});")
             .Append(packedAppend?PackedAppendRenderer.FlushAfterRow:"")
             .AppendLine("            }");
         if(packedAppend)
@@ -166,13 +175,14 @@ public sealed partial class {{page.Name}}ImportRequest
             .AppendLine("        {")
             .AppendLine("            rowBuffer.ResetWrittenCount();")
             .AppendLine("            rowWriter.Reset();")
-            .AppendLine("            JsonSerializer.Serialize(rowWriter, values);")
+            .AppendLine(hiddenSlots.Count==0?"            JsonSerializer.Serialize(rowWriter, values);":
+                $"            JsonSerializer.Serialize(rowWriter, values.Where(pair=>pair.Key is not ({string.Join(" or ",hiddenSlots.Select(column=>Literal(column.JsonName)))})).ToDictionary(pair=>pair.Key,pair=>pair.Value,StringComparer.Ordinal));")
             .AppendLine("            rowWriter.Flush();")
             .AppendLine("            return JsonSerializer.Deserialize<T>(rowBuffer.WrittenSpan, JsonOptions)!;")
             .AppendLine("        }")
             .AppendLine("    }, cancellationToken);")
             .AppendLine("    /// <summary>仅按当前页已开放的中文标题读取单元格，未知、系统和父键列均拒绝。</summary>")
-            .AppendLine($"    private async Task<Dictionary<string, JsonElement>> ParseImport{page.Source.Id}Async(JsonElement row, string? parentId, RuntimeActor actor{(contextual?", "+(logicalMatch is null?table.EntityType:"ImportExistingContext"+page.Source.Id)+"? existing, bool keyOnly":"")}{(hasFixedCross?", Func<Task<IReadOnlyDictionary<string,JsonElement>>> readFixedCrossParent":"")}, CancellationToken cancellationToken)")
+            .AppendLine($"    private async Task<Dictionary<string, JsonElement>> ParseImport{page.Source.Id}Async(JsonElement row, string? parentId, RuntimeActor actor{(contextual?", "+(logicalContext?"ImportExistingContext"+page.Source.Id:table.EntityType)+"? existing, bool keyOnly":"")}{(hasFixedCross?", Func<Task<IReadOnlyDictionary<string,JsonElement>>> readFixedCrossParent":"")}, CancellationToken cancellationToken)")
             .AppendLine("    {").AppendLine("        await Task.CompletedTask;")
             .AppendLine("        if (row.ValueKind != JsonValueKind.Object) throw PageImportException.Input(PageImportError.RowObject);")
             .AppendLine("        var values = new Dictionary<string, JsonElement>(StringComparer.Ordinal);")
@@ -226,7 +236,27 @@ public sealed partial class {{page.Name}}ImportRequest
             var relation = relations.GetValueOrDefault(column);
             var multi=MultiSelectCompilation.ForPage(model,table,page).SingleOrDefault(multi=>multi.Source.Source.Id==column.Source.Id);
             var checkbox=DatabaseCheckboxCompilation.ForPage(model,table,page).SingleOrDefault(def=>def.Source.Source.Id==column.Source.Id);
-            if(checkbox is not null)
+            if (auxiliaries.TryGetValue(column.Source.Id,out var auxiliary))
+            {
+                var tail=plans.Where(plan=>plan.Levels.Any(level=>level.Id.Source.Id==column.Source.Id))
+                    .SelectMany(plan=>plan.Levels.SkipWhile(level=>level.Id.Source.Id!=column.Source.Id).Skip(1))
+                    .Select(level=>level.Id.JsonName).Distinct(StringComparer.Ordinal);
+                result.AppendLine("                    try")
+                    .AppendLine("                    {")
+                    .AppendLine("                        var context=crossInputs.Merge(values);");
+                if(hasFixedCross)
+                    result.AppendLine("                        var fixedPath=await readFixedCrossParent();")
+                        .AppendLine("                        foreach(var pair in fixedPath)if(!context.TryGetValue(pair.Key,out var current)||current.ValueKind==JsonValueKind.Null)context[pair.Key]=pair.Value;");
+                result.AppendLine($"                        var prefix=await ImportCrossAuxiliary{page.Source.Id}_{column.Source.Id}Async(cell.Value,context,actor,cancellationToken);")
+                    .AppendLine($"                        var clear=prefix[{Literal(column.JsonName)}].ValueKind==JsonValueKind.Null;")
+                    .AppendLine($"                        crossInputs.AddAuxiliary({Literal(Header(column))},prefix,clear,{(hasFixedCross?"fixedPath":"null")},[{string.Join(",",tail.Select(Literal))}]);")
+                    .AppendLine("                    }")
+                    .AppendLine("                    catch(PageImportException error) when(error.IsInputError)")
+                    .AppendLine("                    {")
+                    .AppendLine($"                        throw PageImportException.Input(error.Code!.Value,error.RowNumber,{Literal(Header(column))},error);")
+                    .AppendLine("                    }");
+            }
+            else if (checkbox is not null)
             {
                 result.AppendLine("                    try{")
                     .AppendLine($"                        values[{Literal(column.JsonName)}]=await ImportCheckbox{page.Source.Id}_{column.Source.Id}Async(cell.Value,parentId,actor{(contextual?",relationContext":"")},cancellationToken);")
@@ -293,7 +323,8 @@ public sealed partial class {{page.Name}}ImportRequest
                     .AppendLine($"                        throw PageImportException.Input(PageImportError.{ErrorKind(column)}, columnName: {Literal(Header(column))}, inner: error);")
                     .AppendLine("                    }");
             }
-            if(contextual&&hasCross&&column.Source.ControlKind=="CascadeTree"&&CrossTableWriteCompilation.Resolve(model,table,page,column).Definition is not null)
+            if(contextual&&hasCross&&(auxiliaries.ContainsKey(column.Source.Id)||
+                column.Source.ControlKind=="CascadeTree"&&CrossTableWriteCompilation.Resolve(model,table,page,column).Definition is not null))
             {
                 result.AppendLine("                    var crossContext=crossInputs.Merge(values);");
                 foreach(var parent in dependency.ContextValues)
@@ -305,6 +336,7 @@ public sealed partial class {{page.Name}}ImportRequest
         }
         result.AppendLine("                default: throw PageImportException.Input(PageImportError.UnknownHeader);")
             .AppendLine("            }").AppendLine("        }").AppendLine(hasCross?"        return crossInputs.Merge(values);":"        return values;").AppendLine("    }");
+        foreach(var auxiliary in auxiliaries.Values)result.Append(CrossTableExcelRenderer.ImportAuxiliary(page,auxiliary));
         foreach (var relation in relations.Values) result.Append(RelationResolver(model, table, relation, page, dependency));
         foreach(var checkbox in DatabaseCheckboxCompilation.ForPage(model,table,page).Where(def=>columns.Any(column=>column.Source.Id==def.Source.Source.Id)))result.Append(DatabaseCheckboxExcelRenderer.Import(table,page,checkbox,dependency));
         foreach(var source in columns.Where(column=>column.Source.ControlKind=="CascadeTree"))result.Append(CascadeTreeExcelRenderer.Import(model,table,page,source));

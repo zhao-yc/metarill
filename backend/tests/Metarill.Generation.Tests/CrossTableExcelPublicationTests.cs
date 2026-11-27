@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
 using Metarill.Core.Security;
+using Metarill.Core.Persistence;
 using Metarill.Testing;
 using Xunit;
 
@@ -497,6 +498,128 @@ public sealed class CrossTableExcelPublicationTests
             Assert.Equal(0, runtime.ExportLockCount);
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
+    /// <summary>原显式上级列单独或配合完整路径导入，实际目标范围及首列语义均保留。</summary>
+    [Theory]
+    [InlineData(1, "OnlyNew", false, true)]
+    [InlineData(1, "OverWriteByFirstColumn", true, true)]
+    [InlineData(0, "OnlyNew", true, false)]
+    [InlineData(0, "OverWriteByFirstColumn", false, true)]
+    [InlineData(1, "OverWriteByFirstColumn", false, true, true)]
+    public async Task Explicit_cross_ancestors_import_with_original_headers(int redundant,string mode,bool shared,bool rootLinked,bool textRoot=false)
+    {
+        const string ns = "Example.CrossAuxiliaryImport", prefix = "aux_import";
+        const long root = 9007199254740995L;
+        var catalog = shared ? SharedCrossTableGenerationTests.Catalog(prefix,"int64","int64") :
+            RedundantMultiNameCacheTests.Published(CrossTableExcelImportColumnsTests.Catalog(prefix,"int64"));
+        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=redundant;
+        var settings=catalog.ConfigPages.Single(page=>page.Id=="201");
+        settings.IsImport=settings.IsNew=settings.IsSave=1;
+        settings.WhereSql="yz_project_id=@current_yz_project_id";
+        settings.Extra.Remove("type");
+        settings.Extra["importMethod"]=JsonSerializer.SerializeToElement(mode);
+        var fullConfigured=redundant!=0||mode!="OnlyNew";
+        foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="201"))
+            field.IsEdit=fullConfigured&&field.ConfigColumnId=="25"?1:0;
+        var main=catalog.ConfigColumns.Single(column=>column.Id=="25");
+        main.Name="城市路径";main.SortNo=3;
+        catalog.ConfigColumns.AddRange([
+            new(){Id="281",ConfigTableId="2",YzProjectId=catalog.YzProjectId,ColumnName="country_id",LogicalType=textRoot?"string":"int64",
+                Name="国家",LinkConfigTableId=rootLinked?"3":"",SortNo=1},
+            new(){Id="282",ConfigTableId="2",YzProjectId=catalog.YzProjectId,ColumnName="area_id",LogicalType="int64",
+                Name="地区",LinkConfigTableId="4",SortNo=2}
+        ]);
+        catalog.ConfigPageColumns.AddRange([
+            new(){Id="201281",ConfigPageId="201",ConfigColumnId="281",IsEdit=1,SortNo=1},
+            new(){Id="201282",ConfigPageId="201",ConfigColumnId="282",IsEdit=1,SortNo=2}
+        ]);
+
+        if(textRoot)
+        {
+            var details=JsonNode.Parse(main.ControlDetail)!;
+            details["levels"]![0]!["idField"]="node_key";
+            main.ControlDetail=details.ToJsonString();
+            catalog.ConfigColumns.Single(column=>column.Id=="45").LogicalType="string";
+            catalog.ConfigColumns.Add(new(){Id="38",ConfigTableId="3",YzProjectId=catalog.YzProjectId,
+                ColumnName="node_key",LogicalType="string",ColumnLength="48",IsDbNotNull=1});
+            catalog.ConfigIndexes.Add(JsonSerializer.SerializeToElement(new{id="71",configTableId="3",indexName="uq_aux_root",
+                isUnique=1,isEnabled=1,yzProjectId=catalog.YzProjectId}));
+            catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id="711",configIndexId="71",configColumnId="38",
+                sortNo=1,yzProjectId=catalog.YzProjectId}));
+        }
+        var model=GenerationModel.Create(catalog,ns);
+        var table=model.Tables.Single(table=>table.Source.Id=="2");
+        var page=Assert.Single(table.Pages);
+        var headers=ImportRenderer.Columns(page).Select(ImportRenderer.Header).ToArray();
+        Assert.Equal(fullConfigured?new[]{"国家","地区","城市路径"}:new[]{"国家","地区"},headers.Order(StringComparer.Ordinal));
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+        if(mode=="OverWriteByFirstColumn"&&redundant==0)
+            Assert.Equal("country_id",NonRedundantImportMatchRenderer.Resolve(model,table,page,ImportDependencyCompilation.ForPage(model,table,page))?.Key.Source.ColumnName);
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-cross-aux-import");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var guard=new CrossTableExcelSharedGenerationTests.StopBeforeExcelWrite();
+            using var runtime=new SharedExcelReadTransport(assembly,ns,"AuxImportSource",guard:guard,mysqlDialect:true);
+            Seed("Country",root,"国甲");
+            Seed("Country",root+1,"国乙");
+            object rootKey=textRoot?"001":root;
+            object otherKey=textRoot?"1":root+1;
+            Seed("Area",21,"同名区","AuxImportCountryId",rootKey);
+            Seed("Area",22,"同名区","AuxImportCountryId",otherKey);
+            Seed("Place",31,"城甲","AuxImportAreaId",21);
+            Seed("Place",32,"城乙","AuxImportAreaId",22);
+
+            var upper=rootLinked?"国甲":root.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var other=rootLinked?"国乙":(root+1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var middle=await runtime.Parse(new(){["地区"]="同名区",["国家"]=upper});
+            Assert.Equal(textRoot?"001":"9007199254740995",middle["countryId"].GetString());
+            Assert.Equal("21",middle["areaId"].GetString());
+            Assert.Equal(JsonValueKind.Null,middle["placeId"].ValueKind);
+            if(shared)Assert.Equal(JsonValueKind.Null,middle["warehouseId"].ValueKind);
+            await Assert.ThrowsAsync<PageImportException>(()=>runtime.Parse(new(){["地区"]="同名区"}));
+            if(fullConfigured)
+            {
+                var full=await runtime.Parse(new(){["地区"]="同名区",["城市路径"]="国甲/同名区/城甲",["国家"]=upper});
+                Assert.Equal("31",full["placeId"].GetString());
+                var conflict=await Assert.ThrowsAsync<PageImportException>(()=>
+                    runtime.Parse(new(){["国家"]=other,["城市路径"]="国甲/同名区/城甲"}));
+                Assert.NotNull(conflict.ColumnName);
+            }
+
+            if(mode=="OverWriteByFirstColumn")
+            {
+                var blank=await Assert.ThrowsAsync<PageImportException>(()=>
+                    runtime.Import([new(){["国家"]=null,["城市路径"]="国甲/同名区/城甲"}]));
+                Assert.Equal(PageImportError.MissingOverwriteKey,blank.Code);
+            }
+            if(shared)
+                Assert.Null(assembly.GetType(ns+".Generated.DTOs.AuxImportSourcePage201UpdateRequest",true)!.GetProperty("WarehouseId"));
+            if(redundant==1||mode=="OnlyNew")
+            {
+                if(mode=="OverWriteByFirstColumn")
+                    runtime.Add("AuxImportSource",new Dictionary<string,object?>{["Id"]=51L,["YzProjectId"]=catalog.YzProjectId,
+                        ["CountryId"]=rootKey,["AreaId"]=21L,["PlaceId"]=31L,["Name"]="旧记录"});
+                var reached=await Assert.ThrowsAsync<BusinessRuleException>(()=>runtime.Import([new(){["国家"]=upper}]));
+                Assert.Same(guard.Stop,reached);
+                Assert.Equal(mode=="OnlyNew"?RecordMutationOperation.Create:RecordMutationOperation.Update,guard.Validation!.Operation);
+                Assert.Contains("place_id",guard.Validation.SubmittedFields);
+                if(shared)Assert.Contains("warehouse_id",guard.Validation.SubmittedFields);
+            }
+
+            void Seed(string target,long id,string label,string? parent=null,object? parentId=null)
+            {
+                var fields=new Dictionary<string,object?>{["Id"]=id,["YzProjectId"]=catalog.YzProjectId,["Name"]=label,["Status"]=1};
+                if(parent is not null)fields[parent]=parentId;
+                if(textRoot&&target=="Country")fields["NodeKey"]=id==root?"001":"1";
+                runtime.Add("AuxImport"+target,fields);
+            }
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
     }
 
     /// <summary>原追加、覆盖、列表和详情仍拒绝未声明的导入或导出模式。</summary>

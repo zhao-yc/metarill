@@ -4,6 +4,11 @@ using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
 namespace Metarill.Generation;
 
+internal sealed record CrossTableExcelAuxiliary(CrossTableWriteModel Plan,int Index,bool UsesName)
+{
+    internal ColumnModel Column=>Plan.Levels[Index].Id;
+}
+
 /// <summary>固定跨表Excel保留选择深度；名称反查、快照和目标范围复用原生成链。</summary>
 internal static class CrossTableExcelRenderer
 {
@@ -34,12 +39,46 @@ internal static class CrossTableExcelRenderer
         return labels;
     }
 
+    /// <summary>只允许原页面明确开放的上级 ID；同一共享槽已在写入计划中证明等价。</summary>
+    internal static IReadOnlyList<CrossTableExcelAuxiliary> Auxiliaries(TableModel table,IReadOnlyList<CrossTableWriteModel> plans,
+        IReadOnlyList<ColumnModel> columns)
+    {
+        var imported=columns.Where(column=>string.IsNullOrWhiteSpace(column.Source.ControlKind))
+            .Select(column=>column.Source.Id).ToHashSet(StringComparer.Ordinal);
+        return plans.SelectMany(plan=>plan.Levels.Take(plan.Levels.Count-1).Select((level,index)=>
+                new CrossTableExcelAuxiliary(plan,index,table.Source.IsRongyu==1||MetadataStoragePolicy.IsRelationColumn(level.Id.Source))))
+            .Where(auxiliary=>imported.Contains(auxiliary.Column.Source.Id))
+            .DistinctBy(auxiliary=>auxiliary.Column.Source.Id).ToArray();
+    }
+
+    /// <summary>只给辅助列生成的固定祖先和尾槽开放内部写入，普通请求的 DTO 白名单保持原样。</summary>
+    internal static IReadOnlyList<ColumnModel> HiddenImportSlots(GenerationModel model,TableModel table,PageModel page)
+    {
+        if(!ImportRenderer.Enabled(page))return [];
+        var plans=CrossTableWriteCompilation.ForService(model,table,page);
+        var selected=Auxiliaries(table,plans,ImportRenderer.Columns(page)).Select(auxiliary=>auxiliary.Column.Source.Id).ToHashSet(StringComparer.Ordinal);
+        if(selected.Count==0)return [];
+        var writable=ManagerCredentialCompilation.Writable(table,page).Select(column=>column.Source.Id).ToHashSet(StringComparer.Ordinal);
+        return plans.Where(plan=>plan.Levels.Any(level=>selected.Contains(level.Id.Source.Id)))
+            .SelectMany(plan=>plan.Levels.Select(level=>level.Id)).DistinctBy(column=>column.Source.Id)
+            .Where(column=>!writable.Contains(column.Source.Id)).ToArray();
+    }
+
+    /// <summary>固定父列仅用于同行一致性校验，最终仍由页面上下文赋值。</summary>
+    internal static string AssignHiddenImportSlots(PageModel page,IReadOnlyList<ColumnModel> slots)=>string.Concat(
+        slots.Where(column=>!page.Scopes.Any(scope=>scope.Column.Source.Id==column.Source.Id)).Select(column=>
+            $"        if(crossImportValues?.TryGetValue({L(column.JsonName)},out var importCross{column.Property})==true){{entity.{column.Property}=importCross{column.Property}.Deserialize<{column.Type}>(JsonOptions);submitted.Add({L(column.Source.ColumnName)});}}\n"));
+
     /// <summary>每页每控件只发一次固定反查；开关来自内部调用，Excel不能指定SQL、表或权限动作。</summary>
     internal static string Helpers(GenerationModel model,TableModel table,PageModel page)
     {
         var result=new StringBuilder();
-        foreach(var plan in CrossTableWriteCompilation.ForService(model,table,page).Where(plan=>
-            ImportRenderer.Enabled(page)&&ImportRenderer.Columns(page).Any(column=>column.Source.Id==plan.Read.Source.Source.Id)||ExportRenderer.IncludesColumn(page,plan.Read.Source)))
+        var plans=CrossTableWriteCompilation.ForService(model,table,page);
+        var imported=ImportRenderer.Enabled(page)?ImportRenderer.Columns(page):[];
+        var auxiliaryNames=Auxiliaries(table,plans,imported).Where(auxiliary=>auxiliary.UsesName)
+            .Select(auxiliary=>auxiliary.Plan.Read.Source.Source.Id).ToHashSet(StringComparer.Ordinal);
+        foreach(var plan in plans.Where(plan=>imported.Any(column=>column.Source.Id==plan.Read.Source.Source.Id)||
+            auxiliaryNames.Contains(plan.Read.Source.Source.Id)||ExportRenderer.IncludesColumn(page,plan.Read.Source)))
         {
             var suffix=page.Source.Id+"_"+plan.Read.Source.Source.Id;
             var node=NodeType(plan.Read);var key=plan.Read.HasTextKeys?"string":"long";
@@ -107,6 +146,48 @@ internal static class CrossTableExcelRenderer
         {
             var level=plan.Levels[index];var value=level.Id.Type=="string?"?$"path.Path[{index}].Id":$"long.Parse(path.Path[{index}].Id,CultureInfo.InvariantCulture)";
             result.AppendLine($"        if(path.Path.Count>{index})values[{L(level.Id.JsonName)}]=JsonSerializer.SerializeToElement({value},JsonOptions);");
+        }
+        return result.AppendLine("        return values;").AppendLine("    }").ToString();
+    }
+
+    /// <summary>上级独立列只在声明层反查，按当前行或固定父上下文核对真实前缀。</summary>
+    internal static string ImportAuxiliary(PageModel page,CrossTableExcelAuxiliary auxiliary)
+    {
+        var plan=auxiliary.Plan;var index=auxiliary.Index;var column=auxiliary.Column;
+        var suffix=page.Source.Id+"_"+plan.Read.Source.Source.Id;
+        var byKey=plan.Read.HasTextKeys;
+        var result=new StringBuilder().AppendLine("    /// <summary>解析显式上级单元格，返回完整祖先和当前节点，后续深度由整行合并决定。</summary>")
+            .AppendLine($"    private async Task<IReadOnlyDictionary<string,JsonElement>> ImportCrossAuxiliary{page.Source.Id}_{column.Source.Id}Async(JsonElement cell,IReadOnlyDictionary<string,JsonElement> context,RuntimeActor actor,CancellationToken cancellationToken)")
+            .AppendLine("    {")
+            .AppendLine("        if(!session.HasWriteTransaction)throw new InvalidOperationException(\"跨表辅助列导入要求来源写事务。\");")
+            .AppendLine("        var values=new Dictionary<string,JsonElement>(StringComparer.Ordinal);")
+            .AppendLine($"        if(cell.ValueKind==JsonValueKind.Null||cell.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(cell.GetString())){{values[{L(column.JsonName)}]=JsonSerializer.SerializeToElement<object?>(null);return values;}}");
+        var boolean=auxiliary.UsesName&&plan.Levels[index].Read.Name.Source.LogicalType=="bool";
+        result.AppendLine($"        if(cell.ValueKind is not(JsonValueKind.String or JsonValueKind.Number{(boolean?" or JsonValueKind.True or JsonValueKind.False":"")}))throw PageImportException.Input(PageImportError.Relation);");
+        if(auxiliary.UsesName)
+        {
+            result.AppendLine($"        var name={(boolean?"cell.ValueKind==JsonValueKind.True?\"true\":cell.ValueKind==JsonValueKind.False?\"false\":":"")}cell.ToString();");
+            var parentKey=index==0?"null":$"context.TryGetValue({L(plan.Levels[index-1].Id.JsonName)},out var parent)&&parent.ValueKind!=JsonValueKind.Null?parent.ToString():null";
+            result.AppendLine($"        string? parentKey={parentKey};");
+            var parent=byKey?"parentKey":"parentKey is null?(long?)null:long.Parse(parentKey,CultureInfo.InvariantCulture)";
+            result.AppendLine($"        var candidates=await CrossExcelFind{suffix}Async({index},name,{parent},{(index==0?"true":"!string.IsNullOrEmpty(parentKey)")},true,actor,cancellationToken);")
+                .AppendLine("        if(candidates.Count!=1||candidates[0].Name!=name)throw PageImportException.Input(PageImportError.Relation);")
+                .AppendLine($"        var key=candidates[0].{(byKey?"Key":"Id")};");
+        }
+        else
+        {
+            result.AppendLine("        var text=cell.ToString();");
+            if(!plan.Levels[index].Read.TextKey)
+                result.AppendLine("        if(!long.TryParse(text,NumberStyles.None,CultureInfo.InvariantCulture,out var numeric)||numeric<=0||text!=numeric.ToString(CultureInfo.InvariantCulture))throw PageImportException.Input(PageImportError.Relation);");
+            else result.AppendLine("        if(cell.ValueKind!=JsonValueKind.String)throw PageImportException.Input(PageImportError.Relation);");
+            result.AppendLine($"        var key={(byKey?"text":"numeric")};");
+        }
+        result.AppendLine($"        var path=await CrossReader{suffix}(actor,true,false).Path{(byKey?"ByKey":"")}Async({index},key,cancellationToken);");
+        for(var depth=0;depth<=index;depth++)
+        {
+            var level=plan.Levels[depth];var resolved=$"path.Path[{depth}].Id";
+            var value=level.Id.Type=="string?"?resolved:$"long.Parse({resolved},CultureInfo.InvariantCulture)";
+            result.AppendLine($"        values[{L(level.Id.JsonName)}]=JsonSerializer.SerializeToElement({value},JsonOptions);");
         }
         return result.AppendLine("        return values;").AppendLine("    }").ToString();
     }

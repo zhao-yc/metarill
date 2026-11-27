@@ -34,7 +34,8 @@ internal static class NonRedundantCrossTableSubset
             foreach(var plan in plans)if(CrossTableFrontendProof.Reason(model,page,plan) is{} mismatch)return mismatch;
             _=NonRedundantReadCompilation.ForPage(model,table,page);var parentTables=NonRedundantSelfTreeSubset.ParentTables(model,table,page);
             var importColumns=ImportRenderer.Enabled(page)?ImportRenderer.Columns(page):[];
-            var imports=importColumns.Any(column=>trees.Any(tree=>tree.Source.Id==column.Source.Id));
+            var imports=importColumns.Any(column=>trees.Any(tree=>tree.Source.Id==column.Source.Id))||
+                CrossTableExcelRenderer.Auxiliaries(table,plans,importColumns).Count>0;
             var importsFixedPath=ImportRenderer.Enabled(page)&&CrossTableExcelRenderer.HasFixedPath(page);
             var exports=plans.SelectMany(plan=>plan.Levels).Any(level=>ExportRenderer.IncludesColumn(page,level.Id)||ExportRenderer.IncludesColumn(page,level.Name));
             // 来源物理归属与路径内逻辑父各自用正式计划校验。额外的物理等值仍取交集。
@@ -63,6 +64,8 @@ internal static class NonRedundantCrossTableSubset
         var match=NonRedundantImportMatchRenderer.Resolve(model,table,page,dependency);
         if(Declared(key))
             return match is not null&&plans.Any(plan=>plan.Levels[^1].Id.Source.Id==key.Source.Id);
+        if(CrossTableExcelRenderer.Auxiliaries(table,plans,columns).Any(auxiliary=>auxiliary.Column.Source.Id==key.Source.Id))
+            return match is not null;
         return ImportRenderer.SupportsScalarOverwriteKey(model,table,page,key);
     }
 }

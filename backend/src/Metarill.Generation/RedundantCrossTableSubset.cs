@@ -36,6 +36,7 @@ internal static class RedundantCrossTableSubset
             var slots=plans.SelectMany(plan=>plan.Levels).SelectMany(level=>new[]{level.Id,level.Name}).DistinctBy(column=>column.Source.Id).ToArray();
             var pathIds=trees.Select(tree=>tree.Source.Id).ToHashSet(StringComparer.Ordinal);
             var imports=ImportRenderer.Enabled(page)?ImportRenderer.Columns(page):[];
+            var auxiliaryIds=CrossTableExcelRenderer.Auxiliaries(table,plans,imports).Select(auxiliary=>auxiliary.Column.Source.Id).ToHashSet(StringComparer.Ordinal);
             var exportedSlots=slots.Where(column=>ExportRenderer.IncludesColumn(page,column)).ToArray();
             var importedSlots=slots.Where(column=>imports.Any(field=>field.Source.Id==column.Source.Id)).ToArray();
             // 固定末级从工作簿排除，但导入仍绑定并验证该跨表路径。
@@ -47,7 +48,7 @@ internal static class RedundantCrossTableSubset
             if(exportedSlots.Length>0&&(!supported||ExportRenderer.Mode(page) is not ("" or "list" or "edit")))
                 return CrossTableExcelRenderer.ExportAcceptancePending;
             if((importedSlots.Length>0||importsFixedPath)&&(!supported||!SupportsImport(model,table,page,plans,imports)||
-                importedSlots.Any(column=>!pathIds.Contains(column.Source.Id))))return CrossTableExcelRenderer.ImportAcceptancePending;
+                importedSlots.Any(column=>!pathIds.Contains(column.Source.Id)&&!auxiliaryIds.Contains(column.Source.Id))))return CrossTableExcelRenderer.ImportAcceptancePending;
             return null;
         }
         catch(Exception error)when(error is InvalidOperationException or NotSupportedException or JsonException or ArgumentException){return "冗余跨表完整用途未通过："+error.Message;}

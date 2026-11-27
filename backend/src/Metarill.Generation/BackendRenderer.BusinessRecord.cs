@@ -84,7 +84,7 @@ internal static partial class BackendRenderer
         return result.AppendLine("        return locking?query.ForUpdate():query;").AppendLine("    }").ToString();
     }
     /// <summary>业务按钮与普通更新复用一个生成核心；页面关闭普通更新时也不伪造页面授权。</summary>
-    private static string BusinessUpdateEntry(TableModel table,PageModel page,bool standardUpdate)
+    private static string BusinessUpdateEntry(TableModel table,PageModel page,bool standardUpdate,string hiddenImportParameter)
     {
         var suffix=page.Source.Id;var result=new StringBuilder();
         if(standardUpdate)result.AppendLine($"    public Task<{page.Name}Vo> Update{suffix}Async({page.Name}UpdateRequest request,string? parentId,RuntimeActor actor,CancellationToken cancellationToken)=>Update{suffix}CoreAsync(request,parentId,actor,null,cancellationToken);");
@@ -94,7 +94,7 @@ internal static partial class BackendRenderer
             .AppendLine($"        RequireButtonRecordAccess{suffix}(request.Id,buttonId,actor);")
             .AppendLine($"        return Update{suffix}CoreAsync(request,parentId,actor,null,cancellationToken,buttonId);").AppendLine("    }")
             .AppendLine("    /// <summary>普通/导入/按钮来源显式进入共同写入核心，客户端无来源开关。</summary>")
-            .AppendLine($"    private Task<{page.Name}Vo> Update{suffix}CoreAsync({page.Name}UpdateRequest request,string? parentId,RuntimeActor actor,RecordMutationOperation? authorizationOperation,CancellationToken cancellationToken,string? businessButtonId=null)=>session.InTransactionAsync(async()=>")
+            .AppendLine($"    private Task<{page.Name}Vo> Update{suffix}CoreAsync({page.Name}UpdateRequest request,string? parentId,RuntimeActor actor,RecordMutationOperation? authorizationOperation,CancellationToken cancellationToken,string? businessButtonId=null{hiddenImportParameter})=>session.InTransactionAsync(async()=>")
             .ToString();
     }
 
