@@ -1418,7 +1418,8 @@ internal sealed class SharedExcelReadTransport:IDisposable
                 if(args.OfType<LambdaExpression>().SingleOrDefault() is{} expression){var compiled=expression.Compile();predicates.Add(row=>(bool)compiled.DynamicInvoke(row)!);}
                 else
                 {
-                    var sql=Assert.IsType<string>(args[0]);var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(args[1]);
+                    var sql=Assert.IsType<string>(args[0]);var parameters=args[1] is null
+                        ?new Dictionary<string,object?>():Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(args[1]);
                     predicates.Add(FixedWhere(type,sql,parameters));
                 }
                 return query;
@@ -1449,6 +1450,14 @@ internal sealed class SharedExcelReadTransport:IDisposable
     /// <summary>只解释status或明确来源模型的三个AND参数比较；括号／运算／字段／值均固定，未知语法拒绝。</summary>
     private Func<object,bool> FixedWhere(Type type,string sql,IReadOnlyDictionary<string,object?> parameters)
     {
+        // 自树文本根允许空白串，这个固定谓词没有 SQL 参数。
+        var root=Regex.Match(sql,@"^\(\x60(?<field>[a-z_]+)\x60 IS NULL OR \x60\k<field>\x60 REGEXP '\^\[\[:space:\]\]\*\$'\)$");
+        if(root.Success)
+        {
+            Assert.Empty(parameters);
+            var parent=type.GetProperty(GenerationModel.Pascal(root.Groups["field"].Value))!;
+            return row=>string.IsNullOrWhiteSpace((string?)parent.GetValue(row));
+        }
         // 文本键按字节精确匹配，数值字符串不得参与隐式等值。
         var binary=Regex.Match(sql,@"^BINARY (?:(?:\(\x60a\x60\.\x60(?<field>[a-z_]+)\x60\))|(?:\x60(?<field>[a-z_]+)\x60))(?:(?:=BINARY @(?<parameter>[A-Za-z0-9_]+))|(?: IN \(BINARY @(?<parameter>[A-Za-z0-9_]+)(?:,BINARY @(?<parameter>[A-Za-z0-9_]+))*\)))$");
         if(binary.Success)

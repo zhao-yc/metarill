@@ -1,3 +1,4 @@
+using System.Globalization;
 using Metarill.Core.Contracts;
 namespace Metarill.Core.Cascades;
 
@@ -11,6 +12,33 @@ public static class CascadeTreeExcelPath
         if(path.Path.Any(node=>string.IsNullOrWhiteSpace(node.Name)||node.Name!=node.Name.Trim()||node.Name.Contains(joiner,StringComparison.Ordinal)))throw new InvalidOperationException("级联名称包含空白或路径分隔符，不能安全导出，请调整名称或分隔符。");
         return string.Join(joiner,path.Path.Select(node=>node.Name));
     }
+    /// <summary>导出前逐条复用原路径解析，避免同父重名或数据库排序规则使单元格还原到别的节点。</summary>
+    public static async Task<IReadOnlyDictionary<TKey,string>> FormatVerifiedAsync<TKey>(
+        IReadOnlyDictionary<TKey,CascadeTreePath?> paths,string joiner,
+        Func<string,CancellationToken,Task<string>> restore,CancellationToken cancellationToken=default) where TKey:notnull
+    {
+        var cells=new Dictionary<TKey,string>();
+        var resolved=new Dictionary<string,string>(StringComparer.Ordinal);
+        foreach(var (key,path) in paths)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var text=Format(path,joiner);
+            if(!resolved.TryGetValue(text,out var actual))
+            {
+                try { actual=await restore(text,cancellationToken); }
+                catch(PageImportException error)when(error.IsInputError)
+                {
+                    throw new InvalidOperationException("自树导出路径不能唯一还原原节点。",error);
+                }
+                resolved.Add(text,actual);
+            }
+            if(!string.Equals(actual,Convert.ToString(key,CultureInfo.InvariantCulture),StringComparison.Ordinal))
+                throw new InvalidOperationException("自树导出路径不能唯一还原原节点。");
+            cells.Add(key,text);
+        }
+        return cells;
+    }
+
     /// <summary>原分隔规则按完整分隔符切割、去首尾空白/空段，每一层都要求唯一可见候选。</summary>
     public static async Task<long> ResolveAsync(string text,string joiner,Func<string,long?,CancellationToken,Task<IReadOnlyList<CascadeTreeNode>>> find,CancellationToken cancellationToken=default)
     {

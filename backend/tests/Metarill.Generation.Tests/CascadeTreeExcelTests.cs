@@ -20,6 +20,63 @@ public sealed class CascadeTreeExcelTests
         Assert.Throws<InvalidOperationException>(()=>CascadeTreeExcelPath.Format(path,"/"));Assert.Throws<InvalidOperationException>(()=>CascadeTreeExcelPath.Format(null,"/"));
         Assert.Throws<InvalidOperationException>(()=>CascadeTreeExcelPath.Format(new([new("1"," 空白 ")],""),"/"));
     }
+    /// <summary>只读导出必须拒绝同父同名路径，并允许不同父节点下的相同名称。</summary>
+    [Theory]
+    [InlineData("list", true, false)]
+    [InlineData("edit", false, true)]
+    public async Task Self_tree_export_requires_its_path_to_restore_the_same_node(string mode, bool imports, bool textKey)
+    {
+        const string ns = "Example.TreeExcelRoundTrip";
+        var catalog = Catalog("roundtree", textKey ? "string" : "int64", textKey ? "string" : "int64");
+        var page = catalog.ConfigPages.Single(page => page.Id == "201");
+        page.IsExport = 1;
+        page.IsImport = imports ? 1 : 0;
+        page.Extra["exportMethod"] = JsonSerializer.SerializeToElement(mode);
+        if (textKey)
+        {
+            var field = catalog.ConfigColumns.Single(column => column.Id == "25");
+            field.ControlDetail = field.ControlDetail.Replace("\"idField\":\"id\"", "\"idField\":\"node_key\"", StringComparison.Ordinal);
+            catalog.ConfigColumns.Add(new() { Id = "38", ConfigTableId = "3", ColumnName = "node_key",
+                LogicalType = "string", ColumnLength = "48", IsDbNotNull = 1 });
+            catalog.ConfigIndexes.Add(JsonSerializer.SerializeToElement(new { id = "71", configTableId = "3",
+                indexName = "uq_tree_roundtrip_key", isUnique = 1, isEnabled = 1 }));
+            catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new { id = "711", configIndexId = "71",
+                configColumnId = "38", sortNo = 1 }));
+        }
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-self-tree-roundtrip");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), ns);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            using var runtime = new SharedExcelReadTransport(assembly, ns, "RoundtreeSource", mysqlDialect: true);
+            var project = catalog.YzProjectId;
+            runtime.Add("RoundtreeSource", new Dictionary<string, object?> { ["Id"] = 101L, ["Name"] = "来源",
+                ["YzProjectId"] = project, ["TreeId"] = textKey ? "Leaf-01" : 11L });
+            Seed(1, "根甲", "Root-01", textKey ? " " : null);
+            Seed(2, "根乙", "Root-02");
+            Seed(11, "同名叶", "Leaf-01", textKey ? "Root-01" : 1L);
+            Seed(21, "同名叶", "Leaf-02", textKey ? "Root-02" : 2L);
+            Seed(13, "同名叶", "Hidden-01", textKey ? "Root-01" : 1L, status: 0);
+            var file = await runtime.Export();
+            Assert.Contains("根甲/同名叶", Assert.Single(file.Rows));
+            Assert.Equal(0, runtime.ExportLockCount);
+            Seed(12, "同名叶", "Leaf-03", textKey ? "Root-01" : 1L);
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => runtime.Export());
+            Assert.Contains("不能唯一还原原节点", error.Message);
+            Assert.Equal(0, runtime.ExportLockCount);
+
+            void Seed(long id, string name, string key, object? parent = null, int status = 1)
+            {
+                var fields = new Dictionary<string, object?> { ["Id"] = id, ["Name"] = name,
+                    ["YzProjectId"] = project, ["Status"] = status, ["ParentRoundtreeTreeId"] = parent };
+                if (textKey) fields["NodeKey"] = key;
+                runtime.Add("RoundtreeTree", fields);
+            }
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>追加/覆盖均编译内部导入动作，普通写入继续检查目标list，不接受客户端动作选择。</summary>
     [Theory]
     [InlineData("string","string")]

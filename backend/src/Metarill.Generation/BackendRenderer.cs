@@ -286,7 +286,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.Append(FixedRoleCheckboxRenderer.Service(model,table,page));
             result.Append(FixedRoleAdminNameRenderer.Service(model,table,page));
             if(BusinessRecordButtons(model,page).Count>0)result.Append(FixedRoleAdminNameRenderer.ButtonService(model,table,page));
-            result.Append(BoundRelationValidationRenderer.Service(model, table, page)); result.Append(ExportRenderer.Service(model, table, page)); result.Append(ImportRenderer.Service(model, table, page)); result.Append(CrossTableExcelRenderer.Helpers(model,table,page));
+            result.Append(BoundRelationValidationRenderer.Service(model, table, page)); result.Append(ExportRenderer.Service(model, table, page)); result.Append(ImportRenderer.Service(model, table, page)); result.Append(CascadeTreeExcelRenderer.Readers(model,table,page)); result.Append(CrossTableExcelRenderer.Helpers(model,table,page));
             // 只读视图可以保留记录页与手写动作授权，生成 Service 不提供写入入口。
             if (table.Source.IsView == 0) { result.Append(Mutations(model, table, page)); result.Append(Copy(model, table, page)); }
         }

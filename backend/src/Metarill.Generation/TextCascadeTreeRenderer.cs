@@ -55,7 +55,7 @@ internal static class TextCascadeTreeRenderer
 """;
     }
 
-    internal static string Import(PageModel page,ColumnModel source,CascadeTreeReadModel plan)
+    internal static string ExcelPath(PageModel page,ColumnModel source,CascadeTreeReadModel plan)
     {
         var suffix=page.Source.Id+"_"+source.Source.Id;
         var name=plan.Name;
@@ -63,18 +63,19 @@ internal static class TextCascadeTreeRenderer
         var parse=name.Type=="string?"?"":MultiSelectExcelRenderer.ParseLabel(name,"text","key");
         var parent=Literal(plan.Parent.Source.ColumnName);
         return $$"""
-    /// <summary>以原 Excel 路径逐层查找，父上下文按完整文本键锁定。</summary>
-    private async Task<JsonElement> ImportCascade{{suffix}}Async(JsonElement cell,RuntimeActor actor,CancellationToken cancellationToken)
+    /// <summary>以原 Excel 路径逐层查找，父上下文按完整文本键匹配。</summary>
+    private async Task<JsonElement> ReadCascadeExcel{{suffix}}Async(JsonElement cell,RuntimeActor actor,bool currentRead,CancellationToken cancellationToken)
     {
         if(cell.ValueKind==JsonValueKind.Null||cell.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(cell.GetString()))return JsonSerializer.SerializeToElement<object?>(null);
         if({{MultiSelectExcelRenderer.InvalidLabelKind(name,allowNumber:true,input:"cell")}})throw PageImportException.Input(PageImportError.Relation);
-        if(session.CurrentTransaction is null)throw new InvalidOperationException("级联导入要求来源事务。");
+        if(session.CurrentTransaction is null||currentRead&&!session.HasWriteTransaction)throw new InvalidOperationException("级联Excel路径要求来源事务。");
         var id=await Metarill.Core.Cascades.CascadeTreeExcelPath.ResolveTextAsync(cell.ToString(),{{Literal(plan.Joiner)}},async(text,parentId,ct)=>
         {
             {{parse}}
             var scope=CascadeScope{{suffix}}(actor,false,false).Where(row=>row.{{name.Property}}=={{lookup}});
             var query=parentId is null?TextCascadeTreeSql.Root(scope,session,{{parent}}):TextCascadeTreeSql.Match(scope,session,{{parent}},{{Literal("mt_tree_excel_"+suffix)}},[parentId]);
-            var rows=await query.OrderBy(row=>row.Id).ForUpdate().Limit(2).ToListAsync({{Projection(plan)}},ct);
+            if(currentRead)query=query.ForUpdate();
+            var rows=await query.OrderBy(row=>row.Id).Limit(2).ToListAsync({{Projection(plan)}},ct);
             return {{Map(plan)}};
         },cancellationToken);
         return JsonSerializer.SerializeToElement(id,JsonOptions);

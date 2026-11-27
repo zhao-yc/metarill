@@ -110,20 +110,20 @@ internal static class DerivedCascadeNamesRenderer
 
 """;
     }
-    /// <summary>完整路径逐层当前读精确反查，任何歧义或断链交由原导入事务整批回滚。</summary>
-    internal static string Import(PageModel page,ColumnModel source,CascadeTreeReadModel plan)
+    /// <summary>完整路径按原固定范围反查，导入采用当前读，导出采用只读快照。</summary>
+    internal static string ExcelPath(PageModel page,ColumnModel source,CascadeTreeReadModel plan)
     {
         var suffix=page.Source.Id+"_"+source.Source.Id;
         var lookup=plan.Name.Type=="string?"?"text":"key";
-        var rows=$"await DerivedCascadeRows{suffix}Async(actor,[new({Literal(plan.Name.Source.ColumnName)},FixedReadComparison.Equal,{lookup}),{ParentFilter(plan)}],[new(\"id\")],2,true,ct)";
+        var rows=$"await DerivedCascadeRows{suffix}Async(actor,[new({Literal(plan.Name.Source.ColumnName)},FixedReadComparison.Equal,{lookup}),{ParentFilter(plan)}],[new(\"id\")],2,currentRead,ct)";
         var read=plan.Name.Type=="string?"?rows:"{"+MultiSelectExcelRenderer.ParseLabel(plan.Name,"text","key")+" return "+rows+";}";
         return $$"""
     /// <summary>名称与原父范围同一固定SQL内匹配，不退回IsIgnore属性或宽表查询。</summary>
-    private async Task<JsonElement> ImportCascade{{suffix}}Async(JsonElement cell,RuntimeActor actor,CancellationToken cancellationToken)
+    private async Task<JsonElement> ReadCascadeExcel{{suffix}}Async(JsonElement cell,RuntimeActor actor,bool currentRead,CancellationToken cancellationToken)
     {
         if(cell.ValueKind==JsonValueKind.Null||cell.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(cell.GetString()))return JsonSerializer.SerializeToElement<object?>(null);
         if({{MultiSelectExcelRenderer.InvalidLabelKind(plan.Name,allowNumber:true,input:"cell")}})throw PageImportException.Input(PageImportError.Relation);
-        if(session.CurrentTransaction is null)throw new InvalidOperationException("级联导入要求来源事务。");
+        if(session.CurrentTransaction is null||currentRead&&!session.HasWriteTransaction)throw new InvalidOperationException("级联Excel路径要求来源事务。");
         var id=await Metarill.Core.Cascades.CascadeTreeExcelPath.Resolve{{(plan.TextKey?"Text":"")}}Async(cell.ToString(),{{Literal(plan.Joiner)}},async(text,parentId,ct)=>{{read}},cancellationToken);
         return JsonSerializer.SerializeToElement({{(plan.TextKey?"id":source.Type=="string?"?"id.ToString(CultureInfo.InvariantCulture)":"(long?)id")}},JsonOptions);
     }
