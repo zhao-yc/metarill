@@ -1,9 +1,11 @@
 using System.Data;
 using System.Data.Common;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using FreeSql;
 using Metarill.Core.Cascades;
 using Metarill.Core.Contracts;
+using Metarill.Core.Exports;
 using Metarill.Core.Persistence;
 using Metarill.Core.Security;
 using Metarill.Data;
@@ -234,6 +236,63 @@ internal static class AccountParentCandidateProbe
             var option = Assert.Single(((System.Collections.IEnumerable)options).Cast<object>());
             Assert.Equal("原名称", option.GetType().GetProperty("Name")!.GetValue(option));
         }
+    }
+
+    /// <summary>经过实际生成的固定 SQL，核对非冗余辅助列只投影已选字段及所需名称。</summary>
+    internal static async Task<PageExportRequest> VerifyCrossAuxiliaryExportAsync(Type serviceType, Type mapperType,
+        string projectId, bool projectName)
+    {
+        var actor = new RuntimeActor(1, "导出测试", false, projectId, "5");
+        const long id = 9007199254740995L;
+        var provider = new CaptureProvider(0, id, command =>
+        {
+            var sql = command.CommandText.Replace("`", "", StringComparison.Ordinal);
+            var projection = sql[..sql.IndexOf(" FROM ", StringComparison.Ordinal)];
+            Assert.Contains(" AS country_id", projection);
+            Assert.Equal(projectName, projection.Contains(" AS country_name", StringComparison.Ordinal));
+            Assert.DoesNotContain(" AS area_name", projection);
+            Assert.DoesNotContain(" AS place_name", projection);
+            var rows = new DataTable();
+            rows.Columns.Add("id", typeof(long));
+            rows.Columns.Add("country_id", typeof(long));
+            var values = new List<object?> { 51L, id };
+            if (projectName)
+            {
+                rows.Columns.Add("country_name", typeof(string));
+                values.Add("国甲");
+            }
+            // 来源库只保存最深节点，祖先的 SQL 投影与物理校验参数分别返回。
+            var inputs = Regex.Matches(projection, @"b\.(\w+) AS (metarill_cross_input_\d+)");
+            Assert.Contains(inputs, input => input.Groups[1].Value == "place_id");
+            foreach (Match input in inputs)
+            {
+                rows.Columns.Add(input.Groups[2].Value, typeof(long));
+                values.Add(input.Groups[1].Value == "place_id" ? 31L : null);
+            }
+            foreach (Match validity in Regex.Matches(projection, @" AS (metarill_cross_valid_\d+)"))
+            {
+                rows.Columns.Add(validity.Groups[1].Value, typeof(int));
+                values.Add(1);
+            }
+            rows.Rows.Add(values.ToArray());
+            return rows;
+        });
+        using var session = new DatabaseSession(new() { ExpectedDatabase = "offline" },
+            DispatchProxy.Create<IFreeSql, TrustedForbiddenOrm>(), provider);
+        var authorization = new TreeAuthorization(actor);
+        var service = Activator.CreateInstance(serviceType, [session, Activator.CreateInstance(mapperType, session)!,
+            new SnowflakeIdGenerator(945), Array.Empty<IRecordMutationObserver>(),
+            Array.Empty<IRecordMutationGuard>(), authorization])!;
+        var workbook = await (Task<PageExportRequest>)serviceType.GetMethod("Export201Async")!
+            .Invoke(service, [new PageRequest(), actor, 100, CancellationToken.None])!;
+        var read = Assert.Single(provider.Commands);
+        Assert.Contains(projectId, read.Values.Values);
+        Assert.Contains("aux_cross_country", read.Sql);
+        Assert.Contains("status", read.Sql);
+        if (projectName) Assert.NotNull(read.Transaction);
+        Assert.DoesNotContain("FOR UPDATE", read.Sql);
+        Assert.Empty(authorization.Pages);
+        return workbook;
     }
 
     private sealed class TreeAuthorization(RuntimeActor actor) : IRuntimeAuthorization

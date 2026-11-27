@@ -46,7 +46,7 @@ internal static class ExportRenderer
     {
         if (!Enabled(page)) return "";
         var columns = Columns(page); var relations = Relations(model, page); var role = HasFixedRole(model,table,page); var admin = FixedAdmin(model,table,page);var multis=MultiNames(model,table,page);var checkboxes=table.Source.IsRongyu==0?DatabaseCheckboxCompilation.ForPage(model,table,page).Where(def=>IncludesColumn(page,def.Source)).ToArray():[];
-        var crossLabels=CrossTableExcelRenderer.StoredExportLabels(model,table,page,columns);
+        var crossLabels=CrossTableExcelRenderer.ExportLabels(model,table,page,columns);
         var crossDependencies=CrossTableExcelRenderer.ExportDependencies(model,table,page,columns)
             .Concat(crossLabels.Values).DistinctBy(column=>column.Source.Id).ToArray();
         var physicalParent=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null||
@@ -187,9 +187,9 @@ internal static class ExportRenderer
             }
             if(checkboxes.SingleOrDefault(def=>def.Source.Source.Id==column.Source.Id) is{} checkbox){result.AppendLine($"            checkboxNames{checkbox.Source.Source.Id}[entity.Id],");continue;}
             if(column.Source.ControlKind=="CascadeTree"){result.AppendLine($"            ExcelCascade{column.Property}(entity),");continue;}
-            if(crossLabels.TryGetValue(column.Source.Id,out var storedLabel))
+            if(crossLabels.TryGetValue(column.Source.Id,out var crossLabel))
             {
-                result.AppendLine($"            entity.{storedLabel.Property},");
+                result.AppendLine($"            entity.{crossLabel.Property},");
                 continue;
             }
             result.AppendLine("            " + (admin?.Source.Source.Id == column.Source.Id ? "adminNames[index]." + FixedRoleAdminNameModel.Property : ValueExpression(table,page,column, relation)) + ",");

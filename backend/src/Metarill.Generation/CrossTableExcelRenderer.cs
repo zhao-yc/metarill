@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Metarill.Core.Contracts;
+using Metarill.Core.Metadata;
 namespace Metarill.Generation;
 
 /// <summary>固定跨表Excel保留选择深度；名称反查、快照和目标范围复用原生成链。</summary>
@@ -15,17 +16,18 @@ internal static class CrossTableExcelRenderer
     internal static IReadOnlyList<ColumnModel> ExportDependencies(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<ColumnModel> columns)=>
         CrossTableWriteCompilation.ForService(model,table,page).Where(plan=>columns.Any(column=>column.Source.Id==plan.Read.Source.Source.Id)).SelectMany(plan=>plan.Levels.Select(level=>level.Id)).DistinctBy(column=>column.Source.Id).ToArray();
 
-    /// <summary>原冗余导出按各级名称副本显示已配置的辅助 ID，显式名称列直接取同一来源行。</summary>
-    internal static IReadOnlyDictionary<string,ColumnModel> StoredExportLabels(
+    /// <summary>按原导出规则解析辅助 ID 的显示列，非冗余名称由同一逻辑读取计划投影。</summary>
+    internal static IReadOnlyDictionary<string,ColumnModel> ExportLabels(
         GenerationModel model,TableModel table,PageModel page,IReadOnlyList<ColumnModel> columns)
     {
         var labels=new Dictionary<string,ColumnModel>(StringComparer.Ordinal);
-        if(table.Source.IsRongyu!=1)return labels;
+
         var exported=columns.Select(column=>column.Source.Id).ToHashSet(StringComparer.Ordinal);
         foreach(var level in CrossTableWriteCompilation.ForService(model,table,page).SelectMany(plan=>plan.Levels))
         {
-            // 共享级联可以复用同一副本。级联控件本身仍导出完整路径。
-            if(string.IsNullOrWhiteSpace(level.Id.Source.ControlKind)&&exported.Contains(level.Id.Source.Id))
+            // 无明确关联声明的非冗余辅助 ID 沿原规则保留逻辑节点键。
+            if(string.IsNullOrWhiteSpace(level.Id.Source.ControlKind)&&exported.Contains(level.Id.Source.Id)&&
+                (table.Source.IsRongyu==1||MetadataStoragePolicy.IsRelationColumn(level.Id.Source)))
                 labels.TryAdd(level.Id.Source.Id,level.Name);
             if(exported.Contains(level.Name.Source.Id))labels.TryAdd(level.Name.Source.Id,level.Name);
         }

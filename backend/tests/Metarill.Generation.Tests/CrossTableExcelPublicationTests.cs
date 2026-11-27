@@ -424,14 +424,19 @@ public sealed class CrossTableExcelPublicationTests
 
     /// <summary>上级 ID 列输出原名称，显式名称列原样输出，两者均不增加隐藏表头。</summary>
     [Theory]
-    [InlineData("list", false)]
-    [InlineData("edit", true)]
-    public async Task R1_auxiliary_cross_columns_keep_original_export_labels(string mode, bool shared)
+    [InlineData("list", false, 1, true)]
+    [InlineData("edit", true, 1, true)]
+    [InlineData("list", false, 0, true)]
+    [InlineData("edit", true, 0, true)]
+    [InlineData("list", false, 0, false)]
+    [InlineData("edit", true, 0, false)]
+    public async Task Auxiliary_cross_columns_keep_original_export_labels(string mode, bool shared, int redundant, bool linked)
     {
         const string ns = "Example.CrossExcelLabels";
         const string prefix = "aux_cross";
         var catalog = shared ? SharedCrossTableGenerationTests.Catalog(prefix, "int64", "int64") :
             RedundantMultiNameCacheTests.Published(CrossTableExcelImportColumnsTests.Catalog(prefix, "int64"));
+        catalog.ConfigTables.Single(table => table.Id == "2").IsRongyu = redundant;
         var metadata = catalog.ConfigPages.Single(page => page.Id == "201");
         metadata.IsExport = 1;
         metadata.IsImport = 0;
@@ -444,14 +449,13 @@ public sealed class CrossTableExcelPublicationTests
             field.IsShow = 0;
             field.IsEdit = 0;
         }
-        catalog.ConfigColumns.AddRange([
-            new() { Id = "281", ConfigTableId = "2", ColumnName = "country_id", Name = "国家关联",
-                LogicalType = "int64", LinkConfigTableId = "3", YzProjectId = catalog.YzProjectId },
-            new() { Id = "282", ConfigTableId = "2", ColumnName = "country_name", Name = "国家名称",
+        catalog.ConfigColumns.Add(new() { Id = "281", ConfigTableId = "2", ColumnName = "country_id", Name = "国家关联",
+            LogicalType = "int64", LinkConfigTableId = linked ? "3" : "", YzProjectId = catalog.YzProjectId });
+        if (redundant == 1 || shared)
+            catalog.ConfigColumns.Add(new() { Id = "282", ConfigTableId = "2", ColumnName = "country_name", Name = "国家名称",
                 LogicalType = "string", YzProjectId = catalog.YzProjectId,
-                Extra = new() { ["isJoinColumn"] = JsonSerializer.SerializeToElement(1),
-                    ["columnFullName"] = JsonSerializer.SerializeToElement("country.name") } }
-        ]);
+                Extra = redundant == 0 ? new() : new() { ["isJoinColumn"] = JsonSerializer.SerializeToElement(1),
+                    ["columnFullName"] = JsonSerializer.SerializeToElement("country.name") } });
         catalog.ConfigPageColumns.Add(new() { Id = "201281", ConfigPageId = "201", ConfigColumnId = "281", SortNo = 1,
             IsShow = mode == "list" ? 1 : 0, IsEdit = mode == "edit" ? 1 : 0, Extra = new() { ["isReadOnly"] = JsonSerializer.SerializeToElement(1) } });
         if (shared)
@@ -470,6 +474,17 @@ public sealed class CrossTableExcelPublicationTests
         {
             new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), ns);
             var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            if (redundant == 0)
+            {
+                var service = assembly.GetType(ns + ".Generated.Services.AuxCrossSourceService", true)!;
+                var mapper = assembly.GetType(ns + ".Generated.Mappers.AuxCrossSourceMapper", true)!;
+                var logicalWorkbook = await AccountParentCandidateProbe.VerifyCrossAuxiliaryExportAsync(service, mapper,
+                    catalog.YzProjectId, projectName: linked || shared);
+                Assert.Equal(shared ? new[] { "国家关联", "国家名称" } : ["国家关联"], logicalWorkbook.Headers);
+                var value = linked ? "国甲" : "9007199254740995";
+                Assert.Equal(shared ? new[] { value, "国甲" } : [value], Assert.Single(logicalWorkbook.Rows));
+                return;
+            }
             using var runtime = new SharedExcelReadTransport(assembly, ns, "AuxCrossSource");
             runtime.Add("AuxCrossSource", new Dictionary<string, object?> { ["Id"] = 51L, ["YzProjectId"] = catalog.YzProjectId,
                 ["CountryId"] = 9007199254740995L, ["CountryName"] = "国甲" });
