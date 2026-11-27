@@ -43,9 +43,9 @@ internal static class RedundantCrossTableSubset
             if(exportedSlots.Length==0&&importedSlots.Length==0&&!importsFixedPath)return null;
             // 已逐个验证自树同伴的写入、名称缓存和传播。Excel 路径列分别复用各自的解析与导出。
             var supported=model.Catalog.DatabaseProvider=="mysql";
-            // 列表与详情模式共用原快照和路径读取，祖先ID仍只作为内部投影依赖。
-            if(exportedSlots.Length>0&&(!supported||ExportRenderer.Mode(page) is not ("" or "list" or "edit")||
-                exportedSlots.Any(column=>!pathIds.Contains(column.Source.Id))))return CrossTableExcelRenderer.ExportAcceptancePending;
+            // 路径列按固定树反查，已配置的辅助列使用已证明的物理名称副本。
+            if(exportedSlots.Length>0&&(!supported||ExportRenderer.Mode(page) is not ("" or "list" or "edit")))
+                return CrossTableExcelRenderer.ExportAcceptancePending;
             if((importedSlots.Length>0||importsFixedPath)&&(!supported||!SupportsImport(model,table,page,plans,imports)||
                 importedSlots.Any(column=>!pathIds.Contains(column.Source.Id))))return CrossTableExcelRenderer.ImportAcceptancePending;
             return null;

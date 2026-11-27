@@ -15,6 +15,23 @@ internal static class CrossTableExcelRenderer
     internal static IReadOnlyList<ColumnModel> ExportDependencies(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<ColumnModel> columns)=>
         CrossTableWriteCompilation.ForService(model,table,page).Where(plan=>columns.Any(column=>column.Source.Id==plan.Read.Source.Source.Id)).SelectMany(plan=>plan.Levels.Select(level=>level.Id)).DistinctBy(column=>column.Source.Id).ToArray();
 
+    /// <summary>原冗余导出按各级名称副本显示已配置的辅助 ID，显式名称列直接取同一来源行。</summary>
+    internal static IReadOnlyDictionary<string,ColumnModel> StoredExportLabels(
+        GenerationModel model,TableModel table,PageModel page,IReadOnlyList<ColumnModel> columns)
+    {
+        var labels=new Dictionary<string,ColumnModel>(StringComparer.Ordinal);
+        if(table.Source.IsRongyu!=1)return labels;
+        var exported=columns.Select(column=>column.Source.Id).ToHashSet(StringComparer.Ordinal);
+        foreach(var level in CrossTableWriteCompilation.ForService(model,table,page).SelectMany(plan=>plan.Levels))
+        {
+            // 共享级联可以复用同一副本。级联控件本身仍导出完整路径。
+            if(string.IsNullOrWhiteSpace(level.Id.Source.ControlKind)&&exported.Contains(level.Id.Source.Id))
+                labels.TryAdd(level.Id.Source.Id,level.Name);
+            if(exported.Contains(level.Name.Source.Id))labels.TryAdd(level.Name.Source.Id,level.Name);
+        }
+        return labels;
+    }
+
     /// <summary>每页每控件只发一次固定反查；开关来自内部调用，Excel不能指定SQL、表或权限动作。</summary>
     internal static string Helpers(GenerationModel model,TableModel table,PageModel page)
     {

@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
+using Metarill.Core.Security;
 using Metarill.Testing;
 using Xunit;
 
@@ -420,6 +422,68 @@ public sealed class CrossTableExcelPublicationTests
         Assert.All(paths,row=>Assert.True(row.GetProperty("fullApplicationAccepted").GetBoolean()));
     }
 
+    /// <summary>上级 ID 列输出原名称，显式名称列原样输出，两者均不增加隐藏表头。</summary>
+    [Theory]
+    [InlineData("list", false)]
+    [InlineData("edit", true)]
+    public async Task R1_auxiliary_cross_columns_keep_original_export_labels(string mode, bool shared)
+    {
+        const string ns = "Example.CrossExcelLabels";
+        const string prefix = "aux_cross";
+        var catalog = shared ? SharedCrossTableGenerationTests.Catalog(prefix, "int64", "int64") :
+            RedundantMultiNameCacheTests.Published(CrossTableExcelImportColumnsTests.Catalog(prefix, "int64"));
+        var metadata = catalog.ConfigPages.Single(page => page.Id == "201");
+        metadata.IsExport = 1;
+        metadata.IsImport = 0;
+        metadata.WhereSql = "yz_project_id=@current_yz_project_id";
+        metadata.Extra.Remove("type");
+        metadata.Extra.Remove("importMethod");
+        metadata.Extra["exportMethod"] = JsonSerializer.SerializeToElement(mode);
+        foreach (var field in catalog.ConfigPageColumns.Where(field => field.ConfigPageId == "201"))
+        {
+            field.IsShow = 0;
+            field.IsEdit = 0;
+        }
+        catalog.ConfigColumns.AddRange([
+            new() { Id = "281", ConfigTableId = "2", ColumnName = "country_id", Name = "国家关联",
+                LogicalType = "int64", LinkConfigTableId = "3", YzProjectId = catalog.YzProjectId },
+            new() { Id = "282", ConfigTableId = "2", ColumnName = "country_name", Name = "国家名称",
+                LogicalType = "string", YzProjectId = catalog.YzProjectId,
+                Extra = new() { ["isJoinColumn"] = JsonSerializer.SerializeToElement(1),
+                    ["columnFullName"] = JsonSerializer.SerializeToElement("country.name") } }
+        ]);
+        catalog.ConfigPageColumns.Add(new() { Id = "201281", ConfigPageId = "201", ConfigColumnId = "281", SortNo = 1,
+            IsShow = mode == "list" ? 1 : 0, IsEdit = mode == "edit" ? 1 : 0, Extra = new() { ["isReadOnly"] = JsonSerializer.SerializeToElement(1) } });
+        if (shared)
+            catalog.ConfigPageColumns.Add(new() { Id = "201282", ConfigPageId = "201", ConfigColumnId = "282",
+                SortNo = 2, IsShow = 0, IsEdit = 1, Extra = new() { ["isReadOnly"] = JsonSerializer.SerializeToElement(1) } });
+        var model = GenerationModel.Create(catalog, ns);
+        var source = model.Tables.Single(table => table.Source.Id == "2");
+        var page = Assert.Single(source.Pages);
+        Assert.Equal(shared ? 2 : 1, CrossTableWriteCompilation.ForService(model, source, page).Count);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-cross-excel-labels");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), ns);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            using var runtime = new SharedExcelReadTransport(assembly, ns, "AuxCrossSource");
+            runtime.Add("AuxCrossSource", new Dictionary<string, object?> { ["Id"] = 51L, ["YzProjectId"] = catalog.YzProjectId,
+                ["CountryId"] = 9007199254740995L, ["CountryName"] = "国甲" });
+            runtime.Add("AuxCrossSource", new Dictionary<string, object?> { ["Id"] = 52L, ["YzProjectId"] = "9007199254740994",
+                ["CountryId"] = 9007199254740995L, ["CountryName"] = "其它项目" });
+            var workbook = await runtime.Export();
+            Assert.Equal(shared ? new[] { "国家关联", "国家名称" } : ["国家关联"], workbook.Headers);
+            Assert.Equal(shared ? new[] { "国甲", "国甲" } : ["国甲"], Assert.Single(workbook.Rows));
+            Assert.All(runtime.ReadCalls, call => Assert.Equal("AuxCrossSource", call.Entity));
+            Assert.Equal(0, runtime.ExportLockCount);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>原追加、覆盖、列表和详情仍拒绝未声明的导入或导出模式。</summary>
     [Theory]
     [InlineData("importMethod","unknown",CrossTableExcelRenderer.ImportAcceptancePending)]
@@ -477,16 +541,34 @@ public sealed class CrossTableExcelPublicationTests
             Assert.Contains("entity.Name == key",import);
         }
         if(kind=="mixed-scoped")
-            Assert.Contains("ValidateParents201Async(request.ParentId, actor, cancellationToken, locking: false)",ExportRenderer.Service(model,table,page));
+            Assert.Contains("ValidateSelectionParents201Async(request.ParentId, actor, cancellationToken)",ExportRenderer.Service(model,table,page));
 
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-scalar-cross-excel");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
         {
             new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),rootNamespace);
-            await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            if (kind == "mixed-scoped")
+            {
+                var actor = new RuntimeActor(1, "导出回归", false, catalog.YzProjectId, page.Source.YzAdminTypeId);
+                using var runtime = new SharedExcelReadTransport(assembly, rootNamespace, table.Name,
+                    actor: actor, authorization: new ScopedExportAuthorization(actor));
+                var error = await Assert.ThrowsAsync<InvalidOperationException>(() => runtime.Export(new PageRequest { ParentId = "31" }));
+                Assert.Contains("多选页父记录不存在、已删除或不属于当前项目", error.Message);
+                Assert.Equal(model.Tables.Single(target => target.Source.Id == "6").Name, Assert.Single(runtime.ReadCalls).Entity);
+                Assert.Equal(0, runtime.ExportLockCount);
+            }
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
+    /// <summary>模拟已获导出权限的真实身份，只允许夹具发布的页面用途。</summary>
+    private sealed class ScopedExportAuthorization(RuntimeActor actor) : IRuntimeAuthorization
+    {
+        public RuntimeActor RequireActor() => actor;
+        public void RequirePagePermission(string pageId, string operation) =>
+            Assert.True((pageId, operation) is ("201", "export") or ("601", "list"), $"未发布的测试权限 {pageId}/{operation}");
     }
 
     /// <summary>首列沿用单值字段原解析器，随后在来源页范围内按强类型当前值匹配。</summary>
