@@ -105,12 +105,6 @@ public static class RedundantSharedParents
             // 显示名沿候选及缓存的统一标量合同，父身份仍使用原节点键。
             if(display.ColumnName=="id"||display.IsVirtualColumn!=0||
                 display.LogicalType!="string"&&!MultiValueLabel.IsTyped(display.LogicalType))throw Unsupported();
-            if(!ts.IsPhysical(display)&&!global)
-            {
-                var read=NonRedundantReads.CompileMatch(catalog,target.Id,display.ColumnName);
-                if(read.OutputTypes[display.ColumnName]!=display.LogicalType||
-                    NonRedundantReads.MatchReadsTable(catalog,target.Id,display.ColumnName,source.TableName))throw Unsupported();
-            }
             var parent=previous is null?null:targetColumns.Single(c=>c.ColumnName==Text(level,"parentField",""));if(parent is not null&&(!Scalar(ts,target,parent)||parent.LogicalType is not("string" or "int64")||parent.LinkConfigTableId.Length>0&&parent.LinkConfigTableId!=previous!.Id))throw Unsupported();
             var textKey=alternate?.LogicalType=="string";
             if(parent is not null&&result[^1].TextKey&&parent.LogicalType!="string")throw Unsupported();
@@ -122,6 +116,13 @@ public static class RedundantSharedParents
             if(candidates.Length!=1)throw Unsupported();
             var chosen=candidates[0];
             Realm(catalog,target,chosen.Page);
+            if(!ts.IsPhysical(display)&&!global)
+            {
+                // 先固定实际候选页，再按同一投影检查名称终点和回到来源表的循环。
+                var read=NonRedundantReads.CompilePublishedScalarMatch(catalog,target.Id,chosen.Page.Id,display.ColumnName);
+                if(read.OutputTypes[display.ColumnName]!=display.LogicalType||
+                    read.MySql.PhysicalReferences.Any(reference=>reference.Table==source.TableName))throw Unsupported();
+            }
             NonRedundantReadPlan? recursive=null;
             if(chosen.Condition.HasLogical)
             {

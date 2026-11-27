@@ -17,8 +17,10 @@ public sealed class GlobalCascadeAlternateDictionaryTests
     [InlineData(true,0,true)]
     [InlineData(false,1,false,true)]
     [InlineData(true,1,false,true)]
+    [InlineData(true,1,false,true,true)]
+    [InlineData(true,0,true,true,true)]
     public async Task Global_cascade_label_uses_the_published_dictionary_page(bool cachedSource,int dictionaryStorage,bool secondHop,
-        bool localNode=false)
+        bool localNode=false,bool parentScope=false)
     {
         var catalog=cachedSource?GlobalCrossCachedFreshCatalogTests.Catalog("cross3"):GlobalCrossFreshCatalogTests.Catalog("cross3");
         var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="201");
@@ -90,6 +92,21 @@ public sealed class GlobalCascadeAlternateDictionaryTests
             AddField("70272","702","72");
             AddField("60164","601","64");
             AddField("60264","602","64").Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"pageId":"702"}""");
+        }
+
+        if(parentScope)
+        {
+            sourcePage.WhereSql+=" AND country_id=@parent_id";
+            Assert.Contains(catalog.ConfigColumns,column=>column.ConfigTableId=="2"&&column.ControlKind=="FileLibrary");
+            var parent=Assert.Single(Metarill.Data.Queries.RedundantSharedParents.Compile(catalog,"2",sourcePage.Id)).Value;
+            Assert.Equal("country_id",parent.ColumnName);
+            Assert.Equal(rootPage.Id,Assert.Single(parent.Levels).PageId);
+            var files=new Metarill.Runtime.Files.FileMetadataContext([catalog]);
+            var published=Assert.Single(files.Catalogs);
+            var filePage=published.ConfigPages.Single(item=>item.Id==sourcePage.Id);
+            var scope=typeof(Metarill.Runtime.Files.FileMetadataContext).GetMethod("PageScope",
+                System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!;
+            Assert.NotNull(scope.Invoke(files,[published,filePage]));
         }
 
         var model=GenerationModel.Create(catalog,"Example.GlobalCascadeDictionary");
