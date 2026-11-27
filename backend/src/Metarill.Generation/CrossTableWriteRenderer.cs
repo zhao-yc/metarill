@@ -47,14 +47,29 @@ internal static class CrossTableWriteRenderer
             output.AppendLine("    }");
             if(table.Source.IsRongyu==0&&shared&&!merged)continue;
             if(!shared||table.Source.IsRongyu!=0)output.Append(NonRedundantCrossTableCompilation.PackService(model,table,page,plan));
-            var check=plan.Levels.SelectMany(level=>table.Source.IsRongyu==0?new[]{level.Id}:new[]{level.Id,level.Name}).Concat(FixedPageQueryCompilation.For(table,page).IdentityScopes.Select(scope=>scope.Column)).DistinctBy(column=>column.Source.Id).ToArray();var structure=merged?plan.Levels.Where(level=>level.Read.Target.Source.Id==table.Source.Id).SelectMany(level=>(level.Read.Parent is{} parent?new[]{parent}:[]).Concat(level.Read.AlternateKey is{} alternate?new[]{alternate}:[]).Concat((level.Read.NameDependencies??[]).Select(field=>table.Columns.Single(column=>column.Source.ColumnName==field)).Where(column=>column.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal)&&!column.IsSystem))).DistinctBy(column=>column.Source.Id).ToArray():[];
+            var check=plan.Levels.SelectMany(level=>table.Source.IsRongyu==0?new[]{level.Id}:new[]{level.Id,level.Name})
+                .Concat(FixedPageQueryCompilation.For(table,page).IdentityScopes.Select(scope=>scope.Column))
+                .DistinctBy(column=>column.Source.Id).ToArray();
+            var sourceLevels=plan.Levels.Select(level=>level.Read).Where(level=>level.Target.Source.Id==table.Source.Id).ToArray();
+            var keys=sourceLevels.SelectMany(level=>new[]{level.Parent,level.AlternateKey}).OfType<ColumnModel>().ToArray();
+            var nameDependencies=sourceLevels.SelectMany(level=>level.NameDependencies??[])
+                .Select(field=>table.Columns.Single(column=>column.Source.ColumnName==field))
+                .Where(column=>!column.IsSystem&&!column.IsJsonArray&&column.Type is
+                    ("string?" or "long?" or "int?" or "decimal?" or "double?" or "bool?" or "DateTime?" or "TimeSpan?"));
+            var structure=keys.Concat(nameDependencies).DistinctBy(column=>column.Source.Id).ToArray();
             var projection=string.Join(",",check.Concat(structure).DistinctBy(column=>column.Source.Id).Select(column=>column.Property+"=row."+column.Property));
             output.AppendLine("    /// <summary>读取实际存储的受管字段，数据库截断或触发器改写时在观察者前整笔回滚，不补写修复。</summary>")
                 .AppendLine($"    private async Task VerifyStoredCross{suffix}Async({table.EntityType} entity,RuntimeActor actor,ISet<string> submitted,bool creating,CancellationToken cancellationToken,bool requireTargetList=true)")
                 .AppendLine("    {").AppendLine($"        if(!({Trigger(table,plan)}))return;var stored=await session.Select<{table.EntityType}>().Where(row=>row.Id==entity.Id).ForUpdate().FirstAsync(row=>new {table.EntityType}{{{projection}}},cancellationToken);")
                 .AppendLine($"        if(stored is null||{string.Join("||",check.Select(column=>"stored."+column.Property+"!=entity."+column.Property))})throw new InvalidOperationException(\"跨表受管ID、名称或归属在存储后发生变化，未提交。\");");
-            // 实际父键／名称FK发生截断或被改写时，不能因为R0不存祖先而接受另一条有效路径。
-            foreach(var column in structure)output.AppendLine($"        if((creating||submitted.Contains({Literal(column.Source.ColumnName)}))&&stored.{column.Property}!=entity.{column.Property})throw new InvalidOperationException(\"跨表来源结构外键在存储后发生变化，未提交。\");");
+            // 真实父键或名称表单值被数据库改写时，即使重新解析出合法路径也必须回滚本次提交。
+            foreach(var column in structure)
+            {
+                var message=keys.Contains(column)||column.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal)
+                    ?"跨表来源结构外键在存储后发生变化，未提交。"
+                    :"跨表派生名称依赖字段在存储后发生变化，未提交。";
+                output.AppendLine($"        if((creating||submitted.Contains({Literal(column.Source.ColumnName)}))&&stored.{column.Property}!=entity.{column.Property})throw new InvalidOperationException(\"{message}\");");
+            }
             if(merged)output.Append(FinalPath(table,page,plan));output.AppendLine("    }");
         }
         return output.ToString();

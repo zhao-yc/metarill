@@ -80,7 +80,7 @@ public sealed class NonRedundantCrossSourceTests
             YzAdminTypeId=sourcePage.YzAdminTypeId,WhereSql="status=3 AND store_id=@current_store_id"});
         catalog.ConfigPageColumns.Add(new(){Id="60262",ConfigPageId="602",ConfigColumnId="62",YzProjectId=catalog.YzProjectId,IsShow=1});
         catalog.ConfigPageColumns.Add(new(){Id=targetPage.Id+"93",ConfigPageId=targetPage.Id,ConfigColumnId="93",
-            YzProjectId=catalog.YzProjectId,IsShow=1});
+            YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=1});
         var company=catalog.ConfigColumns.Single(column=>column.Id=="91");
         company.ControlKind="List";
         company.ControlDetail="""{"tableId":"6","pageId":"601","nameField":"name"}""";
@@ -125,6 +125,25 @@ public sealed class NonRedundantCrossSourceTests
             Assert.Contains(9007199254740993L,constants.Values);
             Assert.Contains(3,constants.Values);
             Assert.DoesNotContain(17,constants.Values);
+            if(!parented)
+            {
+                // 使用真实生成的写后方法执行一次事务，独立模拟已持久化的字段值。
+                using var runtime=new SharedExcelReadTransport(assembly,ns,"NrSourceDictionarySource",actor:actor);
+                runtime.Add("NrSourceDictionarySource",new Dictionary<string,object?>
+                {
+                    ["Id"]=11L,["YzProjectId"]=long.Parse(actor.ProjectId,System.Globalization.CultureInfo.InvariantCulture),
+                    ["CompanyGroup"]=7
+                });
+                var matching=new Dictionary<string,object?>{["CompanyGroup"]=7};
+                var different=new Dictionary<string,object?>{["CompanyGroup"]=3};
+                await runtime.VerifyStoredCross("25",11,matching,["company_group"]);
+                var mismatch=await Assert.ThrowsAsync<InvalidOperationException>(()=>
+                    runtime.VerifyStoredCross("25",11,different,["company_group"]));
+                Assert.Contains("派生名称依赖字段",mismatch.Message);
+                await runtime.VerifyStoredCross("25",11,different,["company_id"]);
+                Assert.Equal(1,runtime.Transport.Rollbacks);
+                Assert.Equal(2,runtime.Transport.Commits);
+            }
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }

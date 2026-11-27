@@ -1373,6 +1373,22 @@ internal sealed class SharedExcelReadTransport:IDisposable
             return await reader.PathByKeyAsync(0,key);
         });
 
+    /// <summary>实际执行生成的写后读取及比较，内存中分别模拟请求实体和数据库行。</summary>
+    internal Task VerifyStoredCross(string fieldId,long recordId,IReadOnlyDictionary<string,object?> fields,string[] submitted)=>
+        Session.InTransactionAsync(async()=>
+        {
+            var entityType=assembly.GetType(rootNamespace+".Generated.Entities."+sourceEntity,true)!;
+            var entity=Activator.CreateInstance(entityType)!;
+            entityType.GetProperty("Id")!.SetValue(entity,recordId);
+            var project=entityType.GetProperty("YzProjectId")!;
+            project.SetValue(entity,Convert.ChangeType(actor.ProjectId,Nullable.GetUnderlyingType(project.PropertyType)??project.PropertyType,
+                CultureInfo.InvariantCulture));
+            foreach(var (field,value) in fields)entityType.GetProperty(field)!.SetValue(entity,value);
+            var verify=serviceType.GetMethod("VerifyStoredCross"+pageId+"_"+fieldId+"Async",BindingFlags.Instance|BindingFlags.NonPublic)!;
+            await (Task)verify.Invoke(service,[entity,actor,new HashSet<string>(submitted,StringComparer.Ordinal),false,CancellationToken.None,true])!;
+            return true;
+        });
+
     /// <summary>通过生成的公开入口读取跨表候选。</summary>
     internal Task<IReadOnlyList<Metarill.Core.Cascades.CrossTableOption>> CrossOptions(string fieldId,CascadeTreeOptionsRequest request)=>
         (Task<IReadOnlyList<Metarill.Core.Cascades.CrossTableOption>>)serviceType.GetMethod("CrossOptions"+pageId+"_"+fieldId+"Async")!
