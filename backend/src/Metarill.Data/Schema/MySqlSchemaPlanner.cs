@@ -279,7 +279,7 @@ public static class MySqlSchemaPlanner
             "string" => "'" + value.Replace("\\", "\\\\").Replace("'", "''") + "'",
             "int32" when int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var i) => i.ToString(CultureInfo.InvariantCulture),
             "int64" when long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var l) => l.ToString(CultureInfo.InvariantCulture),
-            "decimal" when decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var d) => d.ToString(CultureInfo.InvariantCulture),
+            "decimal" when ExactNumericValue.TryDecimal(value, out var d) => d.ToString(CultureInfo.InvariantCulture),
             "double" when Metarill.Core.Contracts.ExactNumericValue.TryDouble(value,out var floating)=>(floating==0?"0":global::Metarill.Core.Contracts.ExactNumericValue.FormatDouble(floating)),
             "bool" when value is "true" or "1" => "1",
             "bool" when value is "false" or "0" => "0",

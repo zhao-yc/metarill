@@ -113,8 +113,9 @@ public sealed partial class LocalGenerationUpdater
         if(candidate)bootstrap=bootstrap.Append("src/Metarill.Data/Queries/AccountScopedCrossCache.cs");
         // 名称副本编译依赖控件范围与同一套表单字段命名，旧工程同步运行时可补齐这两个文件。
         if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Metadata/MetadataNames.cs","src/Metarill.Data/Queries/MySqlNonRedundantReadPlan.ControlCache.cs"});
-        // 公共JsonDefaults始终引用浮点转换器；无double业务列的当前候选也必须带齐其解析依赖。
-        if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Contracts/FiniteDoubleJsonConverter.cs","src/Metarill.Core/Contracts/ExactNumericValue.cs"});
+        // 公共JSON选项与结构编译引用数值合同，当前候选须带齐这些运行时源码。
+        if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Contracts/FiniteDoubleJsonConverter.cs","src/Metarill.Core/Contracts/ExactDecimalJsonConverter.cs",
+            "src/Metarill.Core/Contracts/ExactNumericValue.cs","src/Metarill.Core/Metadata/DecimalColumnShape.cs"});
         // 浮点统计必须成套带上精确整数累加和分桶读取；旧目标允许明确同步后升级。
         if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Contracts/BinaryDoubleSum.cs","src/Metarill.Data/Queries/FloatingStatistics.cs"});
         // ORM和基础设施共用执行时浮点参数准备，缺源码的当前候选不能伪装完整。

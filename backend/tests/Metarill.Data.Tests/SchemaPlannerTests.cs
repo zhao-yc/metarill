@@ -109,6 +109,17 @@ public sealed class SchemaPlannerTests
 
     /// <summary>保留65位精度，DECIMAL补零只改变显示，不产生伪DDL或指纹差异。</summary>
     [Theory]
+    [InlineData("1e-29")]
+    [InlineData("12345678901234567890.123456789123456789")]
+    public void Decimal_defaults_cannot_silently_change_value(string value)
+    {
+        var column = Column("amount", "decimal");
+        column.DefaultValue = value;
+        Assert.Throws<InvalidOperationException>(() => MySqlSchemaPlanner.CompileColumn(column));
+    }
+
+
+    [Theory]
     [InlineData("1","1.00")]
     [InlineData("-1.20","-001.2000")]
     [InlineData("0","-0.000")]

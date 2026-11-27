@@ -268,7 +268,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"namespace {model.Namespace}.Generated.Services;").AppendLine($"public partial class {table.Name}Service").AppendLine("{").AppendLine("    private readonly DatabaseSession session;").AppendLine($"    private readonly {table.Name}Mapper mapper;").AppendLine("    private readonly IIdGenerator ids;").AppendLine("    private readonly IEnumerable<IRecordMutationObserver> observers;").AppendLine("    private readonly IEnumerable<IRecordMutationGuard> guards;").AppendLine(hasMulti ? "    private readonly IRuntimeAuthorization? relationAuthorization;" : "").AppendLine("    /// <summary>注入当前事务、类型持久化及可选的写入准备守卫。</summary>").AppendLine($"    public {table.Name}Service(DatabaseSession session, {table.Name}Mapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null{(hasMulti ? ", IRuntimeAuthorization? relationAuthorization = null" : "")}) {{ this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers.ToArray(); {TrustedSecurityServiceCompilation.GuardsAssignment(model,table)} {(hasMulti ? "this.relationAuthorization = relationAuthorization;" : "")} }}")
             .AppendLine("    private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();")
             .AppendLine("    /// <summary>查询筛选值沿用字符串 ID 协议。</summary>")
-            .AppendLine("    private static JsonSerializerOptions CreateJsonOptions() { var options = new JsonSerializerOptions(JsonSerializerDefaults.Web); options.Converters.Add(new StringLongJsonConverter());"+(table.Columns.Any(column=>column.Type=="double?")?" options.Converters.Add(new global::Metarill.Core.Contracts.FiniteDoubleJsonConverter());":"")+(table.Columns.Any(column=>column.Type=="TimeSpan?")?" options.Converters.Add(new global::Metarill.Core.Contracts.SqlTimeJsonConverter());":"")+" return options; }")
+            .AppendLine("    private static JsonSerializerOptions CreateJsonOptions() { var options = new JsonSerializerOptions(JsonSerializerDefaults.Web); options.Converters.Add(new StringLongJsonConverter());"+(table.Columns.Any(column=>column.Type=="double?")?" options.Converters.Add(new global::Metarill.Core.Contracts.FiniteDoubleJsonConverter());":"")+(table.Columns.Any(column=>column.Type=="decimal?")?" options.Converters.Add(new global::Metarill.Core.Contracts.ExactDecimalJsonConverter());":"")+(table.Columns.Any(column=>column.Type=="TimeSpan?")?" options.Converters.Add(new global::Metarill.Core.Contracts.SqlTimeJsonConverter());":"")+" return options; }")
             .AppendLine("    /// <summary>服务层再次检查身份来源，不能用客户端项目选择代替真实身份。</summary>")
             .AppendLine("    private static void ValidateActor(RuntimeActor actor) { if (actor.AccountId <= 0 || string.IsNullOrWhiteSpace(actor.ProjectId)) throw new UnauthorizedAccessException(\"登录身份无效。\");"+(GlobalCachedSourceCompilation.BindsActor(model)?$" if(actor.ProjectId!={Literal(model.Catalog.YzProjectId)})throw new UnauthorizedAccessException(\"当前身份不属于已发布全局来源目录。\");":"")+" }")
             .Append(GlobalCachedSourceCompilation.ReadSessionDeclaration(model))
@@ -907,6 +907,12 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             {
                 if(!Metarill.Core.Contracts.ExactNumericValue.TryDouble(raw,out var floating))throw new InvalidOperationException("浮点默认值必须是有效有限值，不能溢出或下溢为零："+column.Source.ColumnName);
                 raw=floating==0?"0":global::Metarill.Core.Contracts.ExactNumericValue.FormatDouble(floating);
+            }
+            if (column.Type == "decimal?")
+            {
+                if (!Metarill.Core.Contracts.ExactNumericValue.TryDecimal(raw, out var number))
+                    throw new InvalidOperationException("小数默认值必须能被精确表示：" + column.Source.ColumnName);
+                raw = number.ToString(System.Globalization.CultureInfo.InvariantCulture);
             }
             if (column.Type is "DateTime?")
             {

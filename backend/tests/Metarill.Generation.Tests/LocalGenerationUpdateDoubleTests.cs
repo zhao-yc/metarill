@@ -10,6 +10,8 @@ public sealed partial class LocalGenerationUpdateTests
     [InlineData("src/Metarill.Core/Contracts/FiniteDoubleJsonConverter.cs",false)]
     [InlineData("src/Metarill.Core/Contracts/ExactNumericValue.cs",true)]
     [InlineData("src/Metarill.Core/Contracts/ExactNumericValue.cs",false)]
+    [InlineData("src/Metarill.Core/Contracts/ExactDecimalJsonConverter.cs",false)]
+    [InlineData("src/Metarill.Core/Metadata/DecimalColumnShape.cs",false)]
     public void Candidate_requires_complete_numeric_runtime_without_touching_target(string path,bool withDouble)
     {
         var next=Catalog();if(withDouble){next.ConfigColumns.Single(column=>column.ColumnName=="name").LogicalType="double";next.ConfigColumns.Single(column=>column.ColumnName=="name").ControlKind="";}var(target,candidate)=Packages(Catalog(),next);var updater=new LocalGenerationUpdater();Assert.True(updater.Preview(target,candidate,All).CanApply);var before=SourceSnapshot(target);
