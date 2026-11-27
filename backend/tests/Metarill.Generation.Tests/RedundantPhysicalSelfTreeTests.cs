@@ -1,6 +1,8 @@
+using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Metarill.Core.Metadata;
+using Metarill.Runtime.Files;
 using Xunit;
 namespace Metarill.Generation.Tests;
 
@@ -22,16 +24,30 @@ public sealed class RedundantPhysicalSelfTreeTests
     /// <summary>原完整包实际构建、挂载原Vue、更新两轮并保护手写partial。</summary>
     [Theory][InlineData("string","int64","single")][InlineData("int64","string","mixed")][InlineData("string","string","shared")][InlineData("int64","int64","globalShared")][InlineData("string","int64","same")][InlineData("int64","string","double")]
     [InlineData("string","int64","single",true)][InlineData("string","int64","r0",true)]
+    [InlineData("string","int64","shared",true)][InlineData("int64","int64","globalShared",true)]
     public async Task Full_packages_build_original_controls_and_keep_handwritten_partial(string type,string parent,string mode,bool pageOptions=false)
     {
         var c=Catalog("r1_self",type,parent,mode);
+        var shared=mode is "shared" or "globalShared";
+        var pageId=shared?"202":"201";
+        var controlId=shared?"6101":"25";
         if(pageOptions)
         {
-            var sourcePage=c.ConfigPages.Single(page=>page.Id=="201");
+            var sourcePage=c.ConfigPages.Single(page=>page.Id==pageId);
             sourcePage.IsImport=sourcePage.IsExport=1;
-            sourcePage.Extra["importMethod"]=JsonSerializer.SerializeToElement(mode=="r0"?"OverWriteByFirstColumn":"OnlyNew");
-            sourcePage.Extra["exportMethod"]=JsonSerializer.SerializeToElement(mode=="r0"?"edit":"list");
-            var control=c.ConfigColumns.Single(column=>column.Id=="25");
+            sourcePage.Extra["importMethod"]=JsonSerializer.SerializeToElement(mode is "r0" or "globalShared"?"OverWriteByFirstColumn":"OnlyNew");
+            sourcePage.Extra["exportMethod"]=JsonSerializer.SerializeToElement(mode is "r0" or "globalShared"?"edit":"list");
+            var control=c.ConfigColumns.Single(column=>column.Id==controlId);
+            if(shared)
+            {
+                // 原覆盖导入按表级顺序选择首列，显式使用业务名称。
+                c.ConfigColumns.Single(column=>column.ConfigTableId=="2"&&column.ColumnName=="name").SortNo=-1;
+                c.ConfigColumns.Add(new(){Id="6610",ConfigTableId="2",YzProjectId=c.YzProjectId,
+                    ColumnName="attachments",Name="附件",LogicalType="string",ColumnLength="max",
+                    ControlKind="FileLibrary",ControlDetail="""{"accessMode":"PROTECTED","maxCount":3}"""});
+                c.ConfigPageColumns.Add(new(){Id=pageId+"6610",ConfigPageId=pageId,ConfigColumnId="6610",
+                    YzProjectId=c.YzProjectId,IsShow=1,IsEdit=1});
+            }
             var overlay=JsonNode.Parse(control.ControlDetail)!;
             overlay["displayJoiner"]=" > ";
             var tree=overlay["selfTree"]!.AsObject();
@@ -39,16 +55,27 @@ public sealed class RedundantPhysicalSelfTreeTests
             tree["orderBy"]="name desc";
             tree["filterMatchMode"]="exact";
             tree["idField"]="id";
-            var field=c.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId==control.Id);
+            var field=c.ConfigPageColumns.Single(field=>field.ConfigPageId==pageId&&field.ConfigColumnId==control.Id);
             field.Extra["controlDetail"]=JsonSerializer.SerializeToElement(overlay.ToJsonString());
             field.Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
         }
         var model=GenerationModel.Create(c,"Example.R1SelfFull");var table=model.Tables.Single(t=>t.Source.TableName=="r1_self_"+(mode=="same"?"node":"source"));var root=NonRedundantApplicationFixture.Root();var boundary=Path.Combine(Path.GetTempPath(),"metarill-r1-self-full");var dir=Path.Combine(boundary,Guid.NewGuid().ToString("N"));var output=Path.Combine(dir,"app");
         if(pageOptions)
         {
+            if(shared)
+            {
+                var parentPlan=Assert.Single(Metarill.Data.Queries.RedundantSharedParents.Compile(c,"2",pageId)).Value;
+                Assert.Equal("country_id",parentPlan.ColumnName);
+                Assert.Equal("301",Assert.Single(parentPlan.Levels).PageId);
+                var files=new FileMetadataContext([c]);
+                var published=Assert.Single(files.Catalogs);
+                var filePage=published.ConfigPages.Single(item=>item.Id==pageId);
+                var pageScope=typeof(FileMetadataContext).GetMethod("PageScope",BindingFlags.Instance|BindingFlags.NonPublic)!;
+                Assert.NotNull(pageScope.Invoke(files,[published,filePage]));
+            }
             Assert.Empty(GenerationCapabilityAudit.Collect(model));
-            var page=table.Pages.Single(item=>item.Source.Id=="201");
-            var control=table.Columns.Single(column=>column.Source.Id=="25");
+            var page=table.Pages.Single(item=>item.Source.Id==pageId);
+            var control=table.Columns.Single(column=>column.Source.Id==controlId);
             var read=Assert.IsType<CascadeTreeReadModel>(CascadeTreeReadCompilation.Resolve(model,table,page,control).Definition);
             Assert.True(read.Exact);
             Assert.Equal(" > ",read.Joiner);
@@ -65,14 +92,15 @@ public sealed class RedundantPhysicalSelfTreeTests
             foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(output,operation);Assert.Equal(File.ReadAllBytes(Path.Combine(root,"frontend/metarill_uni_admin/components/yzp-cascade-tree/yzp-cascade-tree.vue")),File.ReadAllBytes(Path.Combine(output,"frontend/components/yzp-cascade-tree/yzp-cascade-tree.vue")));
             if(pageOptions)
             {
-                var detail=await File.ReadAllTextAsync(Path.Combine(output,"frontend/pages/yzp/r1_self_source-detail-201.vue"));
-                var definition=System.Text.RegularExpressions.Regex.Match(detail,@"<yzp-cascade-tree\b[^>]*:definition='([^']+)'");
-                Assert.True(definition.Success,"原自树组件缺少配置。");
+                var detail=await File.ReadAllTextAsync(Path.Combine(output,$"frontend/pages/yzp/r1_self_source-detail-{pageId}.vue"));
+                var definitions=System.Text.RegularExpressions.Regex.Matches(detail,@"<yzp-cascade-tree\b[^>]*:definition='([^']+)'");
+                var definition=Assert.Single(definitions,match=>System.Net.WebUtility.HtmlDecode(match.Groups[1].Value)
+                    .Contains("\"sourceMode\":\"selfTree\"",StringComparison.Ordinal));
                 using var json=JsonDocument.Parse(System.Net.WebUtility.HtmlDecode(definition.Groups[1].Value));
                 Assert.Equal("页面节点",json.RootElement.GetProperty("selfTree").GetProperty("label").GetString());
-                var controller=await File.ReadAllTextAsync(Path.Combine(output,"backend/generated/Controllers/R1SelfSourcePage201Controller.g.cs"));
+                var controller=await File.ReadAllTextAsync(Path.Combine(output,$"backend/generated/Controllers/R1SelfSourcePage{pageId}Controller.g.cs"));
                 Assert.Contains("HttpPost(\"initExport\")",controller);
-                Assert.Contains("HttpPost(\"importDatas201\")",controller);
+                Assert.Contains($"HttpPost(\"importDatas{pageId}\")",controller);
                 var service=await File.ReadAllTextAsync(Path.Combine(output,"backend/generated/Services/R1SelfSourceService.g.cs"));
                 Assert.Contains("FilterIdsAsync(selected.Value,true,cancellationToken)",service);
             }
@@ -83,6 +111,23 @@ public sealed class RedundantPhysicalSelfTreeTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(dir,boundary);}
     }
+    /// <summary>文件与业务的共用父计划拒绝实际树结构变化。</summary>
+    [Theory]
+    [InlineData("table","r1_self_area")]
+    [InlineData("idField","status")]
+    [InlineData("nameField","status")]
+    [InlineData("parentField","id")]
+    public void Shared_parent_proof_rejects_changed_tree_structure(string field,string value)
+    {
+        var catalog=Catalog("r1_self","string","int64","shared");
+        var tree=catalog.ConfigColumns.Single(column=>column.Id=="6101");
+        var overrideDefinition=JsonNode.Parse(tree.ControlDetail)!;
+        overrideDefinition["selfTree"]![field]=value;
+        catalog.ConfigPageColumns.Single(item=>item.ConfigPageId=="202"&&item.ConfigColumnId==tree.Id)
+            .Extra["controlDetail"]=JsonSerializer.SerializeToElement(overrideDefinition.ToJsonString());
+        Assert.Throws<NotSupportedException>(()=>Metarill.Data.Queries.RedundantSharedParents.Compile(catalog,"2","202"));
+    }
+
     /// <summary>无效隐藏树、动态覆盖、未发布、全局／派生名称、假缓存及未知自树父上下文仍拒绝Full。</summary>
     [Theory][InlineData("hidden")][InlineData("overlay")][InlineData("differentNode")][InlineData("sourceRealm")][InlineData("targetRealm")][InlineData("global")][InlineData("derived")][InlineData("virtualCache")][InlineData("wrongPath")][InlineData("where")][InlineData("ambiguous")][InlineData("unboundSourceParent")]
     public void Invalid_self_companion_stays_closed_before_staging(string kind)

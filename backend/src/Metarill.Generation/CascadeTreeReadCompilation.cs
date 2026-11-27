@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
 
@@ -24,40 +23,8 @@ internal static class CascadeTreeReadCompilation
     internal static IReadOnlyList<CascadeTreeReadModel> ForService(GenerationModel model,TableModel table,PageModel page)=>table.Source.IsFunctionTable==1?ForPage(model,table,page):table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree").Select(column=>Resolve(model,table,page,column).Definition).OfType<CascadeTreeReadModel>().ToArray();
 
     /// <summary>页面展示、排序和筛选可以覆盖，缓存与维护仍沿同一棵实树。</summary>
-    internal static bool KeepsStoredTree(GenerationModel model,PageModel page,ColumnModel source)
-    {
-        var overlay=PageDetail(model,page,source);
-        if(string.IsNullOrWhiteSpace(overlay))return true;
-        var baseline=StoredDefinition(source.Source.ControlDetail);
-        var effective=StoredDefinition(overlay);
-        return baseline is not null&&effective is not null&&JsonNode.DeepEquals(baseline,effective);
-    }
-
-    /// <summary>只忽略原页面的显示和查找设置，并归一原编辑器明确写出的默认字段。</summary>
-    private static JsonObject? StoredDefinition(string detail)
-    {
-        if(JsonNode.Parse(detail) is not JsonObject root||root["selfTree"] is not JsonObject tree)
-            return null;
-
-        if(root["displayJoiner"] is null||root["displayJoiner"]!.GetValueKind()==JsonValueKind.String)
-            root.Remove("displayJoiner");
-        foreach(var name in new[]{"label","orderBy"})
-            if(tree[name] is null||tree[name]!.GetValueKind()==JsonValueKind.String)
-                tree.Remove(name);
-
-        var match=tree["filterMatchMode"];
-        if(IsDefaultText(match,"selfAndDescendants")||IsDefaultText(match,"exact"))
-            tree.Remove("filterMatchMode");
-        if(IsDefaultText(tree["idField"],"id"))tree.Remove("idField");
-        if(IsDefaultText(tree["nameField"],"name"))tree.Remove("nameField");
-        if(IsDefaultText(tree["rootMode"],"blank"))tree.Remove("rootMode");
-        return root;
-    }
-
-    /// <summary>沿用生成读取的缺省文本语义，数值或其它结构仍保留给边界校验。</summary>
-    private static bool IsDefaultText(JsonNode? node,string defaultText)=>
-        node is null||node is JsonValue value&&value.TryGetValue<string>(out var text)&&
-            (string.IsNullOrWhiteSpace(text)||text==defaultText);
+    internal static bool KeepsStoredTree(GenerationModel model,PageModel page,ColumnModel source)=>
+        CascadeTreeStorageColumns.KeepsDefinition(source.Source.ControlDetail,PageDetail(model,page,source));
 
     private static string? PageDetail(GenerationModel model,PageModel page,ColumnModel source)=>
         model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&

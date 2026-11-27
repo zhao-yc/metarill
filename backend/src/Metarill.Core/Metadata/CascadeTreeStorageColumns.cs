@@ -1,12 +1,48 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 namespace Metarill.Core.Metadata;
 
 /// <summary>原selfTree的隐式受管名称；冗余物理存储、非冗余只读派生，共用确定性定义且不回写配置。</summary>
 public static class CascadeTreeStorageColumns
 {
     public const string ReservedIdPrefix="__mt_auto_cascade_name_";
+    /// <summary>页面展示、排序和筛选可以覆盖，父范围、缓存和维护仍沿同一棵实树。</summary>
+    public static bool KeepsDefinition(string definition,string? overlay)
+    {
+        if(string.IsNullOrWhiteSpace(overlay))return true;
+        var baseline=StoredDefinition(definition);
+        var effective=StoredDefinition(overlay);
+        return baseline is not null&&effective is not null&&JsonNode.DeepEquals(baseline,effective);
+    }
+
+    /// <summary>只忽略原页面的显示和查找设置，并归一原编辑器明确写出的默认字段。</summary>
+    private static JsonObject? StoredDefinition(string detail)
+    {
+        if(JsonNode.Parse(detail) is not JsonObject root||root["selfTree"] is not JsonObject tree)
+            return null;
+
+        if(root["displayJoiner"] is null||root["displayJoiner"]!.GetValueKind()==JsonValueKind.String)
+            root.Remove("displayJoiner");
+        foreach(var name in new[]{"label","orderBy"})
+            if(tree[name] is null||tree[name]!.GetValueKind()==JsonValueKind.String)
+                tree.Remove(name);
+
+        var match=tree["filterMatchMode"];
+        if(IsDefaultText(match,"selfAndDescendants")||IsDefaultText(match,"exact"))
+            tree.Remove("filterMatchMode");
+        if(IsDefaultText(tree["idField"],"id"))tree.Remove("idField");
+        if(IsDefaultText(tree["nameField"],"name"))tree.Remove("nameField");
+        if(IsDefaultText(tree["rootMode"],"blank"))tree.Remove("rootMode");
+        return root;
+    }
+
+    /// <summary>沿用生成读取的缺省文本语义，数值或其它结构仍保留给边界校验。</summary>
+    private static bool IsDefaultText(JsonNode? node,string defaultText)=>
+        node is null||node is JsonValue value&&value.TryGetValue<string>(out var text)&&
+            (string.IsNullOrWhiteSpace(text)||text==defaultText);
+
     /// <summary>显式配置优先，实体表的物理selfTree叶子可派生名称，是否落库由统一存储计划决定，绝不增加页面字段。</summary>
     public static IReadOnlyList<ColumnMetadata> Expand(TableMetadata table,IEnumerable<ColumnMetadata> declared)
     {

@@ -69,11 +69,15 @@ public static class RedundantSharedParents
         }
         return new ReadOnlyDictionary<string,RedundantSharedParentPlan>(result);
     }
-    /// <summary>自树同伴独立证明物理缓存后不冒充跨表分支；覆盖或坏定义仍使整页关闭。</summary>
+    /// <summary>自树同伴按原表级定义独立证明缓存，页级显示与查找设置不改变跨表父范围。</summary>
     private static bool CrossControl(MetadataCatalog catalog,TableMetadata source,PageMetadata page,ColumnMetadata control)
     {
         if(IsCrossControl(control))return true;
-        var overlay=catalog.ConfigPageColumns.SingleOrDefault(f=>f.ConfigPageId==page.Id&&f.ConfigColumnId==control.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(control.ControlDetail)))throw Unsupported();_=SelfTreeCache.Compile(catalog,source.Id,control.Id);return false;
+        var overlay=catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Id&&
+            field.ConfigColumnId==control.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();
+        if(!CascadeTreeStorageColumns.KeepsDefinition(control.ControlDetail,overlay))throw Unsupported();
+        _=SelfTreeCache.Compile(catalog,source.Id,control.Id);
+        return false;
     }
     /// <summary>按物理字段的表级定义识别跨表路径，拒绝歧义 JSON。</summary>
     private static bool IsCrossControl(ColumnMetadata control)
