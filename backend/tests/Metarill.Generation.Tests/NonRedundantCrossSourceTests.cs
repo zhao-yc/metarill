@@ -41,6 +41,94 @@ public sealed class NonRedundantCrossSourceTests
         try{new CSharpGenerator().Generate(c,Path.Combine(directory,"generated"),model.Namespace);await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);Assert.Equal(before,JsonSerializer.Serialize(c));}
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>来源兼任候选时，派生名称及写后重验依赖沿该层实际发布页。</summary>
+    [Theory]
+    [InlineData(0,false)]
+    [InlineData(1,true)]
+    [InlineData(2,true)]
+    public async Task Same_source_names_use_the_actual_dictionary_for_write_dependencies(int sourceLevel,bool parented)
+    {
+        const string prefix="nr_source_dictionary", ns="Example.NrSourceDictionary";
+        var catalog=Catalog(prefix,sourceLevel,"string","int64",true);
+        var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="201");
+        var targetPage=sourcePage;
+        if(parented)
+        {
+            targetPage=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(sourcePage))!;
+            targetPage.Id="202";
+            catalog.ConfigPages.Add(targetPage);
+            foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="201"&&field.ConfigColumnId!="25").ToArray())
+            {
+                var copy=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!;
+                copy.Id="202_"+field.ConfigColumnId;
+                copy.ConfigPageId=targetPage.Id;
+                catalog.ConfigPageColumns.Add(copy);
+            }
+            sourcePage.WhereSql+=" AND country_id=@parent_id";
+        }
+        var dictionary=catalog.ConfigTables.Single(table=>table.Id=="6");
+        dictionary.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        catalog.ConfigColumns.RemoveAll(column=>column.Id=="63");
+        catalog.ConfigColumns.AddRange([
+            new(){Id="65",ConfigTableId="6",ColumnName="status",LogicalType="int32",YzProjectId=catalog.YzProjectId},
+            new(){Id="66",ConfigTableId="6",ColumnName="segment",LogicalType="int32",YzProjectId=catalog.YzProjectId},
+            new(){Id="67",ConfigTableId="6",ColumnName="store_id",LogicalType="int64",YzProjectId=catalog.YzProjectId},
+            new(){Id="93",ConfigTableId="2",ColumnName="company_group",LogicalType="int32",YzProjectId=catalog.YzProjectId}
+        ]);
+        catalog.ConfigPages.Single(page=>page.Id=="601").WhereSql="status=17";
+        catalog.ConfigPages.Add(new(){Id="602",ConfigTableId="6",YzProjectId=catalog.YzProjectId,
+            YzAdminTypeId=sourcePage.YzAdminTypeId,WhereSql="status=3 AND store_id=@current_store_id"});
+        catalog.ConfigPageColumns.Add(new(){Id="60262",ConfigPageId="602",ConfigColumnId="62",YzProjectId=catalog.YzProjectId,IsShow=1});
+        catalog.ConfigPageColumns.Add(new(){Id=targetPage.Id+"93",ConfigPageId=targetPage.Id,ConfigColumnId="93",
+            YzProjectId=catalog.YzProjectId,IsShow=1});
+        var company=catalog.ConfigColumns.Single(column=>column.Id=="91");
+        company.ControlKind="List";
+        company.ControlDetail="""{"tableId":"6","pageId":"601","nameField":"name"}""";
+        catalog.ConfigPageColumns.Single(field=>field.ConfigPageId==targetPage.Id&&field.ConfigColumnId=="91")
+            .Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"pageId":"602","whereSql":"segment=@formParameters.companyGroup"}""");
+
+        var model=GenerationModel.Create(catalog,ns);
+        var source=model.Tables.Single(table=>table.Source.Id=="2");
+        var generatedPage=source.Pages.Single(page=>page.Source.Id==sourcePage.Id);
+        var control=source.Columns.Single(column=>column.Source.Id=="25");
+        var resolved=CrossTableReadCompilation.Resolve(model,source,generatedPage,control);
+        Assert.True(resolved.Definition is not null,resolved.Reason);
+        var role=resolved.Definition!.Levels[sourceLevel];
+        Assert.Equal(targetPage.Id,role.Page.Source.Id);
+        Assert.Contains("company_id",role.NameDependencies!);
+        Assert.Contains("company_group",role.NameDependencies!);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-nr-same-source-dictionary");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output=Path.Combine(directory,"generated");
+            new CSharpGenerator().Generate(catalog,output,ns);
+            var code=await File.ReadAllTextAsync(Path.Combine(output,"Services/NrSourceDictionarySourceService.g.cs"));
+            var verify=code.IndexOf("private async Task VerifyStoredCross201_25Async",StringComparison.Ordinal);
+            Assert.True(verify>=0);
+            var beforeRead=code[verify..code.IndexOf("var stored",verify,StringComparison.Ordinal)];
+            Assert.Contains("submitted.Contains(\"company_id\")",beforeRead);
+            Assert.Contains("submitted.Contains(\"company_group\")",beforeRead);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(ns+".Generated.Services.NrSourceDictionarySourceService",true)!;
+            const System.Reflection.BindingFlags fields=System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic;
+            var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                service.GetField($"CrossTargetPlan201_25_{sourceLevel}",fields)!.GetValue(null));
+            var actor=new Metarill.Core.Security.RuntimeActor(8,"字典名称",false,catalog.YzProjectId,sourcePage.YzAdminTypeId);
+            Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor));
+            var bound=plan.BindAccount(actor with{StoreId=9007199254740993L});
+            const System.Reflection.BindingFlags instance=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+            var sql=bound.GetType().GetProperty("MySql",instance)!.GetValue(bound)!;
+            var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(sql.GetType().GetProperty("Constants",instance)!.GetValue(sql));
+            Assert.Contains(9007199254740993L,constants.Values);
+            Assert.Contains(3,constants.Values);
+            Assert.DoesNotContain(17,constants.Values);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>实际锁测试失败时保留生成源码，名称外键必须进入写后触发条件。</summary>
     [Fact]
     public async Task Only_name_fk_change_keeps_generated_current_path_validation()

@@ -81,7 +81,8 @@ internal static class CrossTableReadCompilation
                     return Gap("排序须为物理标量或本级开放的固定单值联接。");
                 if (!order.Any(item => item.Column.IsId)) order.Add((target.Columns.Single(column => column.IsId), false));
                 var nameDependencies = derived && target.Source.Id == table.Source.Id
-                    ? Metarill.Data.Queries.NonRedundantReads.CompileSourceDependencies(model.Catalog, target.Source.Id, name.Source.ColumnName)
+                    ? Metarill.Data.Queries.NonRedundantReads.CompileSourceDependencies(model.Catalog,
+                        target.Source.Id,name.Source.ColumnName,pages[0].Source.Id)
                     : null;
                 result.Add(new(key, prefix, target, pages[0], name, parent, order, derived, nameDependencies, joinedOrder.Length > 0,keyColumn));
             }

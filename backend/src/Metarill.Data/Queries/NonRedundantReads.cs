@@ -517,6 +517,13 @@ public static class NonRedundantReads
     {
         var plan=CompileMatch(metadata,tableId,field);return Array.AsReadOnly(plan.MySql.SourceDependencies.ToArray());
     }
+    /// <summary>同表级联的写后校验沿实际候选页收集物理依赖，包含下拉表单绑定字段。</summary>
+    public static IReadOnlyList<string> CompileSourceDependencies(MetadataCatalog metadata,string tableId,string field,string pageId)
+    {
+        var plan=CompilePublishedScalarMatch(metadata,tableId,pageId,field);
+        return Array.AsReadOnly(plan.MySql.SourceDependencies.ToArray());
+    }
+
     /// <summary>生成期证明固定名称路径是否读到指定实体，不向生成层暴露方言计划或SQL。</summary>
     public static bool MatchReadsTable(MetadataCatalog metadata,string tableId,string field,string referencedTable)=>
         MatchReadsTable(metadata,tableId,field,referencedTable,[]);
