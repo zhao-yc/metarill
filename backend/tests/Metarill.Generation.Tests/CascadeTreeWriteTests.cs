@@ -32,6 +32,86 @@ public sealed class CascadeTreeWriteTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
+    /// <summary>独立自树保存后的实际叶键和物理缓存必须与本次校验值一致。</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Independent_tree_readback_rejects_rewritten_leaf_or_cached_name(bool redundant)
+    {
+        const string ns = "Example.CascadeReadback";
+        const string entity = "ReadbackSource";
+        const string method = "VerifyIndependentTreeAsync";
+        var catalog = redundant ? Catalog("readback") : NonRedundantSelfTreeTests.Catalog("readback", "int64");
+        var model = GenerationModel.Create(catalog, ns);
+        var table = model.Tables.Single(table => table.Source.Id == "2");
+        var page = Assert.Single(table.Pages);
+        Assert.Single(CascadeTreeWriteCompilation.ForService(model, table, page));
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-independent-tree-readback");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, generated, ns);
+            var service = File.ReadAllText(Path.Combine(generated, "Services/ReadbackSourceService.g.cs"));
+            Assert.Equal(3, service.Split("自树关联节点在存储后发生变化", StringSplitOptions.None).Length - 1);
+            // 执行实际写后生成片段，只用替身提供数据库中的最终行。
+            await File.WriteAllTextAsync(Path.Combine(generated, "Services/TreeReadbackProbe.cs"), $$"""
+                using Metarill.Core.Security;
+                using {{ns}}.Generated.Entities;
+                namespace {{ns}}.Generated.Services;
+                public partial class {{entity}}Service
+                {
+                    private async Task {{method}}({{entity}} entity,RuntimeActor actor,ISet<string> submitted,
+                        bool creating,CancellationToken cancellationToken,bool requireTargetList)
+                    {
+                        if (creating)
+                        {
+                {{CascadeTreeWriteRenderer.After(model, table, page, true)}}
+                        }
+                        else
+                        {
+                {{CascadeTreeWriteRenderer.After(model, table, page, false)}}
+                        }
+                    }
+                }
+                """);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var actor = new Metarill.Core.Security.RuntimeActor(8, "自树保存校验", false, catalog.YzProjectId, page.Source.YzAdminTypeId);
+            using var runtime = new SharedExcelReadTransport(assembly, ns, entity, actor: actor, mysqlDialect: true);
+            object expectedKey = redundant ? "11" : 11L;
+            object storedKey = redundant ? "12" : 12L;
+            var fields = new Dictionary<string, object?>
+            {
+                ["Id"] = 21L, ["YzProjectId"] = actor.ProjectId, ["TreeId"] = storedKey
+            };
+            if (redundant) fields["TreeName"] = "真实名称";
+            runtime.Add(entity, fields);
+            var mismatch = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                runtime.VerifyStoredRelation(method, 21, Expected(expectedKey, "真实名称"), ["tree_id"]));
+            Assert.Contains("自树关联节点在存储后发生变化", mismatch.Message);
+            var creation = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                runtime.VerifyStoredRelation(method, 21, Expected(expectedKey, "真实名称"), [], creating: true));
+            Assert.Contains("自树关联节点在存储后发生变化", creation.Message);
+            if (redundant)
+            {
+                var cache = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                    runtime.VerifyStoredRelation(method, 21, Expected(storedKey, "旧名称"), ["tree_name"]));
+                Assert.Contains("自树关联节点名称在存储后发生变化", cache.Message);
+            }
+            await runtime.VerifyStoredRelation(method, 21, Expected(storedKey, "真实名称"), ["tree_id"]);
+            var reads = runtime.ReadCalls.Count;
+            await runtime.VerifyStoredRelation(method, 21, Expected(expectedKey, "旧名称"), ["name"]);
+            Assert.Equal(reads, runtime.ReadCalls.Count);
+            Assert.Equal(redundant ? 3 : 2, runtime.Transport.Rollbacks);
+            Assert.Equal(2, runtime.Transport.Commits);
+
+            static Dictionary<string, object?> Expected(object key, string name) =>
+                new() { ["TreeId"] = key, ["TreeName"] = name };
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>辅助列缺失或叶子目标冲突仍明确拒绝，不借普通外键规则写入未知级联。</summary>
     [Fact]
     public void Unproven_cascade_never_falls_through_to_unvalidated_scalar_storage()

@@ -58,8 +58,7 @@ internal static class GlobalCachedParentCompilation
         ForAppendRecheck(model,table,page) is not null&&
         TimeFieldCompilation.AfterWrite(model,table).Length==0&&
         CrossTableWriteRenderer.After(model,table,page,true,false).Length==0&&
-        CascadeTreeTopologyRenderer.After(model,table,page,true).Length==0&&
-        CascadeTreeMergedWriteRenderer.After(model,table,page,true,false).Length==0&&
+        CascadeTreeWriteRenderer.After(model,table,page,true).Length==0&&
         NonRedundantCrossParentCompilation.VerifyCall(model,table,page).Length==0&&
         SharedRedundantParentCompilation.VerifyCall(model,table,page).Length==0;
 

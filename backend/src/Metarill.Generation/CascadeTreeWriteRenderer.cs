@@ -22,7 +22,7 @@ internal static class CascadeTreeWriteRenderer
         }
         var result=CascadeTreeWriteCompilation.Resolve(model,table,page,source);
         if(result.Definition is not{} plan)return $"        if((creating||submitted.Contains({Literal(source.Source.ColumnName)}))&&entity.{source.Property} is not null)throw new InvalidOperationException({Literal(result.Reason!)});\n";
-        var merged=CascadeTreeMergedWriteRenderer.Applies(table,plan);var trigger=merged?CascadeTreeMergedWriteRenderer.Trigger(table,plan):$"creating||submitted.Contains({Literal(source.Source.ColumnName)})||submitted.Contains({Literal(plan.Name.Source.ColumnName)})";
+        var merged=CascadeTreeMergedWriteRenderer.Applies(table,plan);var trigger=merged?CascadeTreeMergedWriteRenderer.Trigger(table,plan):"creating||"+Changed(plan);
         return $"        if({trigger})await ValidateCascade{page.Source.Id}_{source.Source.Id}Async(entity,actor,submitted,cancellationToken{(CascadeTreeExcelRenderer.OperationAware(model,table,page)?", cascadeOperation != RecordMutationOperation.Import":"")}{(merged?", creating:creating":"")});\n";
     }
 
@@ -59,6 +59,42 @@ internal static class CascadeTreeWriteRenderer
         }
         return result.Append(CrossTableWriteRenderer.Service(model,table,page)).Append(SharedCrossTableRenderer.Service(model,table,page)).ToString();
     }
+    /// <summary>按目标与来源的关系选择写后校验，所有检查均在原事务内先于观察者执行。</summary>
+    internal static string After(GenerationModel model, TableModel table, PageModel page, bool creating, bool importContext = false) =>
+        CascadeTreeTopologyRenderer.After(model, table, page, creating) +
+        CascadeTreeMergedWriteRenderer.After(model, table, page, creating, importContext) +
+        string.Concat(CascadeTreeWriteCompilation.ForService(model, table, page)
+            .Where(plan => plan.Read.Target.Source.Id != table.Source.Id)
+            .Select(plan => VerifyIndependentTree(model, table, page, plan, creating)));
+
+    /// <summary>目标链已锁定并验证，只需锁读来源行，确认数据库保存了这次授权的节点。</summary>
+    private static string VerifyIndependentTree(GenerationModel model, TableModel table, PageModel page,
+        CascadeTreeWriteModel plan, bool creating)
+    {
+        var leaf = plan.Read.Source;
+        var cachedName = table.Source.IsRongyu == 1 && NonRedundantReadCompilation.Physical(model, table, plan.Name) ? plan.Name : null;
+        var scope = FixedPageQueryCompilation.For(table, page).IdentityScopes.Select(scope => scope.Column).ToArray();
+        var fields = new[] { leaf, cachedName }.OfType<ColumnModel>().Concat(scope).DistinctBy(column => column.Source.Id);
+        var projection = string.Join(", ", fields.Select(column => column.Property + "=row." + column.Property));
+        var scopeMismatch = string.Concat(scope.Select(column => $" || storedTree.{column.Property} != entity.{column.Property}"));
+        var verifyName = cachedName is null ? "" :
+            $"            if (storedTree.{cachedName.Property} != entity.{cachedName.Property})throw new InvalidOperationException(\"自树关联节点名称在存储后发生变化，未提交。\");\n";
+        return $$"""
+        if ({{(creating ? "true" : Changed(plan))}})
+        {
+            var storedTree = await session.Select<{{table.EntityType}}>().Where(row => row.Id == entity.Id).ForUpdate()
+                .FirstAsync(row => new {{table.EntityType}} { {{projection}} }, cancellationToken);
+            if (storedTree is null{{scopeMismatch}})throw new InvalidOperationException("自树来源记录在存储后不存在或归属已变化，未提交。");
+            if (storedTree.{{leaf.Property}} != entity.{{leaf.Property}})throw new InvalidOperationException("自树关联节点在存储后发生变化，未提交。");
+{{verifyName}}        }
+
+""";
+    }
+
+    /// <summary>显式提交叶键或刷新名称时都维护同一份关联。</summary>
+    private static string Changed(CascadeTreeWriteModel plan) =>
+        $"submitted.Contains({Literal(plan.Read.Source.Source.ColumnName)}) || submitted.Contains({Literal(plan.Name.Source.ColumnName)})";
+
     /// <summary>非空文本键使用原值；整数键继续要求原规范十进制表示。</summary>
     internal static string ParseKey(CascadeTreeReadModel plan)=>plan.TextKey?"var id=text!;":
         "if(!long.TryParse(text,NumberStyles.None,CultureInfo.InvariantCulture,out var id)||id<=0||text!=id.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"级联ID必须是不带前导零的正整数。\");";
