@@ -270,9 +270,28 @@ public sealed class CrossTableExcelSharedGenerationTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Scalar_cross_labels_roundtrip_in_generated_shared_paths(bool temporal)
+    [InlineData(false,"country_id")]
+    [InlineData(true,"country_id")]
+    [InlineData(false,"place_id",true)]
+    [InlineData(true,"place_id",true)]
+    public async Task Scalar_cross_labels_roundtrip_in_generated_shared_paths(bool temporal,string? parentField=null,bool global=false)
     {
         var catalog=Catalog("shared-r1");
+        var page=catalog.ConfigPages.Single(item=>item.Id=="201");
+        var parentId=parentField switch{"country_id"=>"11","place_id"=>"31",_=>null};
+        if(global)GlobalSharedCrossGenerationTests.ApplyGlobals(catalog,15,noProject:true);
+        if(parentField is not null)
+        {
+            page.WhereSql+=$" AND {parentField}=@parent_id";
+            page.Extra["importMethod"]=JsonSerializer.SerializeToElement(global?"OverWriteByFirstColumn":"OnlyNew");
+            page.Extra["exportMethod"]=JsonSerializer.SerializeToElement(global?"edit":"list");
+            catalog.ConfigColumns.Single(column=>column.Id=="22").SortNo=-1;
+            catalog.ConfigColumns.Add(new(){Id="9610",ConfigTableId="2",YzProjectId=catalog.YzProjectId,
+                ColumnName="attachments",Name="附件",LogicalType="string",ColumnLength="max",
+                ControlKind="FileLibrary",ControlDetail="""{"accessMode":"PROTECTED","maxCount":3}"""});
+            catalog.ConfigPageColumns.Add(new(){Id="2019610",ConfigPageId="201",ConfigColumnId="9610",
+                YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=1});
+        }
         var country=temporal
             ? (Kind:"date",Value:(object)new DateTime(2026,11,18),Text:"2026-11-18")
             : (Kind:"bool",Value:(object)true,Text:"true");
@@ -284,6 +303,19 @@ public sealed class CrossTableExcelSharedGenerationTests
             : (Kind:"double",Value:(object)0.125d,Text:"0.125");
         foreach(var (id,kind) in new[]{("32",country.Kind),("42",area.Kind),("52",place.Kind)})
             catalog.ConfigColumns.Single(column=>column.Id==id).LogicalType=kind;
+        if(parentField is not null)
+        {
+            var parent=Assert.Single(RedundantSharedParents.Compile(catalog,"2","201")).Value;
+            Assert.Equal(parentField,parent.ColumnName);
+            Assert.Equal(global?"501":"301",parent.Levels[^1].PageId);
+            Assert.Equal("id",parent.Levels[^1].KeyColumn);
+            Assert.Equal(global,parent.Levels[^1].ProjectType is null);
+            var files=new Metarill.Runtime.Files.FileMetadataContext([catalog]);
+            var published=Assert.Single(files.Catalogs);
+            var filePage=published.ConfigPages.Single(item=>item.Id==page.Id);
+            var scope=typeof(Metarill.Runtime.Files.FileMetadataContext).GetMethod("PageScope",BindingFlags.Instance|BindingFlags.NonPublic)!;
+            Assert.NotNull(scope.Invoke(files,[published,filePage]));
+        }
         new FrontendPackager().Validate(catalog);
 
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-typed-cross-excel");
@@ -294,29 +326,73 @@ public sealed class CrossTableExcelSharedGenerationTests
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             const long project=9007199254740993L;
             var actor=new RuntimeActor(901,"跨表名称",false,catalog.YzProjectId,"5");
-            using var runtime=new SharedExcelReadTransport(assembly,Namespace,"SharedExcelSource",actor:actor,authorization:new CrossListOnly(actor));
-            runtime.Add("SharedExcelCountry",new Dictionary<string,object?>{["Id"]=11L,["Name"]=country.Value,["Status"]=1,["YzProjectId"]=project});
-            runtime.Add("SharedExcelArea",new Dictionary<string,object?>{["Id"]=21L,["Name"]=area.Value,["Status"]=1,["YzProjectId"]=project,["SharedExcelCountryId"]=11L});
-            runtime.Add("SharedExcelPlace",new Dictionary<string,object?>{["Id"]=31L,["Name"]=place.Value,["Status"]=1,["YzProjectId"]=project,["SharedExcelAreaId"]=21L});
-            runtime.Add("SharedExcelWarehouse",new Dictionary<string,object?>{["Id"]=41L,["Name"]="仓库",["Status"]=1,["YzProjectId"]=project,["SharedExcelAreaId"]=21L});
+            var guard=new StopBeforeExcelWrite();
+            using var runtime=new SharedExcelReadTransport(assembly,Namespace,"SharedExcelSource",actor:actor,
+                authorization:new CrossListOnly(actor),guard:guard,mysqlDialect:true);
+            Seed("Country",11,country.Value);
+            Seed("Area",21,area.Value,"SharedExcelCountryId",11);
+            Seed("Place",31,place.Value,"SharedExcelAreaId",21);
+            Seed("Warehouse",41,"仓库","SharedExcelAreaId",21);
             runtime.Add("SharedExcelSource",new Dictionary<string,object?>{["Id"]=101L,["Name"]="来源",["YzProjectId"]=project,["CountryId"]=11L,["AreaId"]=21L,["PlaceId"]=31L,["WarehouseId"]=41L});
+            if(parentField is not null)
+                runtime.Add("SharedExcelSource",new Dictionary<string,object?>{["Id"]=102L,["Name"]="来源",
+                    ["YzProjectId"]=project,["CountryId"]=12L,["PlaceId"]=32L});
+
+            void Seed(string target,long id,object name,string? parentProperty=null,long parentKey=0)
+            {
+                var values=new Dictionary<string,object?>{["Id"]=id,["Name"]=name,["Status"]=1};
+                if(!global)values["YzProjectId"]=project;
+                if(parentProperty is not null)values[parentProperty]=parentKey;
+                runtime.Add("SharedExcel"+target,values);
+            }
 
             var option=Assert.Single(await runtime.CrossOptions("25",new CascadeTreeOptionsRequest{LevelKey="place",
                 SelectedPath=JsonSerializer.SerializeToElement(new{countryId="11",areaId="21"})}));
             Assert.Equal("31",option.Id);
             Assert.Equal(place.Text,option.Text);
-            var excel=await runtime.Export();
+            var excel=await runtime.Export(new PageRequest{ParentId=parentId});
             var row=Assert.Single(excel.Rows);
             var main=row[excel.Headers.ToList().IndexOf("主路径")];
             var second=row[excel.Headers.ToList().IndexOf("仓库路径")];
             Assert.Equal(string.Join("/",country.Text,area.Text,place.Text),main);
             Assert.Equal(string.Join("/",country.Text,area.Text,"仓库"),second);
-            AssertSlots(await runtime.Parse(new(){["主路径"]=main,["仓库路径"]=second}),"11","21","31","41",false);
-            Assert.Equal("31",Text((await runtime.Parse(new(){["主路径"]=place.Text}))["placeId"]));
-            if(!temporal)
-                Assert.Equal("11",Text((await runtime.Parse(new(){["主路径"]=true}))["countryId"]));
+            if(parentField is not null)
+            {
+                // 完整导入入口内部读取固定末级，并将名称首列限制于当前父范围。
+                var input=new Dictionary<string,object?>{["名称"]="来源",["仓库路径"]=second};
+                if(!global)input["主路径"]=main;
+                var stop=await Assert.ThrowsAsync<BusinessRuleException>(()=>runtime.Import([input],parentId));
+                Assert.Same(guard.Stop,stop);
+                Assert.Equal(global?RecordMutationOperation.Update:RecordMutationOperation.Create,guard.Validation!.Operation);
+                Assert.Contains("warehouse_id",guard.Validation.SubmittedFields);
+                if(global)Assert.Equal(101L,guard.Validation.RecordId);
+                var bad=new Dictionary<string,object?>(input){["仓库路径"]=string.Join("/",country.Text,area.Text,"无此仓库")};
+                await Assert.ThrowsAsync<PageImportException>(()=>runtime.Import([bad],parentId));
+            }
+            else
+            {
+                AssertSlots(await runtime.Parse(new(){["主路径"]=main,["仓库路径"]=second}),"11","21","31","41",false);
+                Assert.Equal("31",Text((await runtime.Parse(new(){["主路径"]=place.Text}))["placeId"]));
+                if(!temporal)
+                    Assert.Equal("11",Text((await runtime.Parse(new(){["主路径"]=true}))["countryId"]));
+            }
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
+    /// <summary>开放的名称须是真实单值，二进制、JSON 和虚拟字段不能用于父范围证明。</summary>
+    [Theory]
+    [InlineData("binary",0)]
+    [InlineData("json",0)]
+    [InlineData("decimal",1)]
+    public void Parent_proof_stays_closed_for_unpublished_scalar_labels(string kind,int isVirtual)
+    {
+        var catalog=Catalog("shared-r1");
+        catalog.ConfigPages.Single(item=>item.Id=="201").WhereSql+=" AND country_id=@parent_id";
+        var display=catalog.ConfigColumns.Single(column=>column.Id=="32");
+        display.LogicalType=kind;
+        display.IsVirtualColumn=isVirtual;
+        Assert.Throws<NotSupportedException>(()=>RedundantSharedParents.Compile(catalog,"2","201"));
     }
 
     /// <summary>候选只允许实际来源页和主路径的三个目标页。</summary>
