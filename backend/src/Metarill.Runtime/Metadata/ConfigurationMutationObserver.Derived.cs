@@ -19,7 +19,7 @@ public sealed partial class ConfigurationMutationObserver
                 throw new InvalidOperationException("详情布局字段已失效。");
         var column=await OwnedRowAsync("config_column",SqlRowStore.Id(row,"config_column_id"),project,token);
         if(SqlRowStore.Id(page,"config_table_id")!=SqlRowStore.Id(column,"config_table_id"))throw new InvalidOperationException("页面字段必须引用所属表的字段。");
-        await OwnedRowAsync("config_table",SqlRowStore.Id(page,"config_table_id"),project,token);
+        var owner = await OwnedRowAsync("config_table",SqlRowStore.Id(page,"config_table_id"),project,token);
         if(context.IsCreate||context.SubmittedFields.ContainsKey("config_column_id"))
             ConfigurationMaterializedValues.RequirePageColumn(row,column);
         // 只验证实际编辑的覆盖，未触及明细继续沿用原保存值。
@@ -35,6 +35,9 @@ public sealed partial class ConfigurationMutationObserver
                 detail, SqlRowStore.Text(column, "link_config_page_id"), token);
         else if (!string.IsNullOrWhiteSpace(detail) && kind == "List")
             await ConfigurationListRules.ValidateAsync(store, project, MetadataRepository.DecodeRow<ColumnMetadata>(column), detail, token);
+        else if (!string.IsNullOrWhiteSpace(detail) && kind == "MultiCheckBoxDatabase")
+            await ConfigurationCheckboxRules.ValidateAsync(store, project, MetadataRepository.DecodeRow<TableMetadata>(owner),
+                MetadataRepository.DecodeRow<ColumnMetadata>(column), detail, token);
     }
 
     /// <summary>明细保存检查本字段的级联定义，类型或存储属性变化也须复核已有级联对本字段的占用。</summary>

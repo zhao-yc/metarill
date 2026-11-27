@@ -93,6 +93,25 @@ public sealed record DatabaseCheckboxDefinition(string TableId,string Table,stri
             ?additional:null;
     }
 
+    /// <summary>保存与生成按同一组显式表、页和关联声明核对目标；旧表名只在未绑定时兜底。</summary>
+    public (string[] TableIds, string[] TableNames, string[] PageIds) TargetReferences(ColumnMetadata source)
+    {
+        static string[] Declared(params string[] values) =>
+            values.Where(value => value.Length > 0).Distinct(StringComparer.Ordinal).ToArray();
+
+        var tableIds = Declared(source.LinkConfigTableId, TableId);
+        var tables = Declared(source.Extra.GetValueOrDefault("joinTable").ToString(), Table);
+        var pages = Declared(source.Extra.GetValueOrDefault("linkConfigPageId").ToString(), PageId);
+        if (tableIds.Length == 0 && tables.Length == 0 && pages.Length == 0)
+        {
+            var legacyTable = LegacyTargetHint.Length > 0 ? LegacyTargetHint :
+                source.ColumnName.EndsWith("_ids", StringComparison.Ordinal) ? source.ColumnName[..^4] : "";
+            if (legacyTable.Length == 0) throw new InvalidOperationException("数据库复选缺少明确目标表。");
+            tables = [legacyTable];
+        }
+        return (tableIds, tables, pages);
+    }
+
     /// <summary>仅供固定读取编译，名称和候选范围各走自己的静态用途；旧目标提示仅在没有明确绑定时使用。</summary>
     public JsonElement ReadDefinition(ColumnMetadata source)
     {

@@ -108,6 +108,31 @@ public sealed partial class MetadataWorkbenchBusiness
                 continue;
             }
 
+            if (row.ControlKind == "MultiCheckBoxDatabase")
+            {
+                if (row.Errors.Count == 0)
+                {
+                    var column = new ColumnMetadata
+                    {
+                        ColumnName = row.ColumnName, LogicalType = row.LogicalType, ColumnLength = row.ColumnLength,
+                        ControlKind = row.ControlKind, ControlDetail = row.ControlDetail
+                    };
+                    column.Extra["joinTable"] = JsonSerializer.SerializeToElement(row.JoinTable);
+                    try
+                    {
+                        var checkboxTarget = await ConfigurationCheckboxRules.ValidateAsync(store, long.Parse(actor.ProjectId, CultureInfo.InvariantCulture),
+                            MetadataRepository.DecodeRow<TableMetadata>(scope.Table), column, null, cancellationToken);
+                        if (row.JoinTable.Length > 0 && checkboxTarget is not null)
+                            row.LinkTableId = long.Parse(checkboxTarget.Id, CultureInfo.InvariantCulture);
+                    }
+                    catch (BusinessRuleException error)
+                    {
+                        BatchColumnParser.Error(row, "controlDetail", "INVALID_RELATION", error.Message);
+                    }
+                }
+                continue;
+            }
+
             if(row.JoinTable.Length==0)continue;
             JsonElement? detail=null;
             if(row.ControlDetail.Length>0)

@@ -1,3 +1,5 @@
+using Metarill.Core.Metadata;
+
 namespace Metarill.Generation;
 
 internal sealed record FixedRoleCheckboxModel(ColumnModel Source, TableModel Roles, TableModel Admins, PageModel TargetPage)
@@ -10,8 +12,10 @@ internal sealed record FixedRoleCheckboxResult(FixedRoleCheckboxModel? Definitio
 /// <summary>首期只证明原账号角色复选的稳定元数据图，不把任意表名或SQL当作已支持。</summary>
 internal static class FixedRoleCheckboxCompilation
 {
-    internal const string ManagerTable = "6031906809708544", ManagerPage = "6031906822946816", RoleColumn = "1692528723801219073";
-    internal const string RoleTable = "1692532858499969026", RolePage = "1692532858529329154", AdminTable = "1696799308939239425";
+    internal const string ManagerTable = PlatformRoleCheckboxBinding.ManagerTable,
+        ManagerPage = PlatformRoleCheckboxBinding.ManagerPage, RoleColumn = PlatformRoleCheckboxBinding.RoleColumn;
+    internal const string RoleTable = PlatformRoleCheckboxBinding.RoleTable,
+        RolePage = PlatformRoleCheckboxBinding.RolePage, AdminTable = PlatformRoleCheckboxBinding.AdminTable;
 
     /// <summary>待验收的账号写协调属于固定安全表服务，不能因隐藏、改坏或删除角色字段声明而取消发布门禁。</summary>
     internal static bool RequiresRuntimeCoordination(TableModel table, PageModel page) => table.Source.Id == ManagerTable && table.Source.TableName == "yz_manager"
